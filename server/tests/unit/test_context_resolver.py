@@ -549,7 +549,7 @@ def _bind_sessions(async_db, monkeypatch) -> None:
     )
 
 
-async def _issue_key(async_db, raw_key: str) -> ApiKey:
+async def _issue_key(async_db, raw_key: str, **fields) -> ApiKey:
     key = ApiKey(
         tenant_id="tenant-1",
         workspace_id="workspace-a",
@@ -558,6 +558,7 @@ async def _issue_key(async_db, raw_key: str) -> ApiKey:
         key_prefix=raw_key[:12],
         key_hash=hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
         scopes_json=["read", "write"],
+        **fields,
     )
     async_db.add(key)
     await async_db.commit()
@@ -630,3 +631,71 @@ async def test_request_ids_are_added_without_dropping_the_key_or_scope(monkeypat
     assert context.request_id == "req-1"
     assert context.scopes == frozenset({"read"})
     assert context.api_key_id == "key-1"
+
+@pytest.mark.asyncio
+async def test_a_keys_limits_reach_the_request_context(async_db, monkeypatch) -> None:
+    raw_key = "sk_limited-gateway-key"
+    await _issue_key(
+        async_db,
+        raw_key,
+        rate_limit_per_minute=5,
+        daily_request_quota=100,
+        daily_token_quota=50_000,
+        allowed_models_json=["model:openai-main:gpt-live"],
+    )
+    _bind_sessions(async_db, monkeypatch)
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
+
+    context = await resolver.resolve_from_api_key(raw_key, None)
+
+    assert context.api_key_rate_limit_per_minute == 5
+    assert context.api_key_daily_request_quota == 100
+    assert context.api_key_daily_token_quota == 50_000
+    assert context.allowed_models == frozenset({"model:openai-main:gpt-live"})
+
+
+@pytest.mark.asyncio
+async def test_an_ip_allowlist_admits_only_its_ranges(async_db, monkeypatch) -> None:
+    raw_key = "sk_office-only-key"
+    await _issue_key(async_db, raw_key, ip_allowlist_json=["203.0.113.0/24"])
+    _bind_sessions(async_db, monkeypatch)
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
+
+    admitted = await resolver.resolve_from_api_key(raw_key, None, client_address="203.0.113.9")
+    assert admitted.api_key_id is not None
+    for address in ("198.51.100.1", None):
+        with pytest.raises(ForbiddenError) as refused:
+            await resolver.resolve_from_api_key(raw_key, None, client_address=address)
+        assert refused.value.details == {"reason": "ip_not_allowed"}
+
+
+@pytest.mark.asyncio
+async def test_the_allowlist_sees_the_client_behind_a_trusted_proxy(async_db, monkeypatch) -> None:
+    from app.settings.settings import settings
+
+    raw_key = "sk_proxied-office-key"
+    await _issue_key(async_db, raw_key, ip_allowlist_json=["203.0.113.0/24"])
+    _bind_sessions(async_db, monkeypatch)
+    monkeypatch.setattr(settings, "trusted_proxies", ["10.0.0.0/8"])
+    resolver = ContextResolver(_JWTManager(), workspace_access_resolver=_WorkspaceAccessResolver())
+
+    def proxied(forwarded: str) -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/v1/models",
+                "headers": [
+                    (b"authorization", f"Bearer {raw_key}".encode()),
+                    (b"x-forwarded-for", forwarded.encode()),
+                ],
+                "query_string": b"",
+                "client": ("10.0.0.2", 443),
+            }
+        )
+
+    context = await resolver.resolve_from_request(proxied("198.51.100.1, 203.0.113.9"))
+    assert context.api_key_id is not None
+    # The client wrote the left entry itself; only the proxy's hop counts.
+    with pytest.raises(ForbiddenError):
+        await resolver.resolve_from_request(proxied("203.0.113.9, 198.51.100.1"))

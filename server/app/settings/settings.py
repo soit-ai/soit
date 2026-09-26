@@ -3,11 +3,12 @@
 Settings model and environment parsing.
 """
 
+import ipaddress
 import json
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -508,6 +509,15 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     """API v1 prefix."""
 
+    trusted_proxies: list[str] = []
+    """Addresses or CIDR ranges of the proxies in front of the API.
+
+    ``X-Forwarded-For`` is read only when the connection comes from one of
+    them, and then from the right, skipping trusted hops, so a client cannot
+    choose the address an API key's IP allowlist sees. Empty means the socket
+    peer is the client.
+    """
+
     # Event bus
     event_bus_backend: str = "memory"
     """Event bus backend: memory or redis."""
@@ -517,6 +527,18 @@ class Settings(BaseSettings):
 
     event_bus_channel: str = "soit:events"
     """Redis pubsub channel for event bus."""
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _valid_trusted_proxies(cls, value: list[str]) -> list[str]:
+        # A malformed entry would silently trust nothing, or be read as some
+        # other range; refuse it at startup instead.
+        for entry in value:
+            try:
+                ipaddress.ip_network(entry.strip(), strict=False)
+            except ValueError as exc:
+                raise ValueError(f"TRUSTED_PROXIES entry is not an address or CIDR: {entry}") from exc
+        return [entry.strip() for entry in value]
 
     @model_validator(mode="after")
     def _build_urls(self) -> "Settings":

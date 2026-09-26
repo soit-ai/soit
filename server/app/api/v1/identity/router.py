@@ -409,6 +409,14 @@ router.add_api_route(
 )
 
 router.add_api_route(
+    "/api-keys/{key_id}",
+    handlers.update_api_key,
+    methods=["PATCH"],
+    summary="Update API key name or limits",
+    tags=["api_keys"],
+)
+
+router.add_api_route(
     "/api-keys/{key_id}/revoke",
     handlers.revoke_api_key,
     methods=["POST"],

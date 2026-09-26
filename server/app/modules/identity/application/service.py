@@ -54,6 +54,7 @@ from app.modules.identity.application.ports import (
 )
 from app.modules.identity.application.schemas import (
     ApiKeyCreate,
+    ApiKeyUpdate,
     MembershipCreate,
     PasswordChange,
     PinCreate,
@@ -1673,9 +1674,51 @@ class IdentityService:
             status="active",
             scopes_json=sorted(normalize_scopes(data.scopes)),
             expires_at=utc_now() + timedelta(days=data.expires_in_days),
+            rate_limit_per_minute=data.rate_limit_per_minute,
+            daily_request_quota=data.daily_request_quota,
+            daily_token_quota=data.daily_token_quota,
+            ip_allowlist_json=data.ip_allowlist,
+            allowed_models_json=data.allowed_models,
         )
         api_key = await self.api_key_repo.create(api_key)
         return api_key, raw_key
+
+    async def update_api_key(
+        self,
+        key_id: str,
+        data: ApiKeyUpdate,
+        ctx: RequestContext,
+    ) -> ApiKey:
+        """Change a key's name or limits.
+
+        Only the key's owner or a workspace governor may: limits bound what a
+        leaked or runaway key can spend, so another member must not be able to
+        lift them.
+        """
+        api_key = await self.api_key_repo.get_by_id(key_id)
+        if not api_key:
+            raise NotFoundError(f"API key not found: {key_id}")
+        if api_key.tenant_id != ctx.tenant_id or api_key.workspace_id != ctx.workspace_id:
+            raise ValidationError("API key scope mismatch")
+        if api_key.user_id != ctx.user_id and not ctx.can_govern():
+            raise ForbiddenError("Only the key's owner or a workspace admin can change it")
+        if api_key.status != "active":
+            raise ValidationError("A revoked API key cannot be changed")
+
+        changes = data.model_dump(exclude_unset=True)
+        if "name" in changes:
+            if changes["name"] is None:
+                raise ValidationError("An API key needs a name")
+            api_key.name = changes["name"]
+        for field in ("rate_limit_per_minute", "daily_request_quota", "daily_token_quota"):
+            if field in changes:
+                setattr(api_key, field, changes[field])
+        if "ip_allowlist" in changes:
+            api_key.ip_allowlist_json = changes["ip_allowlist"]
+        if "allowed_models" in changes:
+            api_key.allowed_models_json = changes["allowed_models"]
+        api_key.updated_at = utc_now()
+        return await self.api_key_repo.update(api_key)
 
     async def list_api_keys(
         self,
@@ -1724,8 +1767,9 @@ class IdentityService:
         old_key.updated_at = utc_now()
         await self.api_key_repo.update(old_key)
 
-        # Rotation replaces the secret, not the grant: carry the scopes over and
-        # restart the same lifetime rather than silently widening either.
+        # Rotation replaces the secret, not the grant: carry the scopes and
+        # limits over and restart the same lifetime rather than silently
+        # widening any of them.
         remaining_days = 1
         if old_key.expires_at is not None:
             remaining_days = max(
@@ -1735,6 +1779,11 @@ class IdentityService:
             name=old_key.name,
             scopes=list(old_key.scopes_json or []),
             expires_in_days=min(365, remaining_days),
+            rate_limit_per_minute=old_key.rate_limit_per_minute,
+            daily_request_quota=old_key.daily_request_quota,
+            daily_token_quota=old_key.daily_token_quota,
+            ip_allowlist=old_key.ip_allowlist_json,
+            allowed_models=old_key.allowed_models_json,
         )
         return await self.create_api_key(new_key_data, ctx)
 

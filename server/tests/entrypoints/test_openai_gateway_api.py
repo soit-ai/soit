@@ -410,6 +410,37 @@ async def test_models_lists_what_a_call_can_name(async_client, async_db, ctx) ->
 
 
 @pytest.mark.asyncio
+async def test_a_key_limited_to_some_models_sees_and_calls_only_those(
+    async_client, async_db, ctx
+) -> None:
+    scope = {"tenant_id": ctx.tenant_id, "workspace_id": ctx.workspace_id}
+    provider = Provider(**scope, kind="openai", slug="openai-main", name="OpenAI main")
+    async_db.add(provider)
+    for model_id in ("gpt-live", "gpt-other"):
+        async_db.add(
+            ProviderModel(**scope, provider_id=provider.id, provider_kind="openai", model_id=model_id)
+        )
+    await async_db.commit()
+    keyed = dataclasses.replace(
+        ctx, api_key_id="key_models", allowed_models=frozenset({"model:openai-main:gpt-live"})
+    )
+    app.dependency_overrides[get_current_context] = lambda: keyed
+    try:
+        listed = await async_client.get("/v1/models")
+        refused = await async_client.post(
+            "/v1/chat/completions",
+            json={"model": "model:openai-main:gpt-other", "messages": [{"role": "user", "content": "x"}]},
+        )
+    finally:
+        app.dependency_overrides[get_current_context] = lambda: ctx
+
+    assert [model["id"] for model in listed.json()["data"]] == ["model:openai-main:gpt-live"]
+    assert refused.status_code == 403
+    assert refused.json()["error"]["type"] == "permission_error"
+    assert refused.json()["error"]["param"] == "model"
+
+
+@pytest.mark.asyncio
 async def test_embeddings_answer_in_the_openai_shape(async_client, async_db) -> None:
     response = await async_client.post(
         "/v1/embeddings",

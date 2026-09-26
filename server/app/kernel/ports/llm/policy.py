@@ -13,7 +13,11 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, Tracer
 
-from app.kernel.commons.errors import ForbiddenError, KernelError
+from app.kernel.commons.errors import (
+    ForbiddenError,
+    KernelError,
+    RateLimitExceededError,
+)
 from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -23,6 +27,10 @@ from app.kernel.ports.common.policy import (
     resolve_run_id,
 )
 from app.kernel.ports.common.rate_limiter import RateLimiter
+from app.kernel.ports.common.usage_counter import (
+    DailyUsageCounter,
+    seconds_until_next_utc_day,
+)
 from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
@@ -568,6 +576,7 @@ class LLMPolicyGateway(LLMPort):
         content_safety: ContentSafetyPort | None = None,
         inspect_inbound: bool = True,
         inspect_outbound: bool = True,
+        usage_counter: DailyUsageCounter | None = None,
     ):
         """Initialize policy gateway.
 
@@ -610,6 +619,7 @@ class LLMPolicyGateway(LLMPort):
         self.content_safety = content_safety
         self.inspect_inbound = inspect_inbound
         self.inspect_outbound = inspect_outbound
+        self.usage_counter = usage_counter or DailyUsageCounter()
 
     async def _inspect(
         self,
@@ -771,6 +781,76 @@ class LLMPolicyGateway(LLMPort):
             window_seconds=86400,
         )
 
+    async def _admit(self, *, model: str, family: str, credit_operation: str) -> None:
+        """Every check a call passes before it reaches a provider.
+
+        A model the credential may not use is refused first, before the call
+        spends any rate or quota budget; the member's limits come before the
+        key's, and the credit check, which reads the ledger, comes last.
+        """
+        self._check_model_allowed(model)
+        if self.rate_limit_per_minute:
+            await self.rate_limiter.check_rate_limit(
+                key=f"llm:{family}:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}",
+                limit=self.rate_limit_per_minute,
+                window_seconds=60,
+            )
+        await self._check_daily_quota(key_suffix=family)
+        await self._check_api_key_limits()
+        if self.credit_guard:
+            await self.credit_guard.check(operation=credit_operation)
+
+    def _check_model_allowed(self, model: str) -> None:
+        allowed = self.ctx.allowed_models
+        if allowed is not None and model not in allowed:
+            raise ForbiddenError(
+                "This API key may not call this model",
+                {"param": "model", "model": model, "reason": "model_not_allowed"},
+            )
+
+    def _api_key_token_counter(self) -> str | None:
+        if self.ctx.api_key_id is None or not self.ctx.api_key_daily_token_quota:
+            return None
+        return f"tokens:api_key:{self.ctx.api_key_id}"
+
+    async def _check_api_key_limits(self) -> None:
+        key_id = self.ctx.api_key_id
+        if key_id is None:
+            return
+        if self.ctx.api_key_rate_limit_per_minute:
+            await self.rate_limiter.check_rate_limit(
+                key=f"llm:api_key:{key_id}",
+                limit=self.ctx.api_key_rate_limit_per_minute,
+                window_seconds=60,
+            )
+        if self.ctx.api_key_daily_request_quota:
+            await self.rate_limiter.check_rate_limit(
+                key=f"quota:llm:api_key:{key_id}",
+                limit=self.ctx.api_key_daily_request_quota,
+                window_seconds=86400,
+            )
+        counter = self._api_key_token_counter()
+        quota = self.ctx.api_key_daily_token_quota
+        if counter is not None and quota:
+            now = utc_now()
+            used = await self.usage_counter.total(counter, now=now)
+            if used >= quota:
+                raise RateLimitExceededError(
+                    "API key daily token quota exhausted",
+                    {
+                        "limit": quota,
+                        "used": used,
+                        "quota": "daily_tokens",
+                        "retry_after": seconds_until_next_utc_day(now),
+                    },
+                )
+
+    async def _count_api_key_tokens(self, tokens: int) -> None:
+        """Add what a finished call used to its key's daily token total."""
+        counter = self._api_key_token_counter()
+        if counter is not None and tokens > 0:
+            await self.usage_counter.add(counter, tokens)
+
     async def chat(
         self,
         messages: list[ChatMessage],
@@ -791,17 +871,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             ChatResponse instance.
         """
-        # Rate limiting check
-        if self.rate_limit_per_minute:
-            rate_limit_key = f"llm:chat:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
-            await self.rate_limiter.check_rate_limit(
-                key=rate_limit_key,
-                limit=self.rate_limit_per_minute,
-                window_seconds=60,
-            )
-        await self._check_daily_quota(key_suffix="chat")
-        if self.credit_guard:
-            await self.credit_guard.check(operation="chat")
+        await self._admit(model=model, family="chat", credit_operation="chat")
 
         # Audit log
         step = None
@@ -863,6 +933,8 @@ class LLMPolicyGateway(LLMPort):
                 span.set_attribute("gen_ai.response.model", response.model or model)
                 span.set_attribute("gen_ai.usage.input_tokens", response.tokens_prompt)
                 span.set_attribute("gen_ai.usage.output_tokens", response.tokens_completion)
+
+            await self._count_api_key_tokens(response.tokens_prompt + response.tokens_completion)
 
             # Update trace
             if step and self.trace_writer:
@@ -941,16 +1013,7 @@ class LLMPolicyGateway(LLMPort):
         **kwargs: Any,
     ):
         """Stream chat completion with policy enforcement."""
-        if self.rate_limit_per_minute:
-            rate_limit_key = f"llm:chat:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
-            await self.rate_limiter.check_rate_limit(
-                key=rate_limit_key,
-                limit=self.rate_limit_per_minute,
-                window_seconds=60,
-            )
-        await self._check_daily_quota(key_suffix="chat")
-        if self.credit_guard:
-            await self.credit_guard.check(operation="chat")
+        await self._admit(model=model, family="chat", credit_operation="chat")
 
         if not hasattr(self.gateway, "stream_chat"):
             raise ValueError("Streaming not supported by LLM gateway")
@@ -1100,6 +1163,8 @@ class LLMPolicyGateway(LLMPort):
                     output_preview += released.delta
                 yield released
 
+            await self._count_api_key_tokens(tokens_prompt + tokens_completion)
+
             if outbound is not None:
                 # A stream that ends without a closing chunk still releases
                 # whatever it held back, inspected like the rest.
@@ -1197,17 +1262,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             EmbeddingResponse instance.
         """
-        # Rate limiting check
-        if self.rate_limit_per_minute:
-            rate_limit_key = f"llm:embed:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
-            await self.rate_limiter.check_rate_limit(
-                key=rate_limit_key,
-                limit=self.rate_limit_per_minute,
-                window_seconds=60,
-            )
-        await self._check_daily_quota(key_suffix="embed")
-        if self.credit_guard:
-            await self.credit_guard.check(operation="embed")
+        await self._admit(model=model, family="embed", credit_operation="embed")
 
         step = None
         if self.trace_writer:
@@ -1252,6 +1307,8 @@ class LLMPolicyGateway(LLMPort):
                 response.runtime_target = response.runtime_target or route.target
                 span.set_attribute("gen_ai.response.model", response.model or model)
                 span.set_attribute("gen_ai.usage.input_tokens", response.tokens_used)
+
+            await self._count_api_key_tokens(response.tokens_used or 0)
 
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
@@ -1333,16 +1390,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             ImageGenerationResponse instance.
         """
-        if self.rate_limit_per_minute:
-            rate_limit_key = f"llm:image:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
-            await self.rate_limiter.check_rate_limit(
-                key=rate_limit_key,
-                limit=self.rate_limit_per_minute,
-                window_seconds=60,
-            )
-        await self._check_daily_quota(key_suffix="image")
-        if self.credit_guard:
-            await self.credit_guard.check(operation="generate_image")
+        await self._admit(model=model, family="image", credit_operation="generate_image")
 
         step = None
         if self.trace_writer:
@@ -1497,16 +1545,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             ImageGenerationResponse instance.
         """
-        if self.rate_limit_per_minute:
-            rate_limit_key = f"llm:image:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
-            await self.rate_limiter.check_rate_limit(
-                key=rate_limit_key,
-                limit=self.rate_limit_per_minute,
-                window_seconds=60,
-            )
-        await self._check_daily_quota(key_suffix="image")
-        if self.credit_guard:
-            await self.credit_guard.check(operation="edit_image")
+        await self._admit(model=model, family="image", credit_operation="edit_image")
 
         step = None
         if self.trace_writer:
@@ -1661,17 +1700,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             RerankResponse instance.
         """
-        # Rate limiting check
-        if self.rate_limit_per_minute:
-            rate_limit_key = f"llm:rerank:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
-            await self.rate_limiter.check_rate_limit(
-                key=rate_limit_key,
-                limit=self.rate_limit_per_minute,
-                window_seconds=60,
-            )
-        await self._check_daily_quota(key_suffix="rerank")
-        if self.credit_guard:
-            await self.credit_guard.check(operation="rerank")
+        await self._admit(model=model, family="rerank", credit_operation="rerank")
 
         step = None
         if self.trace_writer:
@@ -1724,6 +1753,8 @@ class LLMPolicyGateway(LLMPort):
                 response.runtime_target = response.runtime_target or route.target
                 span.set_attribute("gen_ai.response.model", response.model or model)
                 span.set_attribute("gen_ai.usage.input_tokens", response.tokens_used)
+
+            await self._count_api_key_tokens(response.tokens_used or 0)
 
             if step and self.trace_writer:
                 elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)

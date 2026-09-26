@@ -29,6 +29,7 @@ from app.modules.identity.application.schemas import (
     ApiKeyCreateResponse,
     ApiKeyResponse,
     ApiKeyRotateResponse,
+    ApiKeyUpdate,
     EmailVerificationConfirm,
     InvitationAccept,
     InvitationCreate,
@@ -957,6 +958,28 @@ async def list_api_keys(
         has_next=has_next,
         next_offset=next_offset,
     )
+
+
+async def update_api_key(
+    key_id: str,
+    data: ApiKeyUpdate,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: IdentityService = Depends(get_identity_service),
+) -> ApiKeyResponse:
+    """Change an API key's name or limits."""
+    try:
+        api_key = await service.update_api_key(key_id, data, ctx)
+        return ApiKeyResponse.model_validate(api_key)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
 
 async def revoke_api_key(

@@ -9,12 +9,14 @@ from datetime import UTC, timedelta
 from fastapi import Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.auth import client_address as addresses
 from app.kernel.commons.errors import ForbiddenError, NotFoundError, UnauthorizedError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.api_key_scopes import normalize_scopes
 from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.workspace_access import WorkspaceAccessResolver
+from app.settings.settings import settings
 
 security = HTTPBearer()
 
@@ -66,7 +68,11 @@ class ContextResolver:
             NotFoundError: If workspace not found or user not member.
         """
         if api_key:
-            return await self.resolve_from_api_key(api_key, workspace_id_header)
+            return await self.resolve_from_api_key(
+                api_key,
+                workspace_id_header,
+                client_address=addresses.client_address(request, settings.trusted_proxies),
+            )
 
         # Extract token from authorization header
         if not authorization:
@@ -84,7 +90,11 @@ class ContextResolver:
         # A signed session token never carries the key prefix, so the two
         # cannot be confused.
         if token.startswith(API_KEY_PREFIX):
-            return await self.resolve_from_api_key(token, workspace_id_header)
+            return await self.resolve_from_api_key(
+                token,
+                workspace_id_header,
+                client_address=addresses.client_address(request, settings.trusted_proxies),
+            )
 
         # Decode JWT token
         payload = self.jwt_manager.decode_token(token)
@@ -136,6 +146,8 @@ class ContextResolver:
         self,
         api_key: str,
         workspace_id_header: str | None = None,
+        *,
+        client_address: str | None = None,
     ) -> RequestContext:
         """Resolve RequestContext from API key.
 
@@ -169,6 +181,14 @@ class ContextResolver:
                     expires_at = expires_at.replace(tzinfo=UTC)
                 if expires_at <= utc_now():
                     raise UnauthorizedError("API key has expired")
+            allowlist = key.ip_allowlist_json
+            if allowlist is not None and not addresses.address_allowed(client_address, allowlist):
+                # The address is not echoed back: a caller probing the list
+                # learns nothing about which ranges it holds.
+                raise ForbiddenError(
+                    "API key is not accepted from this address",
+                    {"reason": "ip_not_allowed"},
+                )
             scopes = normalize_scopes(key.scopes_json)
             if not scopes:
                 # A key with no usable scope must not fall back to the owner's
@@ -213,6 +233,14 @@ class ContextResolver:
                 llm_daily_quota=access.llm_daily_quota,
                 tool_daily_quota=access.tool_daily_quota,
                 api_key_id=key.id,
+                api_key_rate_limit_per_minute=key.rate_limit_per_minute,
+                api_key_daily_request_quota=key.daily_request_quota,
+                api_key_daily_token_quota=key.daily_token_quota,
+                allowed_models=(
+                    frozenset(key.allowed_models_json)
+                    if key.allowed_models_json is not None
+                    else None
+                ),
             )
         finally:
             await db.close()

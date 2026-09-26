@@ -285,6 +285,23 @@ class ApiKey(SQLModel, table=True):
     )
     """Expiry; requests presenting the key after this moment are rejected."""
 
+    rate_limit_per_minute: int | None = Field(default=None, nullable=True)
+    """Model calls per minute through this key; None leaves only the member's own limit."""
+
+    daily_request_quota: int | None = Field(default=None, nullable=True)
+    """Model calls through this key in any 24 hours."""
+
+    daily_token_quota: int | None = Field(default=None, nullable=True)
+    """Model tokens this key may consume per UTC day."""
+
+    ip_allowlist_json: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    """Addresses or CIDR ranges the key is accepted from; None accepts any."""
+
+    allowed_models_json: list[str] | None = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
+    """Model refs the key may call; None allows every model of the workspace."""
+
     last_used_at: datetime | None = Field(default=None)
     """Last used timestamp."""
 

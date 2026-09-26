@@ -351,10 +351,15 @@ async def list_models(
     ctx: Annotated[RequestContext, Depends(require_workspace_read_ctx)],
     service: Annotated[ModelHubService, Depends(get_modelhub_service)],
 ):
-    """The workspace's callable models, by the ref a call names."""
+    """The workspace's callable models, by the ref a call names.
 
-    del ctx
+    A key limited to some models lists only those, so a client that picks a
+    model from the list never picks one it will be refused.
+    """
+
     models = await service.list_runtime_models()
+    if ctx.allowed_models is not None:
+        models = [model for model in models if model.model_ref in ctx.allowed_models]
     return {
         "object": "list",
         "data": [

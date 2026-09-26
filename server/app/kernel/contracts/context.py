@@ -5,7 +5,7 @@ RequestContext and identity/scope primitives.
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass(frozen=True)
@@ -63,15 +63,34 @@ class RequestContext:
     stays ``user_id``.
     """
 
+    api_key_rate_limit_per_minute: int | None = None
+    """Model calls the authenticating key may make per minute.
+
+    Applies on top of the member's own rate; a key cannot exceed either.
+    """
+
+    api_key_daily_request_quota: int | None = None
+    """Model calls the authenticating key may make in any 24 hours."""
+
+    api_key_daily_token_quota: int | None = None
+    """Model tokens the authenticating key may consume per UTC day."""
+
+    allowed_models: frozenset[str] | None = None
+    """Model refs the credential may call; None allows every model."""
+
+    _SET_FIELDS: ClassVar[tuple[str, ...]] = ("scopes", "allowed_models")
+
     def to_json(self) -> dict[str, Any]:
         """The context as JSON, for records that resume work later.
 
-        A credential's scopes are a set, which JSON has no form for; they are
-        stored as a sorted list and come back as a set in :meth:`from_json`.
+        Set-valued fields have no JSON form; they are stored as sorted lists
+        and come back as sets in :meth:`from_json`.
         """
         data = asdict(self)
-        if self.scopes is not None:
-            data["scopes"] = sorted(self.scopes)
+        for name in self._SET_FIELDS:
+            value = getattr(self, name)
+            if value is not None:
+                data[name] = sorted(value)
         return data
 
     @classmethod
@@ -83,9 +102,10 @@ class RequestContext:
         """
         known = {field.name for field in fields(cls)}
         values: dict[str, Any] = {key: value for key, value in data.items() if key in known}
-        scopes = values.get("scopes")
-        if scopes is not None:
-            values["scopes"] = frozenset(str(scope) for scope in scopes)
+        for name in cls._SET_FIELDS:
+            items = values.get(name)
+            if items is not None:
+                values[name] = frozenset(str(item) for item in items)
         return cls(**values)
 
     def has_scope(self, scope: str) -> bool:

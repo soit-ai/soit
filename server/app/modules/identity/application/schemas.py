@@ -3,6 +3,7 @@
 Identity domain Pydantic schemas for API.
 """
 
+import ipaddress
 from datetime import datetime
 from typing import Any
 
@@ -396,7 +397,66 @@ class SessionRevokeAllResponse(BaseModel):
     revoked: int
 
 
-class ApiKeyCreate(BaseModel):
+MAX_API_KEY_ALLOWLIST_ENTRIES = 64
+MAX_API_KEY_ALLOWED_MODELS = 256
+
+
+def _normalized_networks(value: list[str] | None) -> list[str] | None:
+    """Canonical CIDR strings for an allowlist, or None for "any address"."""
+    if value is None:
+        return None
+    if not value:
+        raise ValueError("An empty IP allowlist admits nobody; use null to allow any address")
+    networks: list[str] = []
+    for entry in value:
+        try:
+            networks.append(str(ipaddress.ip_network(entry.strip(), strict=False)))
+        except ValueError as exc:
+            raise ValueError(f"Not an IP address or CIDR range: {entry}") from exc
+    return sorted(set(networks))
+
+
+def _normalized_models(value: list[str] | None) -> list[str] | None:
+    """Distinct model refs, or None for "every model"."""
+    if value is None:
+        return None
+    models = sorted({entry.strip() for entry in value if entry.strip()})
+    if not models:
+        raise ValueError("An empty model list allows no model; use null to allow every model")
+    if any(len(model) > 512 for model in models):
+        raise ValueError("Model refs are at most 512 characters")
+    return models
+
+
+class ApiKeyLimits(BaseModel):
+    """What a key may do beyond its scopes; every null means "no limit"."""
+
+    rate_limit_per_minute: int | None = Field(default=None, ge=1, le=1_000_000)
+    daily_request_quota: int | None = Field(default=None, ge=1)
+    daily_token_quota: int | None = Field(default=None, ge=1)
+    ip_allowlist: list[str] | None = Field(
+        default=None,
+        max_length=MAX_API_KEY_ALLOWLIST_ENTRIES,
+        description="Addresses or CIDR ranges the key is accepted from",
+    )
+    allowed_models: list[str] | None = Field(
+        default=None,
+        max_length=MAX_API_KEY_ALLOWED_MODELS,
+        description="Model refs the key may call",
+    )
+
+    @field_validator("ip_allowlist")
+    @classmethod
+    def _valid_allowlist(cls, value: list[str] | None) -> list[str] | None:
+        return _normalized_networks(value)
+
+    @field_validator("allowed_models")
+    @classmethod
+    def _valid_models(cls, value: list[str] | None) -> list[str] | None:
+        return _normalized_models(value)
+
+
+class ApiKeyCreate(ApiKeyLimits):
     """Schema for creating an API key."""
 
     name: str = Field(..., min_length=1, max_length=255, description="API key name")
@@ -421,6 +481,16 @@ class ApiKeyCreate(BaseModel):
         return value
 
 
+class ApiKeyUpdate(ApiKeyLimits):
+    """A change to a key's name or limits; only the fields sent are changed.
+
+    Sending a limit as null removes it. Scopes and expiry are not editable:
+    widening either takes a new key.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+
 class ApiKeyResponse(BaseModel):
     """Schema for API key response."""
 
@@ -433,6 +503,11 @@ class ApiKeyResponse(BaseModel):
     status: str
     scopes: list[str] = Field(default=[], validation_alias="scopes_json")
     expires_at: datetime | None = None
+    rate_limit_per_minute: int | None = None
+    daily_request_quota: int | None = None
+    daily_token_quota: int | None = None
+    ip_allowlist: list[str] | None = Field(default=None, validation_alias="ip_allowlist_json")
+    allowed_models: list[str] | None = Field(default=None, validation_alias="allowed_models_json")
     last_used_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime

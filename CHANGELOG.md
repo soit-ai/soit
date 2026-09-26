@@ -14,6 +14,17 @@ record for operators.
 
 ### Added
 
+- API keys carry their own limits: model calls per minute, calls per 24
+  hours, tokens per UTC day, an IP allowlist and the model refs they may
+  call. They apply on top of the member's own limits, and a null means no
+  limit of that kind. The key's owner or a workspace admin sets them when the
+  key is created or with `PATCH /api/v1/api-keys/{key_id}`, and rotation keeps
+  them. A call over a rate or quota answers 429 with `Retry-After`; a call
+  from another address or to another model answers 403, and `/v1/models`
+  lists only the models the key may call. `TRUSTED_PROXIES` names the proxies
+  whose `X-Forwarded-For` is believed, so an allowlist sees the real client
+  rather than an address the client wrote. Migration `20260927100000` adds
+  the columns; existing keys keep working unchanged.
 - An OpenAI-compatible gateway under `/v1`: `POST /v1/chat/completions`
   (whole or streamed, with tools, images and structured output),
   `GET /v1/models`, `POST /v1/embeddings`, `POST /v1/images/generations` and
