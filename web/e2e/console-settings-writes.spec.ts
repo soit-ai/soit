@@ -810,3 +810,91 @@ test('a workspace can stop recording run content', async ({ page }) => {
   await expect.poll(() => patched).toEqual({ content_capture: 'metadata_only' })
   await expect(select).toHaveValue('metadata_only')
 })
+
+test('team channels receive the alerts they subscribe to and are managed by admins', async ({
+  page,
+}) => {
+  const channel = {
+    id: 'nep_team',
+    name: 'ops-alerts',
+    kind: 'slack',
+    display_target: 'slack://***',
+    status: 'active',
+    scope: 'workspace',
+    categories: ['alert', 'task'],
+    created_at: NOW,
+    updated_at: NOW,
+  }
+  const writes: { method: string; url: string; body: unknown }[] = []
+  const saved: { preferences: { categories: Record<string, boolean> } | null } = {
+    preferences: null,
+  }
+
+  await page.route('**/api/v1/notifications/preferences', async (route) => {
+    if (route.request().method() === 'PUT') saved.preferences = route.request().postDataJSON()
+    // A preference stored before alerts existed has no "alert" key at all.
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(preferences) })
+  })
+  await json(page, '**/api/v1/notifications/endpoints', [])
+  await page.route('**/api/v1/notifications/workspace-endpoints**', async (route) => {
+    const request = route.request()
+    if (request.method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: ok([channel]) })
+    }
+    writes.push({ method: request.method(), url: request.url(), body: request.postDataJSON() })
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(channel) })
+  })
+
+  await page.goto('/settings/notifications', { waitUntil: 'domcontentloaded' })
+  const row = page.locator('tr', { hasText: 'ops-alerts' })
+  await expect(row).toContainText('budgets & credit')
+  await expect(row).toContainText('failed runs')
+
+  // Alerts are on unless switched off, as the server treats a missing category.
+  const alerts = page.locator('.frow', { hasText: 'Budget and credit alerts' }).locator('input')
+  await expect(alerts).toBeChecked()
+  // Controlled by the stored preference, so the box follows the server, not the click.
+  await alerts.click()
+  await expect.poll(() => saved.preferences?.categories.alert).toBe(false)
+
+  await row.getByRole('button', { name: 'Test' }).click()
+  await expect.poll(() => writes.map((write) => write.url)).toContainEqual(
+    expect.stringContaining('/workspace-endpoints/nep_team/test'),
+  )
+
+  await page.getByRole('button', { name: 'Add channel' }).click()
+  const create = modal(page).getByRole('button', { name: 'Create', exact: true })
+  await modal(page).locator('.mrow', { hasText: /^Name/ }).locator('input').fill('on-call')
+  await modal(page).locator('.mrow', { hasText: /^Target/ }).locator('input').fill('https://hooks.acme.io/oncall')
+  await modal(page).getByLabel('budgets & credit').uncheck()
+  // A channel must receive something.
+  await expect(create).toBeDisabled()
+  await modal(page).getByLabel('failed runs').check()
+  await create.click()
+
+  await expect.poll(() => writes.filter((write) => write.method === 'POST').length).toBe(2)
+  const posted = writes.filter((write) => write.method === 'POST')[1]
+  expect(posted.url).toMatch(/\/workspace-endpoints$/)
+  expect(posted.body).toEqual({
+    name: 'on-call',
+    kind: 'slack',
+    url: 'https://hooks.acme.io/oncall',
+    categories: ['task'],
+  })
+})
+
+test('members who cannot manage team channels are told why', async ({ page }) => {
+  await json(page, '**/api/v1/notifications/preferences', preferences)
+  await json(page, '**/api/v1/notifications/endpoints', [])
+  await page.route('**/api/v1/notifications/workspace-endpoints**', (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'FORBIDDEN', message: 'Forbidden' }),
+    }),
+  )
+
+  await page.goto('/settings/notifications', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Workspace owners and admins manage team channels.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add channel' })).toHaveCount(0)
+})

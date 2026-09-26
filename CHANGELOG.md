@@ -14,6 +14,12 @@ record for operators.
 
 ### Added
 
+- Console: Settings › Notifications lists the workspace's team channels with
+  the alerts each receives, and lets owners and admins add, test and delete
+  them; other members are told who manages them. The budget row now switches
+  the member's own budget and credit alerts (the `alert` category) instead of
+  showing inert checkboxes, and a category a stored preference predates reads
+  as on, as the server treats it.
 - Console: Build › Models has a Virtual models tab that lists each
   `vmodel:` name with its targets in failover order, and creates, edits,
   disables and deletes them. Targets are picked from the model library or

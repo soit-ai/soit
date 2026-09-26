@@ -61,9 +61,16 @@ export interface NotificationEndpoint {
   kind: NotificationEndpointKind
   display_target: string
   status: 'active' | 'disabled'
+  /** `user` for a member's own endpoint, `workspace` for a team channel. */
+  scope?: 'user' | 'workspace'
+  /** The categories a team channel receives. */
+  categories?: WorkspaceAlertCategory[] | null
   created_at: string
   updated_at: string
 }
+
+/** What a team channel can subscribe to: `alert` is budgets and credit, `task` failed runs. */
+export type WorkspaceAlertCategory = 'alert' | 'task' | 'security' | 'system'
 
 export interface NotificationEndpointCreate {
   name: string
@@ -182,4 +189,38 @@ export const testNotificationEndpoint = async (
 
 export const listNotificationDeliveries = async (notificationId: string): Promise<NotificationDelivery[]> => {
   return unwrapResponse<NotificationDelivery[]>(await get(`/notifications/${notificationId}/deliveries`))
+}
+
+/** Team channels: workspace endpoints that owners and admins manage. */
+export const listWorkspaceEndpoints = async (
+  config?: RequestConfigWithToast,
+): Promise<NotificationEndpoint[]> => {
+  return unwrapResponse<NotificationEndpoint[]>(
+    await get('/notifications/workspace-endpoints', undefined, config),
+  )
+}
+
+export const createWorkspaceEndpoint = async (
+  payload: NotificationEndpointCreate & { categories: WorkspaceAlertCategory[] },
+  config?: RequestConfigWithToast,
+): Promise<NotificationEndpoint> => {
+  return unwrapResponse<NotificationEndpoint>(
+    await post('/notifications/workspace-endpoints', payload, config),
+  )
+}
+
+export const deleteWorkspaceEndpoint = async (
+  endpointId: string,
+  config?: RequestConfigWithToast,
+): Promise<void> => {
+  await del(`/notifications/workspace-endpoints/${endpointId}`, undefined, config)
+}
+
+export const testWorkspaceEndpoint = async (
+  endpointId: string,
+  config?: RequestConfigWithToast,
+): Promise<NotificationDelivery> => {
+  return unwrapResponse<NotificationDelivery>(
+    await post(`/notifications/workspace-endpoints/${endpointId}/test`, undefined, config),
+  )
 }

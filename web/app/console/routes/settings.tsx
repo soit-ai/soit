@@ -81,14 +81,19 @@ import {
 } from '@/services/identity-service'
 import {
   createNotificationEndpoint,
+  createWorkspaceEndpoint,
   deleteNotificationEndpoint,
+  deleteWorkspaceEndpoint,
   getNotificationPreferences,
   listNotificationEndpoints,
+  listWorkspaceEndpoints,
   testNotificationEndpoint,
+  testWorkspaceEndpoint,
   updateNotificationEndpoint,
   updateNotificationPreferences,
   type NotificationEndpoint,
   type NotificationEndpointKind,
+  type WorkspaceAlertCategory,
 } from '@/services/notification-service'
 import { getWorkspaceEgressPolicy } from '@/services/security-service'
 import { useUserStore } from '@/stores/user'
@@ -171,6 +176,16 @@ const ENDPOINT_KINDS: NotificationEndpointKind[] = [
   'other',
 ]
 
+/** Team channel subscriptions, in the order the dialog offers them. */
+const TEAM_CHANNEL_CATEGORIES: WorkspaceAlertCategory[] = ['alert', 'task', 'security', 'system']
+
+const EMPTY_CHANNEL_FORM: {
+  name: string
+  kind: NotificationEndpointKind
+  url: string
+  categories: WorkspaceAlertCategory[]
+} = { name: '', kind: 'slack', url: '', categories: ['alert'] }
+
 const EMPTY_ENDPOINT_FORM: {
   name: string
   kind: NotificationEndpointKind
@@ -218,6 +233,9 @@ export default function ConsoleSettings() {
   const [editingEndpoint, setEditingEndpoint] = useState<NotificationEndpoint | null>(null)
   const [deletingEndpoint, setDeletingEndpoint] = useState<NotificationEndpoint | null>(null)
   const [endpointForm, setEndpointForm] = useState(EMPTY_ENDPOINT_FORM)
+  const [creatingChannel, setCreatingChannel] = useState(false)
+  const [deletingChannel, setDeletingChannel] = useState<NotificationEndpoint | null>(null)
+  const [channelForm, setChannelForm] = useState(EMPTY_CHANNEL_FORM)
 
   // Account + Team both need /me: the workspace id for the member list comes
   // from the signed-in identity rather than a URL param.
@@ -277,6 +295,13 @@ export default function ConsoleSettings() {
   const endpointsQuery = useQuery({
     queryKey: ['console', 'settings', 'notification-endpoints'],
     queryFn: () => listNotificationEndpoints(),
+    options: { enabled: on('notifications'), retry: false, refetchOnWindowFocus: false },
+  })
+  // Owners and admins only: anyone else is answered 403, which the panel
+  // explains rather than reporting as a failure.
+  const channelsQuery = useQuery({
+    queryKey: ['console', 'settings', 'team-channels'],
+    queryFn: () => listWorkspaceEndpoints({ suppressErrorToast: true }),
     options: { enabled: on('notifications'), retry: false, refetchOnWindowFocus: false },
   })
 
@@ -782,6 +807,47 @@ export default function ConsoleSettings() {
     onError: onWriteError('Failed to send the test notification'),
   })
 
+  const createChannelMutation = useMutation({
+    mutationKey: ['console', 'settings', 'create-team-channel'],
+    mutationFn: () =>
+      createWorkspaceEndpoint(
+        {
+          name: channelForm.name.trim(),
+          kind: channelForm.kind,
+          url: channelForm.url.trim(),
+          categories: channelForm.categories,
+        },
+        { suppressErrorToast: true },
+      ),
+    onSuccess: () => {
+      void channelsQuery.refetch()
+      setCreatingChannel(false)
+      setChannelForm(EMPTY_CHANNEL_FORM)
+    },
+    onError: onWriteError('Failed to add the team channel'),
+  })
+
+  const deleteChannelMutation = useMutation({
+    mutationKey: ['console', 'settings', 'delete-team-channel'],
+    mutationFn: () => deleteWorkspaceEndpoint(deletingChannel!.id, { suppressErrorToast: true }),
+    onSuccess: () => {
+      void channelsQuery.refetch()
+      setDeletingChannel(null)
+    },
+    onError: onWriteError('Failed to delete the team channel'),
+  })
+
+  const testChannelMutation = useMutation<unknown, unknown, string>({
+    mutationKey: ['console', 'settings', 'test-team-channel'],
+    mutationFn: (endpointId: string) =>
+      testWorkspaceEndpoint(endpointId, { suppressErrorToast: true }),
+    onSuccess: () => {
+      void channelsQuery.refetch()
+      toast.success(t('console.settings.notificationsPane.testQueued'))
+    },
+    onError: onWriteError('Failed to send the test notification'),
+  })
+
   useEffect(() => {
     if (userQuery.data) setDisplayName(userQuery.data.name || '')
   }, [userQuery.data])
@@ -815,7 +881,11 @@ export default function ConsoleSettings() {
   const chatLabel = chatEndpoint
     ? `${chatEndpoint.kind} · ${chatEndpoint.display_target}`
     : 'External endpoint'
-  const categoryOn = (key: string) => Boolean(preferences?.categories?.[key])
+  // A category the stored preference predates is on, as the server treats it.
+  const categoryOn = (key: string) => preferences?.categories?.[key] ?? true
+  const channels = Array.isArray(channelsQuery.data) ? channelsQuery.data : []
+  const channelsForbidden =
+    (channelsQuery.error as { response?: { status?: number } } | null)?.response?.status === 403
 
   const diagnostics = diagnosticsQuery.data
   const creditEntries = entriesQuery.data || []
@@ -1667,18 +1737,22 @@ export default function ConsoleSettings() {
               </div>
             </div>
             <div className="frow">
-              <label>{t('console.settings.notificationsPane.budget')}</label>
+              <label>
+                {t('console.settings.notificationsPane.budget')}
+                <small>{t('console.settings.notificationsPane.budgetHint')}</small>
+              </label>
               <div className="checks">
-                {/* BACKEND-PENDING: no budget-threshold category or endpoint. Not
-                    built: cost is recorded and summarised, but nothing watches
-                    it against a threshold. */}
+                {/* Budget thresholds and low credit share the "alert"
+                    category; they reach owners and admins. */}
                 <label>
-                  <input type="checkbox" defaultChecked />
-                  {chatLabel}
-                </label>
-                <label>
-                  <input type="checkbox" defaultChecked />
-                  {emailLabel}
+                  <input
+                    type="checkbox"
+                    checked={categoryOn('alert')}
+                    onChange={(event) =>
+                      categoryMutation.mutate({ category: 'alert', enabled: event.target.checked })
+                    }
+                  />
+                  {t('console.settings.notificationsPane.budgetToMe')}
                 </label>
               </div>
             </div>
@@ -1711,6 +1785,104 @@ export default function ConsoleSettings() {
                   {emailLabel}
                 </label>
               </div>
+            </div>
+          </div>
+        )}
+
+        {active === 'notifications' && (
+          <div className="panel" style={{ marginTop: 14 }}>
+            <div className="panel-head">
+              <h2>{t('console.settings.teamChannels.title')}</h2>
+              <span className="hint">{t('console.settings.teamChannels.hint')}</span>
+              {!channelsForbidden && (
+                <span className="more">
+                  <ConsoleButton
+                    style={{ height: 24, fontSize: 11 }}
+                    onClick={() => {
+                      setChannelForm(EMPTY_CHANNEL_FORM)
+                      setCreatingChannel(true)
+                    }}
+                  >
+                    {t('console.settings.teamChannels.add')}
+                  </ConsoleButton>
+                </span>
+              )}
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('console.settings.teamChannels.columns.channel')}</th>
+                  <th>{t('console.settings.teamChannels.columns.target')}</th>
+                  <th>{t('console.settings.teamChannels.columns.receives')}</th>
+                  <th className="num">{t('console.settings.teamChannels.columns.status')}</th>
+                  <th className="num" />
+                </tr>
+              </thead>
+              <tbody>
+                {channels.length === 0 ? (
+                  <DataStateRow
+                    colSpan={5}
+                    isPending={channelsQuery.isPending}
+                    isError={channelsQuery.isError && !channelsForbidden}
+                    emptyLabel={
+                      channelsForbidden
+                        ? t('console.settings.teamChannels.forbidden')
+                        : t('console.settings.teamChannels.empty')
+                    }
+                  />
+                ) : (
+                  channels.map((channel) => (
+                    <tr key={channel.id}>
+                      <td>
+                        <span className="chip">{channel.kind}</span>{' '}
+                        <b style={{ fontWeight: 600 }}>{channel.name}</b>
+                      </td>
+                      <td className="mono dimmer" style={{ fontSize: 11 }}>
+                        {channel.display_target}
+                      </td>
+                      <td>
+                        <span className="scopes">
+                          {(channel.categories?.length
+                            ? channel.categories
+                            : (['alert'] as WorkspaceAlertCategory[])
+                          ).map(
+                            (category) => (
+                              <span key={category} className="chip">
+                                {t(`console.settings.teamChannels.categories.${category}`)}
+                              </span>
+                            ),
+                          )}
+                        </span>
+                      </td>
+                      <td className="num">
+                        <StatusChip status={channel.status === 'active' ? 'enabled' : 'disabled'} />
+                      </td>
+                      <td className="num">
+                        <span style={{ display: 'inline-flex', gap: 6 }}>
+                          <ConsoleButton
+                            variant="ghost"
+                            style={{ height: 22, fontSize: 10.5 }}
+                            disabled={channel.status !== 'active' || testChannelMutation.isPending}
+                            onClick={() => testChannelMutation.mutate(channel.id)}
+                          >
+                            {t('console.settings.notificationsPane.test')}
+                          </ConsoleButton>
+                          <ConsoleButton
+                            variant="ghost"
+                            style={{ height: 22, fontSize: 10.5, color: 'var(--danger-foreground)' }}
+                            onClick={() => setDeletingChannel(channel)}
+                          >
+                            {t('console.settings.notificationsPane.remove')}
+                          </ConsoleButton>
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            <div className="pager">
+              <span>{t('console.settings.teamChannels.note')}</span>
             </div>
           </div>
         )}
@@ -2428,6 +2600,100 @@ export default function ConsoleSettings() {
         </div>
         <div style={{ padding: '4px 16px 12px', fontSize: 12, lineHeight: 1.6 }} className="dim">
           {t('console.settings.apiPane.revealHint')}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={creatingChannel}
+        onOpenChange={setCreatingChannel}
+        title={t('console.settings.teamChannels.createTitle')}
+        note={t('console.settings.notificationsPane.endpointNote')}
+        confirmLabel={t('console.common.create')}
+        confirmDisabled={
+          !channelForm.name.trim() || !channelForm.url.trim() || channelForm.categories.length === 0
+        }
+        busy={createChannelMutation.isPending}
+        onConfirm={() => createChannelMutation.mutate(undefined)}
+      >
+        <div className="mrow">
+          <label>{t('console.settings.notificationsPane.endpointFields.name')}</label>
+          <input
+            className="input"
+            value={channelForm.name}
+            onChange={(event) => setChannelForm((state) => ({ ...state, name: event.target.value }))}
+          />
+        </div>
+        <div className="mrow">
+          <label>{t('console.settings.notificationsPane.endpointFields.kind')}</label>
+          <select
+            className="input"
+            value={channelForm.kind}
+            onChange={(event) =>
+              setChannelForm((state) => ({
+                ...state,
+                kind: event.target.value as NotificationEndpointKind,
+              }))
+            }
+          >
+            {ENDPOINT_KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {kind}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.settings.notificationsPane.endpointFields.url')}
+            <small>{t('console.settings.teamChannels.urlHint')}</small>
+          </label>
+          <input
+            className="input"
+            value={channelForm.url}
+            onChange={(event) => setChannelForm((state) => ({ ...state, url: event.target.value }))}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
+          />
+        </div>
+        <div className="mrow">
+          <label>
+            {t('console.settings.teamChannels.columns.receives')}
+            <small>{t('console.settings.teamChannels.receivesHint')}</small>
+          </label>
+          <div className="checks">
+            {TEAM_CHANNEL_CATEGORIES.map((category) => (
+              <label key={category}>
+                <input
+                  type="checkbox"
+                  checked={channelForm.categories.includes(category)}
+                  onChange={(event) =>
+                    setChannelForm((state) => ({
+                      ...state,
+                      categories: event.target.checked
+                        ? TEAM_CHANNEL_CATEGORIES.filter(
+                            (item) => item === category || state.categories.includes(item),
+                          )
+                        : state.categories.filter((item) => item !== category),
+                    }))
+                  }
+                />
+                {t(`console.settings.teamChannels.categories.${category}`)}
+              </label>
+            ))}
+          </div>
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={deletingChannel != null}
+        onOpenChange={(open) => !open && setDeletingChannel(null)}
+        title={t('console.settings.teamChannels.deleteTitle')}
+        confirmLabel={t('console.settings.notificationsPane.remove')}
+        destructive
+        busy={deleteChannelMutation.isPending}
+        onConfirm={() => deleteChannelMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.settings.teamChannels.deleteConfirm', { name: deletingChannel?.name ?? '' })}
         </div>
       </ConsoleModal>
 
