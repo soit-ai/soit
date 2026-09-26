@@ -40,6 +40,8 @@ SOIT Community is the open-source **Agent Runtime and Governance Platform** for 
 
 The core product wedge is governed execution: every agent run is scoped by permissions, bound to approved capabilities, protected by secret boundaries, constrained by egress policy, traced through a runtime ledger, attributed with cost, recorded in audit logs, and inspectable through replay.
 
+**Already calling models from your own code?** SOIT also serves an OpenAI-compatible API under `/v1`. Point an OpenAI SDK, LangChain or the OpenAI Agents SDK at it with a SOIT API key and every call becomes a governed run: per-key rate limits, quotas, address and model allowlists, budgets that stop spend, content-free runs, audit, cost attribution, and failover across providers through virtual models, with no change to application code. See the [gateway guide](./docs/gateway.md) and [examples](./examples/gateway/).
+
 SOIT is not trying to be another lightweight chatbot builder. It is built for teams that already proved agents can be useful and now need permissions, secrets, outbound-network control, auditability, cost accountability, traceability, and replay before those agents can be trusted in production workflows.
 
 ## Why SOIT?
@@ -78,7 +80,9 @@ Every execution — chat turn, agent loop, or workflow run — flows through the
 
 - Unified `Run / Task / RunStep / Trace` ledger across all execution types
 - Outbox-based event-driven runtime with checkpoints and idempotency
-- Multi-model routing across OpenAI, Anthropic, DeepSeek, Qwen, and any OpenAI-compatible endpoint
+- Multi-model routing across OpenAI, Anthropic, DeepSeek, Qwen, Ollama, and any OpenAI-compatible endpoint
+- Virtual models: one `vmodel:` name for an ordered list of models, tried in turn when a provider is down, rate-limited or missing a capability
+- An OpenAI-compatible gateway under `/v1` (chat completions, embeddings, images, model listing) that runs every call through the same ledger
 - Cost-aware execution with per-step token and latency accounting
 - Graceful failure handling with retries, fallback chains, and human-in-the-loop approvals: a run that stops for a decision records the request, so it can be answered from the task rather than only by whoever was watching the stream
 - Cron schedules that hand work to the same durable path the API uses, so a scheduled run is an ordinary run; a missed occurrence is skipped unless the schedule asks to catch up
@@ -105,7 +109,10 @@ Enterprise platforms live and die by what they refuse to do. SOIT treats governa
 - Per-version capability allowlists for models, knowledge, workflows, tools, plugins, and MCP servers
 - Full audit log of privileged operations and runtime tool use, searchable by actor, object, outcome and time window
 - Versioned governance policy: every save of a workspace's egress rules and usage limits appends a revision, an earlier one can be restored, and the policy in force carries a content-derived identifier that refused requests are recorded against
-- Cost attribution by run, model, tool, workflow, and workspace
+- Cost attribution by run, model, tool, workflow, and workspace, with daily usage aggregates per entry, key, principal, provider and model
+- Budgets for a workspace, key, member or agent that refuse calls at a hard limit and alert owners, admins and team channels at thresholds
+- Per-key limits (rate, daily calls and tokens, allowed addresses and models) and service principals, so pipelines do not borrow a person's key
+- Content-free runs: a workspace or key can keep prompts and outputs out of storage while tokens, costs and outcomes are still recorded
 - Trace timeline and replay for agent, workflow, response, and tool-call execution
 - Separation of duties: changing egress policy, secrets, or installed plugins requires workspace Owner/Admin, not the Dev role that builds and runs agents
 - Scoped, expiring API keys: a key carries an explicit read/write/admin ceiling and never inherits its owner's full role

@@ -14,6 +14,8 @@
 
 SOIT Community 是开源的 Agent Runtime and Governance Platform，面向已经验证 Agent 价值、但需要把 Agent 接入真实业务系统的团队。它把 Agent 构建、工作流执行、知识检索、工具/MCP 接入、模型路由和运行观测收敛到一个自托管控制平面，并把权限、密钥、基础外联网关、审计、成本、追踪和回放放在运行时边界。
 
+**已经在自己的代码里直接调用模型？** SOIT 同时在 `/v1` 下提供 OpenAI 兼容接口。把 OpenAI SDK、LangChain 或 OpenAI Agents SDK 指向它，换用 SOIT API Key，每次调用就成为一次受治理的运行：按 Key 的限流、配额、地址与模型白名单，超出即停的预算，不落内容的运行，审计，成本归因，以及通过虚拟模型在多个服务商之间故障切换，应用代码无需改动。详见[网关指南](./docs/gateway.md)和[接入示例](./examples/gateway/)。
+
 SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent 中心：Agent 作为主业务对象，Thread/Task/Run 作为统一执行账本，Knowledge/Workflow/Skill 作为能力层，Plugin/MCP 作为安装与集成层。项目遵循清晰分层与稳定内核原则，确保核心层稳定、领域层可持续迭代。
 
 ## 治理优先能力
@@ -23,7 +25,10 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 - **外联控制**：egress policy 限制外部 HTTP 和工具适配器访问边界。
 - **Plugin 优先治理**：MCP server 与 Skill 作为 Plugin artifact 安装，运行时自动继承权限、密钥注入、外联边界、审计、成本归因、追踪和回放能力。
 - **审计**：记录特权操作、工具调用、审批、人审 checkpoint 和运行证据。
-- **成本**：按 run、模型、工具、工作流和工作区归因 token、延迟与成本。
+- **成本**：按 run、模型、工具、工作流和工作区归因 token、延迟与成本，并按入口、Key、服务主体、服务商和模型做每日用量汇总。
+- **预算**：按工作区、Key、成员或 Agent 设置预算，硬上限时拒绝调用，达到阈值时通知 Owner、Admin 和团队渠道。
+- **Key 与服务主体**：每个 Key 可设限流、每日调用与 token 配额、地址和模型白名单；流水线使用服务主体，不借用个人 Key。
+- **不落内容的运行**：工作区或 Key 可选择只记元数据，提示词和输出不入库，token、成本和结果照常记录。
 - **追踪**：以统一 Run/Task/RunStep/Response ledger 串起 Agent、Workflow、Tool 和 Knowledge 事件。
 - **回放**：通过 Observe run detail 复盘响应事件、运行步骤、工具调用、子工作流、引用、成本和审计记录。
 
