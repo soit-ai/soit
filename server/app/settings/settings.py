@@ -421,7 +421,7 @@ class Settings(BaseSettings):
     plugin_runtime_allow_localhost: bool = False
     """Allow plugin runtime to run on localhost (development only)."""
 
-    platform_version: str = "1.0.0"
+    platform_version: str = "1.1.0"
     """Platform version for plugin compatibility checks."""
 
     platform_edition: str = "community"

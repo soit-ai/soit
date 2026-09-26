@@ -448,4 +448,4 @@ install_enveloped_openapi(app)
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {"message": "SOIT API", "version": "1.0.0"}
+    return {"message": "SOIT API", "version": app_settings.platform_version}

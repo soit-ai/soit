@@ -344,7 +344,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--compose-file", type=Path, default=DEFAULT_COMPOSE_FILE)
     parser.add_argument("--project-name", default=os.getenv("COMPOSE_PROJECT_NAME", "soit"))
     parser.add_argument("--backup-id")
-    parser.add_argument("--platform-version", default=os.getenv("PLATFORM_VERSION", "1.0.0"))
+    parser.add_argument("--platform-version", default=os.getenv("PLATFORM_VERSION", "1.1.0"))
     parser.add_argument(
         "--minio-endpoint",
         default=os.getenv("MINIO_BACKUP_ENDPOINT", "http://minio:9000"),

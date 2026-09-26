@@ -13,8 +13,8 @@ body:
     id: version
     attributes:
       label: SOIT version or commit
-      description: Release tag (e.g. v1.0.0) or the output of `git rev-parse HEAD`.
-      placeholder: v1.0.0
+      description: Release tag (e.g. v1.1.0) or the output of `git rev-parse HEAD`.
+      placeholder: v1.1.0
     validations:
       required: true
   - type: dropdown

@@ -12,6 +12,8 @@ record for operators.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-26
+
 ### Added
 
 - A lite profile, `docker/docker-compose.lite.yml`, runs every feature in
@@ -581,5 +583,6 @@ compatibility and known limitations: [docs/releases/v1.0.0.md](./docs/releases/v
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
   differ from the development value.
 
-[Unreleased]: https://github.com/soit-ai/soit/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/soit-ai/soit/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/soit-ai/soit/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/soit-ai/soit/releases/tag/v1.0.0
