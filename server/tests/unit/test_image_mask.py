@@ -16,6 +16,7 @@ from app.kernel.ports.llm.image_mask import (
     assert_mask_matches_image,
     image_dimensions,
     mask_to_openai_alpha,
+    openai_alpha_to_mask,
 )
 
 
@@ -117,3 +118,37 @@ class TestMaskDimensions:
     def test_undecodable_image_is_rejected(self):
         with pytest.raises(ValidationError):
             image_dimensions(b"nope")
+
+class TestOpenAIAlphaToMask:
+    def _half_transparent(self, size=(10, 10)) -> bytes:
+        mask = Image.new("RGBA", size, (0, 0, 0, 255))
+        for x in range(size[0] // 2):
+            for y in range(size[1]):
+                mask.putpixel((x, y), (0, 0, 0, 0))
+        return _encode(mask)
+
+    def test_transparent_becomes_white_and_opaque_becomes_black(self):
+        result = openai_alpha_to_mask(self._half_transparent())
+
+        with Image.open(io.BytesIO(result)) as out:
+            assert out.mode == "L"
+            assert out.getpixel((0, 0)) == 255
+            assert out.getpixel((9, 9)) == 0
+
+    def test_the_round_trip_keeps_the_selection(self):
+        original = self._half_transparent()
+
+        restored = mask_to_openai_alpha(openai_alpha_to_mask(original))
+
+        with Image.open(io.BytesIO(restored)) as out:
+            alpha = out.getchannel("A")
+            assert alpha.getpixel((0, 5)) == 0
+            assert alpha.getpixel((9, 5)) == 255
+
+    def test_a_mask_without_alpha_is_refused(self):
+        with pytest.raises(ValidationError, match="alpha channel"):
+            openai_alpha_to_mask(_half_white_mask())
+
+    def test_an_undecodable_mask_is_refused(self):
+        with pytest.raises(ValidationError):
+            openai_alpha_to_mask(b"not an image")

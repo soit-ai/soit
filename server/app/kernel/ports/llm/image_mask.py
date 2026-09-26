@@ -74,6 +74,40 @@ def mask_to_openai_alpha(mask: bytes) -> bytes:
     return buffer.getvalue()
 
 
+def openai_alpha_to_mask(mask: bytes) -> bytes:
+    """Convert an OpenAI alpha mask into SOIT's white-is-edit mask.
+
+    The inverse of :func:`mask_to_openai_alpha`, for callers that speak
+    OpenAI's convention: transparent pixels become white (edit here), opaque
+    ones black. A mask without an alpha channel carries no selection in that
+    convention and is refused rather than read as all-opaque.
+    """
+    if not mask:
+        raise ValidationError("Image mask is empty")
+
+    Image = _require_pillow()
+    try:
+        with Image.open(io.BytesIO(mask)) as source:
+            source.load()
+            has_alpha = "A" in source.getbands() or "transparency" in source.info
+            rgba = source.convert("RGBA")
+    except ValidationError:
+        raise
+    except Exception as exc:
+        raise ValidationError(f"Image mask could not be decoded: {exc}") from exc
+    if not has_alpha:
+        raise ValidationError(
+            "The mask needs an alpha channel: transparent pixels mark the region to edit"
+        )
+
+    selection = rgba.getchannel("A").point(
+        lambda value: 255 if value < _SELECTED_LUMINANCE_THRESHOLD else 0
+    )
+    buffer = io.BytesIO()
+    selection.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def assert_mask_matches_image(image: bytes, mask: bytes) -> None:
     """Refuse a mask whose dimensions do not match the image.
 

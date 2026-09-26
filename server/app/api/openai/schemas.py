@@ -14,6 +14,29 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 MAX_MESSAGES = 1024
 MAX_EMBEDDING_ITEMS = 256
 MAX_EMBEDDING_ITEM_CHARS = 8192
+MIN_IMAGE_DIMENSION = 64
+MAX_IMAGE_DIMENSION = 4096
+MAX_IMAGE_PROMPT_CHARS = 32000
+
+
+def validate_image_size(value: str | None) -> str | None:
+    """Accept ``auto`` or ``WIDTHxHEIGHT`` within what providers serve.
+
+    Checked before the call is made, so a size no provider accepts is refused
+    rather than billed.
+    """
+    if value is None or value == "auto":
+        return value
+    width, separator, height = value.partition("x")
+    if not (separator and width.isdigit() and height.isdigit()):
+        raise ValueError("size must be 'auto' or WIDTHxHEIGHT")
+    for dimension in (int(width), int(height)):
+        if not MIN_IMAGE_DIMENSION <= dimension <= MAX_IMAGE_DIMENSION:
+            raise ValueError(
+                f"Image dimensions must be between {MIN_IMAGE_DIMENSION} "
+                f"and {MAX_IMAGE_DIMENSION} pixels"
+            )
+    return value
 
 
 class _Lenient(BaseModel):
@@ -119,8 +142,13 @@ class EmbeddingRequest(_Lenient):
 
 class ImageGenerationRequest(_Lenient):
     model: str = Field(min_length=1)
-    prompt: str = Field(min_length=1, max_length=32000)
+    prompt: str = Field(min_length=1, max_length=MAX_IMAGE_PROMPT_CHARS)
     n: int = Field(default=1, ge=1, le=4)
     size: str | None = None
     response_format: Literal["b64_json", "url"] = "b64_json"
     user: str | None = None
+
+    @field_validator("size")
+    @classmethod
+    def _supported_size(cls, value: str | None) -> str | None:
+        return validate_image_size(value)

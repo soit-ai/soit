@@ -5,16 +5,23 @@ from __future__ import annotations
 import array
 import base64
 import dataclasses
+import io
 import json
 from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+from PIL import Image
 from sqlmodel import select
 
 from app.kernel.commons.errors import RateLimitExceededError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.llm.interface import ChatStreamChunk, ToolCallDelta
+from app.kernel.ports.llm.interface import (
+    ChatStreamChunk,
+    GeneratedImage,
+    ImageGenerationResponse,
+    ToolCallDelta,
+)
 from app.kernel.runtime.db.models.runs import Run, RunStep
 from app.kernel.runtime.runs.exporter import to_runtrace_spec
 from app.kernel.specs import validate_spec
@@ -430,6 +437,98 @@ async def test_embeddings_can_be_base64_float32(async_client) -> None:
     decoded = array.array("f")
     decoded.frombytes(base64.b64decode(encoded))
     assert list(decoded) == [0.0, 0.0, 0.0]
+
+
+def _png(size: tuple[int, int] = (64, 64)) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", size, (10, 20, 30)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _openai_mask(size: tuple[int, int] = (64, 64)) -> bytes:
+    """Left half transparent: the region to edit in OpenAI's convention."""
+    mask = Image.new("RGBA", size, (0, 0, 0, 255))
+    for x in range(size[0] // 2):
+        for y in range(size[1]):
+            mask.putpixel((x, y), (0, 0, 0, 0))
+    buffer = io.BytesIO()
+    mask.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class _CapturingEditPort:
+    def __init__(self) -> None:
+        self.mask: bytes | None = None
+
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        model: str,
+        mask: bytes | None = None,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageGenerationResponse:
+        self.mask = mask
+        return ImageGenerationResponse(
+            images=[GeneratedImage(b64_json=base64.b64encode(_png()).decode()) for _ in range(n)],
+            model=model,
+        )
+
+
+async def _edit(async_client, *, mask: bytes | None = None, **fields: str):
+    files = {"image": ("source.png", _png(), "image/png")}
+    if mask is not None:
+        files["mask"] = ("mask.png", mask, "image/png")
+    data = {"model": "model:test:painter", "prompt": "fill the left half", **fields}
+    return await async_client.post("/v1/images/edits", files=files, data=data)
+
+
+@pytest.mark.asyncio
+async def test_image_edits_take_the_openai_form_and_mask_convention(
+    async_client, async_db
+) -> None:
+    port = _CapturingEditPort()
+    with _SwapLLMPort(port):
+        response = await _edit(async_client, mask=_openai_mask(), n="2", size="64x64")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["data"]) == 2
+    assert all(set(item) == {"b64_json"} for item in body["data"])
+    assert port.mask is not None
+    with Image.open(io.BytesIO(port.mask)) as received:
+        # Transparent in the caller's mask arrives as white: edit here.
+        assert received.convert("L").getpixel((0, 0)) == 255
+        assert received.convert("L").getpixel((63, 0)) == 0
+    run, _ = await _run(async_db, response.headers["x-soit-run-id"])
+    assert (run.mode, run.kind, run.status) == ("gateway", "image", "succeeded")
+
+
+@pytest.mark.asyncio
+async def test_image_edits_refuse_masks_they_cannot_read(async_client) -> None:
+    no_alpha = await _edit(async_client, mask=_png())
+    assert no_alpha.status_code == 400
+    assert "alpha channel" in no_alpha.json()["error"]["message"]
+
+    wrong_size = await _edit(async_client, mask=_openai_mask((32, 32)))
+    assert wrong_size.status_code == 400
+    assert "dimensions" in wrong_size.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_image_sizes_outside_what_providers_serve_are_refused(async_client) -> None:
+    edit = await _edit(async_client, size="12x12")
+    assert edit.status_code == 400
+    assert edit.json()["error"]["param"] == "size"
+
+    generation = await async_client.post(
+        "/v1/images/generations",
+        json={"model": "model:test:painter", "prompt": "x", "size": "9999x9999"},
+    )
+    assert generation.status_code == 400
+    assert generation.json()["error"]["param"] == "size"
 
 
 @pytest.mark.asyncio

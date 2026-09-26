@@ -15,11 +15,11 @@ import base64
 import logging
 import time
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import anyio
 import orjson
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -33,9 +33,11 @@ from app.api.openai.convert import (
     usage,
 )
 from app.api.openai.schemas import (
+    MAX_IMAGE_PROMPT_CHARS,
     ChatCompletionRequest,
     EmbeddingRequest,
     ImageGenerationRequest,
+    validate_image_size,
 )
 from app.api.v1.modelhub.dependencies import get_modelhub_service
 from app.api.v1.permissions import (
@@ -43,9 +45,14 @@ from app.api.v1.permissions import (
     require_workspace_write_ctx,
 )
 from app.infra.db.session import get_async_db
-from app.kernel.commons.errors import KernelError
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.llm.image_mask import (
+    assert_mask_matches_image,
+    openai_alpha_to_mask,
+)
 from app.kernel.ports.llm.interface import ChatMessage, ChatStreamChunk
+from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.images.service import ImageJobRequest, execute_image_job
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.middleware.error_handler import ERROR_CODE_TO_STATUS
@@ -61,6 +68,7 @@ RUN_ID_HEADER = "x-soit-run-id"
 GATEWAY_MODE = "gateway"
 _DONE = b"data: [DONE]\n\n"
 _SUMMARY_LIMIT = 8192
+MAX_UPLOAD_IMAGE_BYTES = AttachmentService.MAX_FILE_SIZE
 
 
 def _subject(ctx: RequestContext) -> tuple[str, str]:
@@ -419,38 +427,27 @@ async def create_embeddings(
     }
 
 
-@router.post("/images/generations")
-async def create_image(
-    payload: ImageGenerationRequest,
-    ctx: Annotated[RequestContext, Depends(require_workspace_write_ctx)],
-    db: Annotated[AsyncSession, Depends(get_async_db)],
+async def _image_response(
+    request: ImageJobRequest,
+    *,
+    ctx: RequestContext,
+    db: AsyncSession,
     response: Response,
-):
-    """Image generation in OpenAI's ``created`` + ``data`` shape."""
+    summary: str,
+) -> dict[str, Any]:
+    """Run one governed image job and answer in OpenAI's ``created`` + ``data`` shape."""
 
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
     llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
-    run_id = await _open_run(
-        trace_writer,
-        ctx,
-        kind="image",
-        summary=f"model={payload.model}, n={payload.n}, size={payload.size or 'default'}",
-    )
+    run_id = await _open_run(trace_writer, ctx, kind="image", summary=summary)
     await db.commit()
     response.headers[RUN_ID_HEADER] = run_id
     try:
-        # The job the /api/v1/images route runs, so a gateway image passes the
+        # The job the /api/v1/images routes run, so a gateway image passes the
         # same content check before it is returned.
         outcome = await execute_image_job(
-            ImageJobRequest(
-                kind="generate",
-                model=payload.model,
-                prompt=payload.prompt,
-                n=payload.n,
-                size=payload.size,
-                response_format=payload.response_format,
-            ),
+            request,
             run_id=run_id,
             ctx=ctx,
             llm_port=llm_port,
@@ -466,10 +463,99 @@ async def create_image(
         raise
     data: list[dict[str, Any]] = []
     for image in outcome.results:
-        if payload.response_format == "url" and image.url:
+        if request.response_format == "url" and image.url:
             data.append({"url": image.url})
         elif image.b64_json:
             data.append({"b64_json": image.b64_json})
         elif image.url:
             data.append({"url": image.url})
     return {"created": int(time.time()), "data": data}
+
+
+@router.post("/images/generations")
+async def create_image(
+    payload: ImageGenerationRequest,
+    ctx: Annotated[RequestContext, Depends(require_workspace_write_ctx)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
+    response: Response,
+):
+    """Image generation in OpenAI's ``created`` + ``data`` shape."""
+
+    return await _image_response(
+        ImageJobRequest(
+            kind="generate",
+            model=payload.model,
+            prompt=payload.prompt,
+            n=payload.n,
+            size=payload.size,
+            response_format=payload.response_format,
+        ),
+        ctx=ctx,
+        db=db,
+        response=response,
+        summary=f"model={payload.model}, n={payload.n}, size={payload.size or 'default'}",
+    )
+
+
+async def _read_upload(upload: UploadFile, *, field: str) -> bytes:
+    data = await upload.read(MAX_UPLOAD_IMAGE_BYTES + 1)
+    if not data:
+        raise ValidationError(f"{field} is empty", {"param": field})
+    if len(data) > MAX_UPLOAD_IMAGE_BYTES:
+        raise ValidationError(
+            f"{field} exceeds the {MAX_UPLOAD_IMAGE_BYTES // (1024 * 1024)} MiB limit",
+            {"param": field},
+        )
+    return data
+
+
+@router.post("/images/edits")
+async def edit_image(
+    ctx: Annotated[RequestContext, Depends(require_workspace_write_ctx)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
+    response: Response,
+    image: Annotated[UploadFile, File()],
+    prompt: Annotated[str, Form(min_length=1, max_length=MAX_IMAGE_PROMPT_CHARS)],
+    model: Annotated[str, Form(min_length=1)],
+    mask: Annotated[UploadFile | None, File()] = None,
+    n: Annotated[int, Form(ge=1, le=4)] = 1,
+    size: Annotated[str | None, Form()] = None,
+    response_format: Annotated[Literal["b64_json", "url"], Form()] = "b64_json",
+    output_format: Annotated[Literal["png", "webp"], Form()] = "png",
+    background: Annotated[Literal["transparent", "opaque"] | None, Form()] = None,
+):
+    """Image editing from OpenAI's multipart form.
+
+    The mask follows OpenAI's convention, transparent marks the region to
+    edit, and is converted to SOIT's white-is-edit mask so every provider
+    reads the same selection.
+    """
+
+    try:
+        validate_image_size(size)
+    except ValueError as exc:
+        raise ValidationError(str(exc), {"param": "size"}) from exc
+    source = await _read_upload(image, field="image")
+    selection: bytes | None = None
+    if mask is not None:
+        selection = openai_alpha_to_mask(await _read_upload(mask, field="mask"))
+        assert_mask_matches_image(source, selection)
+
+    return await _image_response(
+        ImageJobRequest(
+            kind="edit",
+            model=model,
+            prompt=prompt,
+            n=n,
+            size=size,
+            response_format=response_format,
+            output_format=output_format,
+            image=source,
+            mask=selection,
+            extra={"background": background} if background else {},
+        ),
+        ctx=ctx,
+        db=db,
+        response=response,
+        summary=f"model={model}, n={n}, mask={'yes' if selection else 'no'}",
+    )

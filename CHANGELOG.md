@@ -16,7 +16,11 @@ record for operators.
 
 - An OpenAI-compatible gateway under `/v1`: `POST /v1/chat/completions`
   (whole or streamed, with tools, images and structured output),
-  `GET /v1/models`, `POST /v1/embeddings` and `POST /v1/images/generations`.
+  `GET /v1/models`, `POST /v1/embeddings`, `POST /v1/images/generations` and
+  `POST /v1/images/edits` (multipart; the mask's transparent pixels mark the
+  region to edit, as in OpenAI's API, and are converted to SOIT's
+  white-is-edit convention). Image sizes outside 64-4096 pixels are refused
+  before the call is billed.
   An OpenAI SDK pointed at SOIT with a SOIT API key works unchanged. Every
   call is a governed run (`mode=gateway`, subject the API key or the user)
   that passes the same rate limits, quotas, credit checks, content safety and
