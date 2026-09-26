@@ -71,6 +71,10 @@ record for operators.
   `message_start` usage was ignored, so streamed calls recorded zero input
   tokens and were priced on output alone. Prompt-cache writes and reads now
   count as input on both the streamed and the whole-reply path.
+- Rate limiters share one Redis connection pool per event loop. The policy
+  gateways are built per request, and each opened a pool of its own for its
+  limit checks that was never closed, so a busy API held sockets for every
+  recent model call.
 - Local file storage uses the absolute root in `STORAGE_URL` on Linux and
   macOS. The root lost its leading slash and was resolved under the process
   working directory, so `file:///data/storage` became `./data/storage`: the

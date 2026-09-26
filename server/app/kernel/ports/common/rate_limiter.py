@@ -8,7 +8,7 @@ import time
 import redis.asyncio as redis_async
 
 from app.kernel.commons.errors import RateLimitExceededError
-from app.settings.settings import settings
+from app.kernel.ports.common.redis_client import shared_redis
 
 
 class RateLimiter:
@@ -18,27 +18,21 @@ class RateLimiter:
         """Initialize rate limiter.
 
         Args:
-            redis_client: Optional Redis client. If None, creates a new connection.
+            redis_client: Optional Redis client. If None, the running loop's
+                shared pool is used, so building a limiter per request opens
+                no connections of its own.
         """
         self._redis: redis_async.Redis | None = redis_client
-        self._redis_pool: redis_async.ConnectionPool | None = None
 
     async def _get_redis(self) -> redis_async.Redis:
-        """Get or create Redis client.
+        """Get the Redis client.
 
         Returns:
             Redis client instance.
         """
         if self._redis is not None:
             return self._redis
-
-        if self._redis_pool is None:
-            self._redis_pool = redis_async.ConnectionPool.from_url(
-                settings.redis_url,
-                decode_responses=False,  # We need bytes for Lua scripts
-            )
-
-        return redis_async.Redis(connection_pool=self._redis_pool)
+        return shared_redis()
 
     async def check_rate_limit(
         self,
@@ -165,8 +159,5 @@ class RateLimiter:
         await redis.delete(redis_key)
 
     async def close(self) -> None:
-        """Close Redis connections."""
-        if self._redis_pool:
-            await self._redis_pool.disconnect()
-            self._redis_pool = None
+        """Release nothing: connections belong to the loop's shared pool."""
 
