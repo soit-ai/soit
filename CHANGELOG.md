@@ -292,6 +292,15 @@ record for operators.
 
 ### Fixed
 
+- Deciding an agent run's approvals anywhere other than the chat (the
+  approvals page, the task page, the API) now finishes the run. The approval
+  consumer used to mark the task running and stop there, so a run whose chat
+  client had gone away stayed running forever. Once every approval the run
+  waits on is decided, the consumer queues a resume that carries the
+  decisions for the durable interaction worker, on the same run, task and
+  response; a rejection resumes it too, and the agent records the refused
+  tool call and finishes its turn. A checkpoint a chat client is already
+  resuming is left to that client.
 - Knowledge visibility is enforced. A `private` knowledge base is reachable
   only by its creator, workspace owners and admins, and members holding a
   resource grant on it: listings, the knowledge workbench, global search and

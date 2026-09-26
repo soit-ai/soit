@@ -42,6 +42,10 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.permissions import RESOURCE_AGENT, require_resource_run_async
 from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.db.models.threads import generate_thread_message_id
+from app.kernel.runtime.responses.approval_resume import (
+    RESUME_ENTRIES_KEY,
+    RESUME_EXECUTION_KEY,
+)
 from app.kernel.runtime.responses.orchestrator import ResponseProjectionCoordinator
 from app.kernel.runtime.responses.schemas import (
     ResponseCancelResult,
@@ -291,8 +295,8 @@ async def create_response(
             if attachment_ids:
                 agent_inputs["_attachment_ids"] = attachment_ids
             if resolved_resumes:
-                agent_inputs["_agui_resume"] = resolved_resumes
-                agent_inputs["_resume_execution"] = resume_execution
+                agent_inputs[RESUME_ENTRIES_KEY] = resolved_resumes
+                agent_inputs[RESUME_EXECUTION_KEY] = resume_execution
 
         execution_json = {
             "mode": "agent" if internal_payload.agent_id else "direct",
