@@ -54,6 +54,35 @@ async def test_put_get_exists_and_delete_roundtrip(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_local_objects_land_under_the_configured_root(tmp_path: Path) -> None:
+    storage = FsspecStoragePort(base_url=tmp_path.as_uri(), auto_mkdir=True)
+
+    await storage.put("tenants/t1/object.txt", b"hello")
+
+    assert (tmp_path / "tenants" / "t1" / "object.txt").read_bytes() == b"hello"
+
+
+class _FakeLocalFilesystem:
+    protocol = ("file", "local")
+
+
+@pytest.mark.parametrize(
+    ("root", "expected"),
+    [("/data/storage/", "/data/storage"), ("/", "/"), ("C:\\soit\\storage", "C:/soit/storage")],
+)
+def test_absolute_local_roots_stay_absolute(monkeypatch, root: str, expected: str) -> None:
+    # A relative root would be resolved against the working directory.
+    monkeypatch.setattr(
+        "app.adapters.storage.fsspec.fsspec.core.url_to_fs",
+        lambda *_args, **_kwargs: (_FakeLocalFilesystem(), root),
+    )
+    storage = FsspecStoragePort(base_url="file:///data/storage", auto_mkdir=True)
+
+    assert storage.root_path == expected
+    assert storage._resolve_path("a/b.txt") == f"{expected.rstrip('/')}/a/b.txt"
+
+
+@pytest.mark.asyncio
 async def test_delete_uses_single_object_operation(tmp_path: Path, monkeypatch) -> None:
     storage = FsspecStoragePort(base_url=tmp_path.as_uri(), auto_mkdir=True)
     key = await storage.put("single/object.txt", b"hello")

@@ -41,6 +41,13 @@ record for operators.
   `message_start` usage was ignored, so streamed calls recorded zero input
   tokens and were priced on output alone. Prompt-cache writes and reads now
   count as input on both the streamed and the whole-reply path.
+- Local file storage uses the absolute root in `STORAGE_URL` on Linux and
+  macOS. The root lost its leading slash and was resolved under the process
+  working directory, so `file:///data/storage` became `./data/storage`: the
+  lite profile's API never turned ready because it could not create that
+  directory, and the default development store nested itself under the
+  server directory. Files an earlier version wrote there must be moved to the
+  configured root.
 
 ### Changed
 

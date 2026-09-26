@@ -19,6 +19,8 @@ from app.kernel.ports.storage.interface import (
 )
 from app.settings.settings import settings
 
+_LOCAL_PROTOCOLS = frozenset({"file", "local"})
+
 
 async def _run_sync_operation(operation_name: str, timeout_seconds: float | None, func: Any, *args: Any, **kwargs: Any) -> Any:
     try:
@@ -272,9 +274,15 @@ class FsspecStoragePort(StreamingStoragePort):
             normalized["client_kwargs"] = client_kwargs
         return normalized
 
-    @staticmethod
-    def _normalize_root_path(root_path: str) -> str:
-        return root_path.replace("\\", "/").strip("/")
+    def _normalize_root_path(self, root_path: str) -> str:
+        normalized = root_path.replace("\\", "/")
+        if self._backend_name() in _LOCAL_PROTOCOLS:
+            # A local root stays absolute. Without its leading slash fsspec
+            # resolves it against the working directory, which moves the store
+            # away from the configured root, usually somewhere the process
+            # cannot write.
+            return normalized.rstrip("/") or "/"
+        return normalized.strip("/")
 
     @staticmethod
     def _normalize_key(key: str) -> str:
