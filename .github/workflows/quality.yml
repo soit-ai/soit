@@ -122,7 +122,7 @@ jobs:
       - name: Entrypoint tests
         run: uv run pytest tests/entrypoints -q
 
-      - name: Client SDK compatibility (OpenAI, MCP)
+      - name: Client compatibility (OpenAI SDK, MCP SDK, soit CLI)
         run: uv run pytest tests/compat -q
 
       - name: Integration tests
@@ -135,6 +135,33 @@ jobs:
           tests/test_model_scope_audit.py
           tests/test_trace_emission.py
           -q
+
+  cli:
+    name: cli
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Tests
+        run: uv run pytest -q
 
   backend-strict:
     name: backend-strict

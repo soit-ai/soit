@@ -14,6 +14,14 @@ record for operators.
 
 ### Added
 
+- The `soit` command line (`cli/`, installable with `uv tool install ./cli`
+  or `pipx`): `soit login` checks an API key and stores it for the user
+  alone (or reads `SOIT_API_URL` and `SOIT_API_KEY`), `soit run` runs an
+  agent's published version, `soit eval` replays regression sets on a
+  candidate model and can fail a CI step on regressions (exit 3), and
+  `soit export` saves a run's evidence bundle after checking its SHA-256, or
+  ledger records for a window. It runs against the real API in the
+  compatibility suite, and has its own CI job.
 - Model replays: `POST /api/v1/evaluations/model-replays` runs agents'
   regression sets on a candidate model next to the model their published
   versions use, and compares pass rate, average latency and cost, with the

@@ -28,11 +28,15 @@ def _env_values(path: Path) -> dict[str, str]:
 
 def test_release_version_is_consistent_across_public_manifests() -> None:
     server_package = tomllib.loads((ROOT / "server" / "pyproject.toml").read_text(encoding="utf-8"))
+    cli_package = tomllib.loads((ROOT / "cli" / "pyproject.toml").read_text(encoding="utf-8"))
+    cli_source = (ROOT / "cli" / "soit_cli" / "__init__.py").read_text(encoding="utf-8")
     web_package = json.loads((ROOT / "web" / "package.json").read_text(encoding="utf-8"))
     root_env = _env_values(ROOT / ".env.example")
     server_env = _env_values(ROOT / "server" / ".env.example")
 
     assert server_package["project"]["version"] == RELEASE_VERSION
+    assert cli_package["project"]["version"] == RELEASE_VERSION
+    assert f'__version__ = "{RELEASE_VERSION}"' in cli_source
     assert web_package["version"] == RELEASE_VERSION
     assert root_env["PLATFORM_VERSION"] == RELEASE_VERSION
     assert server_env["PLATFORM_VERSION"] == RELEASE_VERSION
@@ -142,6 +146,8 @@ def test_community_source_has_no_private_runtime_package_dependency() -> None:
     dependency_files = [
         ROOT / "server" / "pyproject.toml",
         ROOT / "server" / "uv.lock",
+        ROOT / "cli" / "pyproject.toml",
+        ROOT / "cli" / "uv.lock",
         ROOT / "web" / "package.json",
         ROOT / "web" / "package-lock.json",
     ]
