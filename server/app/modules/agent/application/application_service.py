@@ -15,6 +15,7 @@ from sqlalchemy import and_, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import (
+    ForbiddenError,
     KernelError,
     NotFoundError,
     ValidationError,
@@ -90,6 +91,7 @@ from app.modules.evaluation.application.service import (
     RegressionEvaluationService,
     RegressionRunResult,
 )
+from app.modules.evaluation.domain.models import RegressionModelReplay
 from app.modules.identity.application.display import resolve_user_display_names_async
 from app.modules.memory.application.service import MemoryService
 from app.modules.versioning.application.service import VersionControlService
@@ -101,10 +103,53 @@ logger = logging.getLogger(__name__)
 _PUBLIC_AGENT_EXECUTION_ERROR = "Agent execution failed"
 
 
+def _replay_side(item: dict[str, Any]) -> dict[str, Any]:
+    """One side of one case in a model replay."""
+    return {
+        "passed": item["passed"],
+        "latency_ms": item["latency_ms"],
+        "cost_amount": float((item.get("cost") or {}).get("amount") or 0),
+        "run_id": item.get("run_id"),
+        "failure_reasons": item.get("failure_reasons") or [],
+    }
+
+
+def _replay_delta(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    """Candidate minus baseline, for pass rate, latency and cost."""
+
+    def minus(key: str, digits: int) -> float | None:
+        if baseline.get(key) is None or candidate.get(key) is None:
+            return None
+        return round(float(candidate[key]) - float(baseline[key]), digits)
+
+    return {
+        "pass_rate": minus("pass_rate", 4),
+        "avg_latency_ms": minus("avg_latency_ms", 0),
+        "total_cost_amount": minus("total_cost_amount", 8),
+    }
+
+
 class AgentApplicationService:
     """Agent CRUD, publish, and execution service backed by Agent tables."""
 
     _INTERNAL_VERSION_OVERRIDE_KEY = "_agent_version_id"
+
+    _INTERNAL_MODEL_OVERRIDE_KEY = "_agent_model_ref"
+    """Runs the version on another model: the candidate side of a model replay."""
+
+    MAX_MODEL_REPLAY_CASES = 200
+    """Cases one model replay may run; each runs twice, once per model."""
+
+    _MODEL_CONFIGURATION_ERRORS = frozenset(
+        {
+            "MODEL_REF_INVALID",
+            "MODEL_PROVIDER_DISABLED",
+            "MODEL_RUNTIME_DISABLED",
+            "MODEL_RUNTIME_NOT_FOUND",
+            "MODEL_CAPABILITY_UNAVAILABLE",
+        }
+    )
+    """Failures that say the model cannot be used at all, not that a case failed."""
 
     _INTERNAL_SANDBOX_KEY = "_agent_sandbox"
     """Marks an execution as a rehearsal.
@@ -1319,6 +1364,178 @@ class AgentApplicationService:
             run_id=result.get("run_id"),
         )
 
+    async def _replay_case_on_model(
+        self,
+        agent_id: str,
+        version_id: str,
+        case: Any,
+        model_ref: str | None,
+    ) -> RegressionRunResult:
+        """One rehearsal of a case, on the version's own model or on ``model_ref``.
+
+        A failed run is a failed case, not a failed replay, unless it says the
+        model cannot be used at all: then every case would fail the same way.
+        """
+        inputs: dict[str, Any] = {
+            **self._agent_inputs_from_regression_case(case),
+            self._INTERNAL_VERSION_OVERRIDE_KEY: version_id,
+            self._INTERNAL_SANDBOX_KEY: True,
+        }
+        if model_ref:
+            inputs[self._INTERNAL_MODEL_OVERRIDE_KEY] = model_ref
+        started = time.perf_counter()
+        try:
+            result = await self.execute_agent(agent_id, inputs)
+        except KernelError as exc:
+            not_allowed = isinstance(exc, ForbiddenError) and (exc.details or {}).get("reason") == "model_not_allowed"
+            if exc.code in self._MODEL_CONFIGURATION_ERRORS or not_allowed:
+                raise
+            return self._failed_replay(started, f"{exc.code}: {exc.message}")
+        except Exception as exc:
+            return self._failed_replay(started, public_error_message(exc, _PUBLIC_AGENT_EXECUTION_ERROR))
+        return RegressionRunResult(
+            output=str(result.get("output") or ""),
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            cost={
+                "amount": float(result.get("cost_total") or 0.0),
+                "currency": result.get("cost_currency") or "USD",
+            },
+            run_id=result.get("run_id"),
+        )
+
+    @staticmethod
+    def _failed_replay(started: float, error: str) -> RegressionRunResult:
+        return RegressionRunResult(
+            output="",
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            cost={"amount": 0.0, "currency": "USD"},
+            error=error[:500],
+        )
+
+    @workspace_guard("write")
+    async def replay_regressions_on_model(
+        self,
+        *,
+        model_ref: str,
+        agent_ids: list[str] | None = None,
+        dataset: str | None = None,
+        max_cases: int = 50,
+    ) -> RegressionModelReplay:
+        """Replay agents' regression sets on ``model_ref`` next to their own model.
+
+        Each case runs twice as a rehearsal of the agent's published version:
+        on the model it binds, and on ``model_ref``. Both run now, so neither
+        side is measured against a stale report. The comparison is recorded
+        as a model replay and never becomes a publish baseline.
+        """
+        if self.regression_evaluator is None:
+            raise ValidationError("Regression evaluation is not available here")
+        evaluator = self.regression_evaluator
+        model_ref = model_ref.strip()
+        if not model_ref:
+            raise ValidationError("A model ref is required", {"param": "model_ref"})
+        subject_ids = (
+            self._normalize_ref_list(agent_ids)
+            if agent_ids
+            else await evaluator.subjects_with_cases(subject_kind="agent", dataset=dataset)
+        )
+
+        plan: list[tuple[Agent, AgentVersion, str | None, str, list[Any]]] = []
+        skipped: list[dict[str, Any]] = []
+        for agent_id in subject_ids:
+            agent = await self._get_agent(agent_id)
+            if not agent.published_version_id:
+                skipped.append({"agent_id": agent.id, "agent_name": agent.name, "reason": "no_published_version"})
+                continue
+            version = await self._resolve_execution_version(agent)
+            current_model = ((version.spec_json or {}).get("bindings") or {}).get("model_ref")
+            cases = await evaluator.list_cases(subject_kind="agent", subject_id=agent.id, dataset=dataset)
+            if not cases:
+                skipped.append({"agent_id": agent.id, "agent_name": agent.name, "reason": "no_cases"})
+                continue
+            by_dataset: dict[str, list[Any]] = defaultdict(list)
+            for case in cases:
+                by_dataset[str(case.dataset or "default")].append(case)
+            for name, group in by_dataset.items():
+                plan.append((agent, version, current_model, name, group))
+
+        case_count = sum(len(group) for *_, group in plan)
+        if case_count == 0:
+            raise ValidationError(
+                "There are no regression cases to replay", {"agent_ids": subject_ids, "skipped": skipped}
+            )
+        limit = max(1, min(int(max_cases), self.MAX_MODEL_REPLAY_CASES))
+        if case_count > limit:
+            raise ValidationError(
+                f"This replay would run {case_count} cases on two models; the limit is {limit}."
+                " Narrow it to fewer agents or one dataset.",
+                {"case_count": case_count, "max_cases": limit},
+            )
+
+        subjects: list[dict[str, Any]] = []
+        baseline_all: list[dict[str, Any]] = []
+        candidate_all: list[dict[str, Any]] = []
+        for agent, version, current_model, dataset_name, cases in plan:
+            baseline = await evaluator.replay_cases(
+                cases,
+                lambda case, a=agent.id, v=version.id: self._replay_case_on_model(a, v, case, None),
+            )
+            candidate = await evaluator.replay_cases(
+                cases,
+                lambda case, a=agent.id, v=version.id: self._replay_case_on_model(a, v, case, model_ref),
+            )
+            baseline_all += baseline
+            candidate_all += candidate
+            before = {item["case_id"]: item for item in baseline}
+            subjects.append(
+                {
+                    "agent_id": agent.id,
+                    "agent_name": agent.name,
+                    "version_id": version.id,
+                    "dataset": dataset_name,
+                    "dataset_revision": evaluator.dataset_revision(cases),
+                    "baseline_model_ref": current_model,
+                    "baseline": evaluator.side_summary(baseline),
+                    "candidate": evaluator.side_summary(candidate),
+                    "regressed": [
+                        item["case_id"]
+                        for item in candidate
+                        if before[item["case_id"]]["passed"] and not item["passed"]
+                    ],
+                    "fixed": [
+                        item["case_id"]
+                        for item in candidate
+                        if not before[item["case_id"]]["passed"] and item["passed"]
+                    ],
+                    "cases": [
+                        {
+                            "case_id": item["case_id"],
+                            "name": item["name"],
+                            "baseline": _replay_side(before[item["case_id"]]),
+                            "candidate": _replay_side(item),
+                        }
+                        for item in candidate
+                    ],
+                }
+            )
+
+        baseline_totals = evaluator.side_summary(baseline_all)
+        candidate_totals = evaluator.side_summary(candidate_all)
+        totals = {
+            "baseline": baseline_totals,
+            "candidate": candidate_totals,
+            "delta": _replay_delta(baseline_totals, candidate_totals),
+            "regressed": sum(len(subject["regressed"]) for subject in subjects),
+            "fixed": sum(len(subject["fixed"]) for subject in subjects),
+            "skipped": skipped,
+        }
+        return await evaluator.record_model_replay(
+            model_ref=model_ref,
+            case_count=case_count,
+            subjects=subjects,
+            totals=totals,
+        )
+
     def _agent_inputs_from_regression_case(self, case: Any) -> dict[str, Any]:
         snapshot = dict(case.input_snapshot_json or {})
         messages = snapshot.get("messages")
@@ -1355,6 +1572,7 @@ class AgentApplicationService:
         inputs = dict(inputs)
         sandbox = bool(inputs.pop(self._INTERNAL_SANDBOX_KEY, False))
         version_override_id = inputs.pop(self._INTERNAL_VERSION_OVERRIDE_KEY, None)
+        model_override = inputs.pop(self._INTERNAL_MODEL_OVERRIDE_KEY, None)
         if version_override_id:
             version = await self._get_version(version_override_id)
             if version.agent_id != agent.id:
@@ -1362,6 +1580,8 @@ class AgentApplicationService:
         else:
             version = await self._resolve_execution_version(agent)
         request = await self._request_from_version(version, inputs)
+        if model_override:
+            request = request.model_copy(update={"model_ref": str(model_override)})
         current_message = self._current_user_message(request)
         linked_response = None
 

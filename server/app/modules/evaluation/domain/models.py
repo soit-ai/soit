@@ -24,6 +24,10 @@ def generate_regression_annotation_id() -> str:
     return f"regann_{generate_ulid()}"
 
 
+def generate_model_replay_id() -> str:
+    return f"regrpl_{generate_ulid()}"
+
+
 class RegressionCase(SQLModel, table=True):
     """Frozen historical run input and expected behavior."""
 
@@ -151,3 +155,38 @@ class RegressionAnnotation(SQLModel, table=True):
     note: str = Field(default="")
     annotated_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
+class RegressionModelReplay(SQLModel, table=True):
+    """Regression sets replayed on another model, next to the model they use.
+
+    Kept apart from regression reports: a replay answers "what if these agents
+    ran on that model", not "is this version fit to publish", so it must never
+    become the baseline a publish is compared against.
+    """
+
+    __tablename__ = "regression_model_replays"
+    __table_args__ = (
+        Index(
+            "ix_regression_model_replays_created",
+            "tenant_id",
+            "workspace_id",
+            "created_at",
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_model_replay_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    model_ref: str = Field(index=True)
+    """The model every case was replayed on, as the candidate."""
+
+    case_count: int = Field(default=0)
+    subjects_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    """Per agent and dataset: both sides' summaries, regressions and cases."""
+
+    totals_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Both sides summed over every subject, and the difference."""
+
+    created_by: str | None = Field(default=None, nullable=True)
+    created_at: datetime = Field(default_factory=utc_now)

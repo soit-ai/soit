@@ -75,6 +75,7 @@ BUDGETS_PATH = VERSIONS_ROOT / "20260927150000_budgets.py"
 WORKSPACE_ENDPOINTS_PATH = VERSIONS_ROOT / "20260927160000_workspace_notification_endpoints.py"
 WORKSPACE_PII_ACTIONS_PATH = VERSIONS_ROOT / "20260927170000_workspace_pii_actions.py"
 API_KEY_ALLOWED_TOOLS_PATH = VERSIONS_ROOT / "20260927180000_api_key_allowed_tools.py"
+MODEL_REPLAYS_PATH = VERSIONS_ROOT / "20260927190000_regression_model_replays.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -147,6 +148,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         WORKSPACE_ENDPOINTS_PATH.name,
         WORKSPACE_PII_ACTIONS_PATH.name,
         API_KEY_ALLOWED_TOOLS_PATH.name,
+        MODEL_REPLAYS_PATH.name,
     ]
 
     module = _load_baseline()

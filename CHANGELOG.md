@@ -14,6 +14,17 @@ record for operators.
 
 ### Added
 
+- Model replays: `POST /api/v1/evaluations/model-replays` runs agents'
+  regression sets on a candidate model next to the model their published
+  versions use, and compares pass rate, average latency and cost, with the
+  cases that regressed and those fixed, per agent and dataset and in total.
+  Both sides run now, as rehearsals (tools are not called, spend is not
+  counted), judged as a publish gate judges them. A replay larger than its
+  `max_cases` (at most 200) is refused before anything runs, and a model
+  that cannot serve stops it. Replays are kept apart from regression reports
+  and never become a publish baseline. Build › Models › Regression replays
+  starts one and shows past replays by agent. Migration `20260927190000`
+  adds the table. See `docs/model-replays.md`.
 - SOIT is an MCP server. `POST /mcp` serves a workspace's tools over the
   streamable HTTP transport in its stateless form (JSON answers, no session,
   no server stream), negotiating protocol versions up to `2025-11-25`.

@@ -29,6 +29,7 @@ import {
   VirtualModelsPanel,
   type VirtualModelTargetOption,
 } from '../../components/virtual-models-panel'
+import { ModelReplaysPanel } from '../../components/model-replays-panel'
 import { catColor, compactNumber, latency, money } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
@@ -51,7 +52,7 @@ import {
 import type { ProviderConfig } from '@/features/model-config/types'
 import { requestErrorMessage } from '@/utils/request'
 
-type MdTab = 'providers' | 'library' | 'virtual' | 'usage'
+type MdTab = 'providers' | 'library' | 'virtual' | 'replays' | 'usage'
 type MdFilter = 'all' | 'chat' | 'embedding' | 'rerank'
 
 const PAGE_SIZE = 200
@@ -140,7 +141,7 @@ export default function ConsoleModels() {
     options: {
       retry: false,
       refetchOnWindowFocus: false,
-      enabled: tab === 'library' || tab === 'virtual',
+      enabled: tab === 'library' || tab === 'virtual' || tab === 'replays',
     },
   })
   // The kind and adapter-backend choices are whatever the deployment reports;
@@ -390,6 +391,7 @@ export default function ConsoleModels() {
             { id: 'providers', label: t('console.models.tabs.providers'), count: providerTabs?.all },
             { id: 'library', label: t('console.models.tabs.library'), count: modelTabs?.all },
             { id: 'virtual', label: t('console.models.tabs.virtual') },
+            { id: 'replays', label: t('console.models.tabs.replays') },
             { id: 'usage', label: t('console.models.tabs.usage') },
           ]}
           value={tab}
@@ -561,6 +563,8 @@ export default function ConsoleModels() {
       )}
 
       {tab === 'virtual' && <VirtualModelsPanel options={targetOptions} />}
+
+      {tab === 'replays' && <ModelReplaysPanel options={targetOptions} />}
 
       {tab === 'usage' && (
         <WorkbenchPanel

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, status
 
+from app.api.v1.agent.dependencies import get_agent_application_service
 from app.api.v1.evaluation.dependencies import get_evaluation_service
 from app.api.v1.evaluation.handlers import EvaluationHandlers
 from app.api.v1.permissions import (
@@ -9,7 +10,11 @@ from app.api.v1.permissions import (
     require_workspace_write_ctx,
 )
 from app.kernel.contracts.context import RequestContext
+from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.evaluation.application.schemas import (
+    ModelReplayCreate,
+    ModelReplayResponse,
+    ModelReplaySummaryResponse,
     RegressionAnnotationCreate,
     RegressionAnnotationResponse,
     RegressionCaseCreateFromRun,
@@ -95,3 +100,53 @@ async def get_latest_regression_report(
         subject_id=subject_id,
         subject_version_id=subject_version_id,
     )
+
+
+@router.post(
+    "/model-replays",
+    response_model=ModelReplayResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_workspace_write_ctx)],
+)
+async def create_model_replay(
+    payload: ModelReplayCreate,
+    agents: AgentApplicationService = Depends(get_agent_application_service),
+):
+    """Replay agents' regression sets on a candidate model next to their own.
+
+    Runs every case twice, as rehearsals, and answers when all have run.
+    """
+    replay = await agents.replay_regressions_on_model(
+        model_ref=payload.model_ref,
+        agent_ids=payload.agent_ids,
+        dataset=payload.dataset,
+        max_cases=payload.max_cases,
+    )
+    return ModelReplayResponse.model_validate(replay)
+
+
+@router.get(
+    "/model-replays",
+    response_model=list[ModelReplaySummaryResponse],
+    dependencies=[Depends(require_workspace_read_ctx)],
+)
+async def list_model_replays(
+    limit: int = 20,
+    service: RegressionEvaluationService = Depends(get_evaluation_service),
+):
+    return [
+        ModelReplaySummaryResponse.model_validate(replay)
+        for replay in await service.list_model_replays(limit=limit)
+    ]
+
+
+@router.get(
+    "/model-replays/{replay_id}",
+    response_model=ModelReplayResponse,
+    dependencies=[Depends(require_workspace_read_ctx)],
+)
+async def get_model_replay(
+    replay_id: str,
+    service: RegressionEvaluationService = Depends(get_evaluation_service),
+):
+    return ModelReplayResponse.model_validate(await service.get_model_replay(replay_id))

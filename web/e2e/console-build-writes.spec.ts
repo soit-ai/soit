@@ -599,3 +599,117 @@ test('editing a virtual model keeps its slug and saves the targets left', async 
     targets: ['model:anthropic:claude-sonnet-5'],
   })
 })
+
+// ------------------------------------------------------ regression replays ---
+
+const side = (passed: number, total: number, latencyMs: number, cost: number) => ({
+  total,
+  passed,
+  failed: total - passed,
+  pass_rate: Math.round((passed / total) * 10000) / 10000,
+  avg_latency_ms: latencyMs,
+  total_cost_amount: cost,
+  errors: 0,
+})
+
+const modelReplay = {
+  id: 'regrpl_1',
+  model_ref: 'model:openai:gpt-6',
+  case_count: 4,
+  totals: {
+    baseline: side(3, 4, 2400, 0.0421),
+    candidate: side(4, 4, 1800, 0.0302),
+    delta: { pass_rate: 0.25, avg_latency_ms: -600, total_cost_amount: -0.0119 },
+    regressed: 1,
+    fixed: 2,
+    skipped: [{ agent_id: 'agt_draft', agent_name: 'draft-helper', reason: 'no_published_version' }],
+  },
+  created_by: 'user-1',
+  created_at: NOW,
+  subjects: [
+    {
+      agent_id: 'agt_support',
+      agent_name: 'support-desk',
+      version_id: 'ver_7',
+      dataset: 'default',
+      dataset_revision: 3,
+      baseline_model_ref: 'model:openai:gpt-5.5',
+      baseline: side(3, 4, 2400, 0.0421),
+      candidate: side(4, 4, 1800, 0.0302),
+      regressed: ['regcase_refunds'],
+      fixed: ['regcase_exchanges', 'regcase_warranty'],
+      cases: [
+        {
+          case_id: 'regcase_refunds',
+          name: 'refund window',
+          baseline: { passed: true, latency_ms: 2000, cost_amount: 0.01, run_id: 'run_a', failure_reasons: [] },
+          candidate: {
+            passed: false,
+            latency_ms: 1500,
+            cost_amount: 0.008,
+            run_id: 'run_b',
+            failure_reasons: ['output missing term: 14 days'],
+          },
+        },
+      ],
+    },
+  ],
+}
+
+test('a replay compares every agent on the candidate model and shows who regressed', async ({ page }) => {
+  await mockModelsPage(page)
+  const { subjects, ...summary } = modelReplay
+  void subjects
+  await json(page, '**/api/v1/evaluations/model-replays', [summary])
+  await json(page, '**/api/v1/evaluations/model-replays/regrpl_1', modelReplay)
+
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('tab', { name: 'Regression replays' }).click()
+
+  const row = page.locator('tr', { hasText: 'model:openai:gpt-6' })
+  await expect(row).toContainText('75% → 100%')
+  await expect(row).toContainText('1 regressed · 2 fixed')
+  await row.getByRole('button', { name: 'Details' }).click()
+
+  const detail = page.getByTestId('model-replay-detail')
+  await expect(detail).toContainText('skipped: draft-helper')
+  const agent = detail.locator('tr', { hasText: 'support-desk' })
+  await expect(agent).toContainText('model:openai:gpt-5.5')
+  await expect(agent).toContainText('75% (3/4) → 100% (4/4)')
+  await expect(agent).toContainText('refund window')
+})
+
+test('replaying on a model sends the candidate and opens its result', async ({ page }) => {
+  await mockModelsPage(page)
+  let posted: Record<string, unknown> | null = null
+  const listed: unknown[] = []
+  await page.route('**/api/v1/evaluations/model-replays**', (route) => {
+    const request = route.request()
+    if (request.method() === 'POST') {
+      posted = request.postDataJSON()
+      listed.push(modelReplay)
+      return route.fulfill({ status: 201, contentType: 'application/json', body: ok(modelReplay) })
+    }
+    if (request.url().endsWith('/regrpl_1')) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: ok(modelReplay) })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(listed) })
+  })
+
+  await page.goto('/build/models', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('tab', { name: 'Regression replays' }).click()
+  await expect(page.getByText('No replays yet.', { exact: false })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Replay on a model' }).click()
+  const modal = page.locator('.console-modal')
+  const run = modal.getByRole('button', { name: 'Replay', exact: true })
+  await expect(run).toBeDisabled()
+  await modal.locator('.mrow', { hasText: 'Candidate model' }).locator('input').fill('model:openai:gpt-6')
+  await modal.locator('.mrow', { hasText: 'Dataset' }).locator('input').fill('smoke')
+  await modal.locator('.mrow', { hasText: 'At most' }).locator('input').fill('20')
+  await run.click()
+
+  await expect.poll(() => posted).not.toBeNull()
+  expect(posted).toEqual({ model_ref: 'model:openai:gpt-6', dataset: 'smoke', max_cases: 20 })
+  await expect(page.getByTestId('model-replay-detail')).toContainText('support-desk')
+})

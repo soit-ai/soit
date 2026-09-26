@@ -18,6 +18,7 @@ from app.modules.evaluation.application.judge import JudgeError, RegressionJudge
 from app.modules.evaluation.domain.models import (
     RegressionAnnotation,
     RegressionCase,
+    RegressionModelReplay,
     RegressionReport,
 )
 
@@ -30,6 +31,8 @@ class RegressionRunResult:
     latency_ms: int
     cost: dict[str, Any]
     run_id: str | None = None
+    error: str | None = None
+    """Why the run itself failed; such a case fails whatever it expected."""
 
 
 @dataclass(frozen=True)
@@ -157,6 +160,102 @@ class RegressionEvaluationService:
             metrics=metrics,
             cases=case_results,
         )
+
+    async def replay_cases(
+        self,
+        cases: list[RegressionCase],
+        runner: RegressionRunner,
+    ) -> list[dict[str, Any]]:
+        """Run cases through ``runner`` and judge them, recording no report.
+
+        For callers that compare rather than gate: a replay on another model
+        must never become the baseline a publish is measured against.
+        """
+        return [await self._evaluate_case(case, runner) for case in cases]
+
+    @classmethod
+    def side_summary(cls, case_results: list[dict[str, Any]]) -> dict[str, Any]:
+        """Pass rate, latency and cost of one side of a comparison."""
+        total = len(case_results)
+        passed = sum(1 for item in case_results if item["passed"])
+        metrics = cls._aggregate_metrics(case_results)
+        return {
+            "total": total,
+            "passed": passed,
+            "failed": total - passed,
+            "pass_rate": round(passed / total, 4) if total else None,
+            "avg_latency_ms": metrics["avg_latency_ms"],
+            "total_cost_amount": metrics["total_cost_amount"],
+            "errors": sum(1 for item in case_results if item.get("error")),
+        }
+
+    async def subjects_with_cases(self, *, subject_kind: str, dataset: str | None = None) -> list[str]:
+        """Every subject of a kind that has active cases, in the order first frozen."""
+        conditions = [
+            RegressionCase.tenant_id == self.ctx.tenant_id,
+            RegressionCase.workspace_id == self.ctx.workspace_id,
+            RegressionCase.subject_kind == subject_kind,
+            RegressionCase.status == "active",
+        ]
+        if dataset is not None:
+            conditions.append(RegressionCase.dataset == dataset)
+        rows = (await self.db.exec(
+            select(RegressionCase.subject_id, RegressionCase.created_at)
+            .where(and_(*conditions))
+            .order_by(RegressionCase.created_at)
+        )).all()
+        return list(dict.fromkeys(str(row[0]) for row in rows))
+
+    async def record_model_replay(
+        self,
+        *,
+        model_ref: str,
+        case_count: int,
+        subjects: list[dict[str, Any]],
+        totals: dict[str, Any],
+    ) -> RegressionModelReplay:
+        replay = RegressionModelReplay(
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            model_ref=model_ref,
+            case_count=case_count,
+            subjects_json=subjects,
+            totals_json=totals,
+            created_by=self.ctx.user_id,
+        )
+        self.db.add(replay)
+        await self.db.commit()
+        return replay
+
+    async def list_model_replays(self, *, limit: int = 20) -> list[RegressionModelReplay]:
+        rows = (await self.db.exec(
+            select(RegressionModelReplay)
+            .where(
+                and_(
+                    RegressionModelReplay.tenant_id == self.ctx.tenant_id,
+                    RegressionModelReplay.workspace_id == self.ctx.workspace_id,
+                )
+            )
+            .order_by(desc(RegressionModelReplay.created_at))
+            .limit(max(1, min(limit, 100)))
+        )).all()
+        return [_unwrap_row(row) for row in rows]
+
+    async def get_model_replay(self, replay_id: str) -> RegressionModelReplay:
+        replay = _unwrap_row(
+            (await self.db.exec(
+                select(RegressionModelReplay).where(
+                    and_(
+                        RegressionModelReplay.id == replay_id,
+                        RegressionModelReplay.tenant_id == self.ctx.tenant_id,
+                        RegressionModelReplay.workspace_id == self.ctx.workspace_id,
+                    )
+                )
+            )).first()
+        )
+        if replay is None:
+            raise NotFoundError(f"Model replay not found: {replay_id}")
+        return replay
 
     async def list_cases(
         self,
@@ -428,6 +527,8 @@ class RegressionEvaluationService:
             "latency_ms": result.latency_ms,
             "cost": result.cost,
         }
+        if result.error:
+            item["error"] = result.error
         criteria = (case.expected_features_json or {}).get("llm_judge")
         if criteria is not None:
             verdict_payload, judge_failures = await self._judge_case(
@@ -509,7 +610,8 @@ class RegressionEvaluationService:
     ) -> list[str]:
         expected = case.expected_features_json or {}
         output_lc = result.output.lower()
-        failures = [
+        failures = [f"run_error: {result.error}"] if result.error else []
+        failures += [
             f"output missing term: {term}"
             for term in expected.get("minimum_output_terms", [])
             if str(term).lower() not in output_lc
