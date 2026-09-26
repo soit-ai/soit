@@ -255,3 +255,29 @@ test('run detail surfaces a load error instead of fixtures', async ({ page }) =>
   await page.goto('/observe/runs/run_missing', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('This data could not be loaded.')).toBeVisible()
 })
+
+test('the evidence bundle downloads the server-built archive and names its digest', async ({
+  page,
+}) => {
+  const digest = 'ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12'
+  // Registered after the detail route so it wins for the archive.
+  await page.route('**/api/v1/runs/run_01J9KD7Z2M/evidence', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/zip',
+      headers: {
+        'content-disposition': 'attachment; filename="soit-evidence-run_01J9KD7Z2M.zip"',
+        'x-soit-evidence-sha256': digest,
+        'access-control-expose-headers': 'Content-Disposition, X-SOIT-Evidence-SHA256',
+      },
+      body: Buffer.from('PK\u0005\u0006' + '\u0000'.repeat(18), 'binary'),
+    }),
+  )
+
+  await page.goto('/observe/runs/run_01J9KD7Z2M', { waitUntil: 'domcontentloaded' })
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Evidence bundle' }).click()
+
+  expect((await download).suggestedFilename()).toBe('soit-evidence-run_01J9KD7Z2M.zip')
+  await expect(page.getByText(`sha256 ${digest.slice(0, 12)}`, { exact: false })).toBeVisible()
+})

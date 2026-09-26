@@ -3,11 +3,13 @@
 Run API routes (FastAPI).
 """
 
+import hashlib
 from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.v1.permissions import require_workspace_read_ctx
 from app.api.v1.run.dependencies import get_run_artifact_storage, get_run_service
@@ -15,8 +17,10 @@ from app.api.v1.run.handlers import RunHandlers
 from app.api.v1.workflow.dependencies import get_workflow_service
 from app.api.v1.workflow.streaming import SSEHandlers
 from app.infra.db.pagination import PaginatedResponse
+from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.runs.schemas import (
     RunAuditLogResponse,
     RunCostByModelResponse,
@@ -34,6 +38,10 @@ from app.kernel.runtime.runs.schemas import (
     RunWindowSummaryResponse,
 )
 from app.kernel.runtime.runs.service import RunService
+from app.modules.observe.application.evidence import (
+    EVIDENCE_VERSION,
+    RunEvidenceService,
+)
 from app.modules.workflow.application.service import WorkflowService
 
 router = APIRouter()
@@ -557,6 +565,47 @@ async def download_run_artifact(
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
             "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/{run_id}/evidence", response_class=Response)
+async def download_run_evidence(
+    run_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    db: AsyncSession = Depends(get_async_db),
+) -> Response:
+    """The run's evidence bundle: a zip of its ledger records and governance
+    evidence with SHA-256 sums, holding no more content than the workspace
+    records."""
+
+    bundle = await RunEvidenceService(db, ctx).build(run_id)
+    digest = hashlib.sha256(bundle.content).hexdigest()
+    # Not attached to the run: a later bundle of the same run must not change
+    # because this one was downloaded.
+    db.add(
+        AuditEvent(
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            event_type="run.evidence_exported",
+            resource_type="run",
+            resource_id=run_id,
+            operation="export",
+            actor_user_id=ctx.user_id,
+            trace_id=ctx.trace_id,
+            outcome="allowed",
+            scope="workspace",
+            payload_json={"sha256": digest, "bytes": len(bundle.content), "version": EVIDENCE_VERSION},
+        )
+    )
+    await db.commit()
+    return Response(
+        content=bundle.content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{bundle.filename}"',
+            "X-SOIT-Evidence-SHA256": digest,
+            "Cache-Control": "no-store",
         },
     )
 

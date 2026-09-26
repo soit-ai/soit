@@ -516,6 +516,7 @@ const translation = {
     replayNote: 'a dry read of what a replay would execute — nothing is re-run',
     replayEmpty: 'The replay endpoint returned nothing for this run.',
     bundleDownloaded: 'Evidence bundle downloaded',
+    bundleDownloadedDigest: 'Evidence bundle downloaded · sha256 {{digest}}…',
     evidenceMatrix: 'Evidence matrix',
     evidenceHint: 'machine-readable · for audit, scoping and replay decisions',
     semanticTimeline: 'Semantic timeline',

@@ -23,6 +23,7 @@ import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { getRunReplay } from '@/services/observe-service'
 import { getRunDetail } from '@/services/run-service'
+import { downloadRunEvidence } from '@/services/ledger-service'
 import { requestErrorMessage } from '@/utils/request'
 
 type RunTab = 'ledger' | 'policy' | 'events' | 'artifacts' | 'raw'
@@ -44,6 +45,23 @@ export default function ConsoleRunDetail() {
     onSuccess: (bundle) => setReplay(bundle),
     onError: (error) => {
       toast.error(requestErrorMessage(error, 'Failed to load the replay bundle'))
+    },
+  })
+
+  // The server builds the bundle: ledger records in the contract, governance
+  // evidence, and SHA-256 sums a reviewer can check without SOIT.
+  const evidenceMutation = useMutation({
+    mutationKey: ['console', 'run-detail', 'evidence', id],
+    mutationFn: () => downloadRunEvidence(id as string),
+    onSuccess: ({ sha256 }) => {
+      toast.success(
+        sha256
+          ? t('console.runDetail.bundleDownloadedDigest', { digest: sha256.slice(0, 12) })
+          : t('console.runDetail.bundleDownloaded'),
+      )
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to build the evidence bundle'))
     },
   })
 
@@ -76,22 +94,6 @@ export default function ConsoleRunDetail() {
 
   const run = toRunDetailView(detailQuery.data)
 
-  // The evidence bundle is the detail payload itself — the thing an auditor
-  // needs — written client-side rather than promising a server export that
-  // does not exist.
-  const downloadEvidence = () => {
-    const blob = new Blob([JSON.stringify(detailQuery.data, null, 2)], {
-      type: 'application/json',
-    })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `${run.id}-evidence.json`
-    anchor.click()
-    URL.revokeObjectURL(url)
-    toast.success(t('console.runDetail.bundleDownloaded'))
-  }
-
   const copyId = () => {
     void navigator.clipboard?.writeText(run.id).catch(() => undefined)
   }
@@ -116,7 +118,12 @@ export default function ConsoleRunDetail() {
           <IconReplay />
           {t('console.runDetail.replay')}
         </button>
-        <button type="button" className="btn" onClick={downloadEvidence}>
+        <button
+          type="button"
+          className="btn"
+          disabled={evidenceMutation.isPending}
+          onClick={() => evidenceMutation.mutate(undefined)}
+        >
           <IconExport />
           {t('console.runDetail.evidenceBundle')}
         </button>

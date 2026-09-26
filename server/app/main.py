@@ -94,6 +94,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _handle_startup_failure("plugin registry", exc)
 
+    # The container registers the kernel's lookups (workspace content capture,
+    # PII actions, resource grants) as it is built. Building it here means no
+    # request can run before they exist and fall back to defaults.
+    try:
+        from app.wiring import get_container
+
+        get_container()
+    except Exception as exc:
+        _handle_startup_failure("container", exc)
+
     try:
         from app.wiring.outbox_handlers import register_outbox_handlers
 
@@ -339,8 +349,13 @@ app.add_middleware(
     allow_headers=["*"],
     # A browser only reads the headers named here from a cross-origin
     # response: the file name of a download, the ledger contract of an export,
-    # and the run a gateway call became.
-    expose_headers=["Content-Disposition", "X-SOIT-Ledger-Schema", "X-SOIT-Run-Id"],
+    # the digest of an evidence bundle, and the run a gateway call became.
+    expose_headers=[
+        "Content-Disposition",
+        "X-SOIT-Ledger-Schema",
+        "X-SOIT-Evidence-SHA256",
+        "X-SOIT-Run-Id",
+    ],
 )
 
 

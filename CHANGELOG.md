@@ -14,6 +14,16 @@ record for operators.
 
 ### Added
 
+- Run evidence bundles: `GET /api/v1/runs/{run_id}/evidence` returns one
+  run's evidence as a zip: the run, its steps, costs and audit events in the
+  ledger contract, its tool calls, approvals, citations, content safety
+  findings, the policy bundle ids its decisions were made under, and the
+  governance matrix, with a manifest and `SHA256SUMS` over every file. The
+  bundle keeps no more content than the workspace records, and withholds it
+  when the mode cannot be told. It is deterministic, so its digest
+  (`X-SOIT-Evidence-SHA256`) identifies the evidence; each download is
+  audited as `run.evidence_exported`. The run detail's Evidence bundle button
+  downloads it instead of saving the page's JSON. See `docs/ledger.md`.
 - Ledger exports: `GET /api/v1/exports/{runs|steps|costs|audit|events}`
   streams one kind of record created in a window of up to 92 days, oldest
   first, as JSON Lines (each line a contract envelope) or CSV (the contract's
@@ -54,6 +64,9 @@ record for operators.
 
 ### Fixed
 
+- The API builds its service container at startup, so workspace content
+  capture and PII actions are registered before the first request instead of
+  falling back to defaults until something else touched the container.
 - The API names `Content-Disposition`, `X-SOIT-Ledger-Schema` and
   `X-SOIT-Run-Id` in `Access-Control-Expose-Headers`, so a browser on
   another origin can read a download's file name and a gateway call's run.
