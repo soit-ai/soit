@@ -58,7 +58,7 @@ async def _latest_snapshot(db: AsyncSession, task: Task) -> ResponseInteraction 
 def _context(task: Task, snapshot: ResponseInteraction) -> RequestContext:
     stored = dict(snapshot.request_context_json or {})
     if stored:
-        return RequestContext(**stored)
+        return RequestContext.from_json(stored)
     return RequestContext(
         tenant_id=task.tenant_id,
         workspace_id=task.workspace_id,

@@ -8,7 +8,6 @@ import logging
 import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
 from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
@@ -1452,7 +1451,7 @@ class AgentApplicationService:
                 "agent_inputs": dict(inputs),
                 "assistant_message_id": generate_thread_message_id(),
             },
-            request_context_json=asdict(self.ctx),
+            request_context_json=self.ctx.to_json(),
             kind="run",
             status="inline",
             created_by=self.ctx.user_id,

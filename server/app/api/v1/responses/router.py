@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from dataclasses import asdict
 from typing import Annotated
 
 from ag_ui.core import RunAgentInput
@@ -335,7 +334,7 @@ async def create_response(
                     thread_id=payload.thread_id,
                     request_hash=request_hash,
                     execution_json=execution_json,
-                    request_context_json=asdict(ctx),
+                    request_context_json=ctx.to_json(),
                     commit=False,
                 )
                 await response_service.db.commit()
@@ -349,7 +348,7 @@ async def create_response(
                 thread_id=payload.thread_id,
                 request_hash=request_hash,
                 execution_json=execution_json,
-                request_context_json=asdict(ctx),
+                request_context_json=ctx.to_json(),
             )
         if not owns_claim:
             return StreamingResponse(

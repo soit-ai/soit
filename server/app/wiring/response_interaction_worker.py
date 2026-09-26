@@ -211,7 +211,7 @@ class GlobalResponseInteractionWorker:
     @staticmethod
     def _context(interaction: ResponseInteraction) -> RequestContext:
         data = dict(interaction.request_context_json or {})
-        return RequestContext(**data)
+        return RequestContext.from_json(data)
 
     async def _terminalize_orphan(
         self,

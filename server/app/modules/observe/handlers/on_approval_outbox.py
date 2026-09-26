@@ -135,7 +135,7 @@ async def _latest_agent_interaction(
 def _interaction_context(interaction: ResponseInteraction) -> RequestContext:
     stored = dict(interaction.request_context_json or {})
     if stored:
-        return RequestContext(**stored)
+        return RequestContext.from_json(stored)
     return RequestContext(
         tenant_id=interaction.tenant_id,
         workspace_id=interaction.workspace_id,

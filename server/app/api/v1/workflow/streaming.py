@@ -5,7 +5,6 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import asdict
 from datetime import timedelta
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -40,7 +39,7 @@ async def _claim_workflow_execution(
         workflow_id=workflow_id,
         status="running",
         inputs_json=dict(inputs or {}),
-        request_context_json=asdict(ctx),
+        request_context_json=ctx.to_json(),
         lease_owner=f"workflow-api-{uuid.uuid4()}",
         lease_expires_at=utc_now() + timedelta(seconds=lease_seconds),
         attempt_count=1,

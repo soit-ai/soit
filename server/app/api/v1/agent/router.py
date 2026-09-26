@@ -3,7 +3,6 @@
 Agent API routes (FastAPI).
 """
 
-from dataclasses import asdict
 
 from fastapi import APIRouter, Body, Depends, status
 from fastapi.responses import StreamingResponse
@@ -313,7 +312,7 @@ async def stream_agent(
             "agent_inputs": agent_inputs,
             "assistant_message_id": generate_thread_message_id(),
         },
-        request_context_json=asdict(ctx),
+        request_context_json=ctx.to_json(),
     )
 
     return StreamingResponse(

@@ -3,7 +3,9 @@
 RequestContext and identity/scope primitives.
 """
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, fields
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,31 @@ class RequestContext:
     Per-key limits, cost attribution and audit use it; the user it belongs to
     stays ``user_id``.
     """
+
+    def to_json(self) -> dict[str, Any]:
+        """The context as JSON, for records that resume work later.
+
+        A credential's scopes are a set, which JSON has no form for; they are
+        stored as a sorted list and come back as a set in :meth:`from_json`.
+        """
+        data = asdict(self)
+        if self.scopes is not None:
+            data["scopes"] = sorted(self.scopes)
+        return data
+
+    @classmethod
+    def from_json(cls, data: Mapping[str, Any]) -> "RequestContext":
+        """Rebuild a context stored with :meth:`to_json`.
+
+        Keys this contract does not know are ignored, so a record written by a
+        newer release still resumes on an older worker during a rollout.
+        """
+        known = {field.name for field in fields(cls)}
+        values: dict[str, Any] = {key: value for key, value in data.items() if key in known}
+        scopes = values.get("scopes")
+        if scopes is not None:
+            values["scopes"] = frozenset(str(scope) for scope in scopes)
+        return cls(**values)
 
     def has_scope(self, scope: str) -> bool:
         """Return whether the credential permits this scope."""

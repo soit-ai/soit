@@ -53,6 +53,13 @@ record for operators.
 
 ### Fixed
 
+- Work started with an API key can be stored and resumed. Durable
+  interactions (the Responses API, agent and workflow streams) store the
+  caller's context in a JSON column, and a context authenticated by an API
+  key carries the key's scopes as a set, which could not be encoded: every
+  such request failed with a server error. Contexts are now written and read
+  back through one JSON form, and fields a newer release adds are ignored by
+  an older worker during a rollout.
 - Streamed chat is inspected by content safety like a whole reply. The
   prompt was sent to the model uninspected and the streamed text reached the
   client unchecked, so a credential in either direction passed through. The
