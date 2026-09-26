@@ -1,23 +1,24 @@
-"""In-app notifications for billing credit balance alerts.
+"""Notifications for billing credit balance alerts.
 
-Consumes billing.credit.balance_low outbox events and writes one inbox
-notification per workspace Owner/Admin. The consumer checkpoint keeps the
-fan-out idempotent per event.
+Consumes billing.credit.balance_low outbox events. Each workspace Owner and
+Admin who keeps alerts on gets an inbox notification, delivered to their own
+endpoints as their preferences say, and the workspace endpoints subscribed to
+alerts get it too. The consumer checkpoint keeps the fan-out idempotent per
+event.
 """
 
 from __future__ import annotations
 
 import logging
 
-from sqlalchemy import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.ids import generate_notification_id
-from app.kernel.commons.time import utc_now
 from app.kernel.events.checkpoint import try_claim_consumer_slot
 from app.kernel.runtime.db.models.events import EventOutbox
-from app.modules.identity.domain.models import WorkspaceMembership
-from app.modules.notification.domain.models import Notification
+from app.modules.notification.application.fanout import (
+    notify_members,
+    notify_workspace_endpoints,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ _SEVERITIES = {"low": "warning", "exhausted": "error"}
 
 
 async def handle_credit_balance_low(db: AsyncSession, row: EventOutbox) -> None:
-    """Fan a balance alert out to workspace administrators' inboxes."""
+    """Fan a balance alert out to administrators and workspace endpoints."""
     if not await try_claim_consumer_slot(
         db,
         consumer_name=CONSUMER_NAME,
@@ -60,47 +61,41 @@ async def handle_credit_balance_low(db: AsyncSession, row: EventOutbox) -> None:
             f"The credit balance dropped to {balance}, below the warning "
             f"threshold of {threshold}. Consider topping up credits."
         )
+    meta = {
+        "state": state,
+        "balance": balance,
+        "threshold": threshold,
+        "ledger_entry_id": payload.get("ledger_entry_id"),
+        "run_id": payload.get("run_id"),
+    }
 
-    members_query = select(WorkspaceMembership).where(
-        and_(
-            WorkspaceMembership.tenant_id == tenant_id,
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.role.in_(_ALERT_ROLES),
-        )
+    notified = await notify_members(
+        db,
+        tenant_id=str(tenant_id),
+        workspace_id=str(workspace_id),
+        roles=_ALERT_ROLES,
+        category="alert",
+        title=_TITLES[state],
+        content=content,
+        severity=_SEVERITIES[state],
+        source_module="billing",
+        meta=meta,
     )
-    rows = list((await db.exec(members_query)).all())
-    members = [item if hasattr(item, "user_id") else item[0] for item in rows]
-    if not members:
+    delivered = await notify_workspace_endpoints(
+        db,
+        tenant_id=str(tenant_id),
+        workspace_id=str(workspace_id),
+        category="alert",
+        title=_TITLES[state],
+        content=content,
+        severity=_SEVERITIES[state],
+        source_module="billing",
+        meta=meta,
+    )
+    if not notified and not delivered:
         logger.warning(
-            "No Owner/Admin members to notify for credit alert: tenant=%s workspace=%s",
+            "No one to notify for credit alert: tenant=%s workspace=%s",
             tenant_id,
             workspace_id,
-        )
-        return
-
-    now = utc_now()
-    for member in members:
-        db.add(
-            Notification(
-                id=generate_notification_id(),
-                tenant_id=str(tenant_id),
-                workspace_id=str(workspace_id),
-                user_id=member.user_id,
-                type="alert",
-                severity=_SEVERITIES[state],
-                status="unread",
-                title=_TITLES[state],
-                content=content,
-                source_module="billing",
-                meta={
-                    "state": state,
-                    "balance": balance,
-                    "threshold": threshold,
-                    "ledger_entry_id": payload.get("ledger_entry_id"),
-                    "run_id": payload.get("run_id"),
-                },
-                created_at=now,
-                updated_at=now,
-            )
         )
     await db.flush()

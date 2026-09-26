@@ -110,12 +110,24 @@ class NotificationEndpointUpdate(BaseModel):
     status: Literal["active", "disabled"] | None = None
 
 
+class WorkspaceEndpointCreate(NotificationEndpointCreate):
+    """A team channel or webhook that receives the workspace's alerts."""
+
+    categories: list[Literal["alert", "task", "security", "system"]] = Field(
+        default_factory=lambda: ["alert"],
+        min_length=1,
+        description="alert: budgets and credit; task: failed runs",
+    )
+
+
 class NotificationEndpointResponse(BaseModel):
     id: str
     name: str
     kind: str
     display_target: str
     status: str
+    scope: str = "user"
+    categories: list[str] | None = Field(default=None, validation_alias="categories_json")
     created_at: datetime
     updated_at: datetime
 

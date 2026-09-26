@@ -87,7 +87,13 @@ class NotificationPreference(SQLModel, table=True):
 
 
 class NotificationEndpoint(SQLModel, table=True):
-    """Secret-backed Apprise destination owned by a user."""
+    """Secret-backed Apprise destination of a user or of a whole workspace.
+
+    A user endpoint receives that user's notifications, as their delivery
+    preferences allow. A workspace endpoint (a team channel, an on-call
+    webhook) receives the workspace's alerts in the categories it subscribes
+    to, whoever is on the team; ``user_id`` is then the admin who set it up.
+    """
 
     __tablename__ = "notification_endpoints"
 
@@ -104,6 +110,10 @@ class NotificationEndpoint(SQLModel, table=True):
     """Opaque ID for the managed Secret metadata record."""
     display_target: str = Field(max_length=256)
     status: str = Field(default="active", index=True, max_length=32)
+    scope: str = Field(default="user", index=True, max_length=16)
+    """user or workspace."""
+    categories_json: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    """Categories a workspace endpoint subscribes to; None means alerts only."""
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

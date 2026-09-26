@@ -178,6 +178,7 @@ class NotificationRepository(AsyncRepository[Notification]):
                 NotificationEndpoint.tenant_id == self.ctx.tenant_id,
                 NotificationEndpoint.workspace_id == self.ctx.workspace_id,
                 NotificationEndpoint.user_id == user_id,
+                NotificationEndpoint.scope == "user",
             )
         )
         if active_only:
@@ -192,6 +193,7 @@ class NotificationRepository(AsyncRepository[Notification]):
                 NotificationEndpoint.tenant_id == self.ctx.tenant_id,
                 NotificationEndpoint.workspace_id == self.ctx.workspace_id,
                 NotificationEndpoint.user_id == (user_id or self.ctx.user_id),
+                NotificationEndpoint.scope == "user",
             )
         )
         result = (await self.db.exec(query)).first()

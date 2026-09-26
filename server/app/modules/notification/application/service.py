@@ -4,10 +4,11 @@ Notification domain service.
 """
 
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apprise import Apprise
+from sqlalchemy import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ForbiddenError, NotFoundError, ValidationError
@@ -17,15 +18,18 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.notification import (
     NOTIFICATION_STATUS_UNREAD,
 )
-from app.kernel.events.envelope import DomainEventEnvelope
-from app.kernel.events.outbox_repo import OutboxRepository
-from app.kernel.events.publisher import OutboxPublisher
+from app.modules.notification.application.fanout import (
+    WORKSPACE_RECIPIENT_PREFIX,
+    stage_delivery,
+    stage_member_deliveries,
+)
 from app.modules.notification.application.schemas import (
     NotificationCreate,
     NotificationEndpointCreate,
     NotificationEndpointUpdate,
     NotificationPreferenceUpdate,
     NotificationReadRequest,
+    WorkspaceEndpointCreate,
 )
 from app.modules.notification.domain.models import (
     Notification,
@@ -92,21 +96,12 @@ class NotificationService:
             updated_at=now,
         )
         self.db.add(notification)
-        preference = await self.repo.get_preference(target_user_id)
-        if preference and preference.delivery_mode != "in_app":
-            category = (
-                "security"
-                if data.type == "security" or data.source_module == "security"
-                else data.type
-            )
-            category_enabled = True if category == "security" else preference.categories_json.get(category, True)
-            if category_enabled:
-                endpoints = await self.repo.list_endpoints(target_user_id, active_only=True)
-                if preference.delivery_mode == "in_app_email":
-                    endpoints = [endpoint for endpoint in endpoints if endpoint.kind == "email"]
-                available_at = self._next_delivery_time(preference, now)
-                for endpoint in endpoints:
-                    self._stage_delivery(notification, endpoint, available_at)
+        category = (
+            "security"
+            if data.type == "security" or data.source_module == "security"
+            else data.type
+        )
+        await stage_member_deliveries(self.db, notification, category)
         await self.db.commit()
         return notification
 
@@ -147,7 +142,13 @@ class NotificationService:
         await self.db.commit()
         return preference
 
-    async def create_endpoint(self, data: NotificationEndpointCreate) -> NotificationEndpoint:
+    async def create_endpoint(
+        self,
+        data: NotificationEndpointCreate,
+        *,
+        scope: str = "user",
+        categories: list[str] | None = None,
+    ) -> NotificationEndpoint:
         if self.secrets_service is None:
             raise ValidationError("Notification secrets port is unavailable")
         self._validate_apprise_url(data.url)
@@ -170,6 +171,8 @@ class NotificationService:
             secret_id=secret.id,
             display_target=self._mask_target(data.url),
             status="active",
+            scope=scope,
+            categories_json=categories,
             created_at=now,
             updated_at=now,
         )
@@ -250,35 +253,72 @@ class NotificationService:
         endpoint: NotificationEndpoint,
         available_at: datetime,
     ) -> NotificationDelivery:
+        return stage_delivery(self.db, notification, endpoint, available_at)
+
+    def _require_governor(self) -> None:
+        if not self.ctx.can_govern():
+            raise ForbiddenError("Workspace owner or admin role required for workspace endpoints")
+
+    async def _workspace_endpoint(self, endpoint_id: str) -> NotificationEndpoint:
+        query = select(NotificationEndpoint).where(
+            and_(
+                NotificationEndpoint.id == endpoint_id,
+                NotificationEndpoint.tenant_id == self.ctx.tenant_id,
+                NotificationEndpoint.workspace_id == self.ctx.workspace_id,
+                NotificationEndpoint.scope == "workspace",
+            )
+        )
+        endpoint = (await self.db.exec(query)).scalars().first()
+        if endpoint is None:
+            raise NotFoundError("Workspace notification endpoint not found")
+        return endpoint
+
+    async def list_workspace_endpoints(self) -> list[NotificationEndpoint]:
+        self._require_governor()
+        query = select(NotificationEndpoint).where(
+            and_(
+                NotificationEndpoint.tenant_id == self.ctx.tenant_id,
+                NotificationEndpoint.workspace_id == self.ctx.workspace_id,
+                NotificationEndpoint.scope == "workspace",
+            )
+        )
+        return list((await self.db.exec(query)).scalars())
+
+    async def create_workspace_endpoint(self, data: WorkspaceEndpointCreate) -> NotificationEndpoint:
+        self._require_governor()
+        endpoint = await self.create_endpoint(data, scope="workspace", categories=data.categories)
+        return endpoint
+
+    async def delete_workspace_endpoint(self, endpoint_id: str) -> None:
+        self._require_governor()
+        endpoint = await self._workspace_endpoint(endpoint_id)
+        if self.secrets_service is None:
+            raise ValidationError("Notification secrets port is unavailable")
+        await self.secrets_service.delete_secret(endpoint.secret_id)
+        await self.db.delete(endpoint)
+        await self.db.commit()
+
+    async def test_workspace_endpoint(self, endpoint_id: str) -> NotificationDelivery:
+        self._require_governor()
+        endpoint = await self._workspace_endpoint(endpoint_id)
         now = utc_now()
-        delivery = NotificationDelivery(
-            tenant_id=notification.tenant_id,
-            workspace_id=notification.workspace_id,
-            user_id=notification.user_id,
-            notification_id=notification.id,
-            endpoint_id=endpoint.id,
-            status="queued",
-            available_at=available_at,
+        notification = Notification(
+            id=generate_notification_id(),
+            tenant_id=self.ctx.tenant_id,
+            workspace_id=self.ctx.workspace_id,
+            user_id=f"{WORKSPACE_RECIPIENT_PREFIX}{self.ctx.workspace_id}",
+            type="system",
+            severity="info",
+            status=NOTIFICATION_STATUS_UNREAD,
+            title="SOIT workspace endpoint test",
+            content="This is a queued test of a workspace notification endpoint.",
+            source_module="notification",
             created_at=now,
             updated_at=now,
         )
-        self.db.add(delivery)
-        event_id = f"evt_{generate_ulid()}"
-        OutboxPublisher(OutboxRepository(self.db)).publish(
-            DomainEventEnvelope(
-                event_id=event_id,
-                event_type="notification.delivery.requested",
-                tenant_id=notification.tenant_id,
-                workspace_id=notification.workspace_id,
-                idempotency_key=delivery.id,
-                subject_type="notification_delivery",
-                subject_id=delivery.id,
-                producer="notification",
-                occurred_at=now,
-                payload={"delivery_id": delivery.id},
-            ),
-            available_at=available_at,
-        )
+        self.db.add(notification)
+        delivery = stage_delivery(self.db, notification, endpoint, now)
+        await self.db.commit()
         return delivery
 
     @staticmethod
@@ -296,24 +336,6 @@ class NotificationService:
             host = remainder.rsplit("@", 1)[1].split("/", 1)[0]
             return f"{scheme}://***@{host}"
         return f"{scheme}://***"
-
-    @staticmethod
-    def _next_delivery_time(preference: NotificationPreference, now: datetime) -> datetime:
-        if not preference.quiet_hours_enabled:
-            return now
-        zone = ZoneInfo(preference.timezone)
-        local_now = now.astimezone(zone)
-        start = time.fromisoformat(preference.quiet_hours_start)
-        end = time.fromisoformat(preference.quiet_hours_end)
-        local_time = local_now.time().replace(tzinfo=None)
-        in_quiet = start <= local_time < end if start < end else local_time >= start or local_time < end
-        if not in_quiet:
-            return now
-        end_date = local_now.date()
-        if start >= end and local_time >= start:
-            end_date += timedelta(days=1)
-        local_end = datetime.combine(end_date, end, tzinfo=zone)
-        return local_end.astimezone(UTC)
 
     async def get_notification(self, notification_id: str) -> Notification:
         notification = await self.repo.get_by_id(notification_id)

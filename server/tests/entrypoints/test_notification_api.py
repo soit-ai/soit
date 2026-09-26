@@ -172,3 +172,48 @@ class TestNotificationAPI:
         )
         assert test_response.status_code == status.HTTP_202_ACCEPTED
         assert test_response.json()["data"]["status"] == "queued"
+
+    @pytest.mark.asyncio
+    async def test_workspace_endpoints_are_kept_by_admins(self, async_client, ctx):
+        created = await async_client.post(
+            "/api/v1/notifications/workspace-endpoints",
+            headers=HEADERS,
+            json={
+                "name": "Team channel",
+                "kind": "webhook",
+                "url": "json://hooks.example.com/team",
+                "categories": ["alert", "task"],
+            },
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+        endpoint = created.json()["data"]
+        assert (endpoint["scope"], endpoint["categories"]) == ("workspace", ["alert", "task"])
+
+        personal = await async_client.get("/api/v1/notifications/endpoints", headers=HEADERS)
+        assert all(item["id"] != endpoint["id"] for item in personal.json()["data"])
+        listed = await async_client.get("/api/v1/notifications/workspace-endpoints", headers=HEADERS)
+        assert [item["id"] for item in listed.json()["data"]] == [endpoint["id"]]
+        tested = await async_client.post(
+            f"/api/v1/notifications/workspace-endpoints/{endpoint['id']}/test", headers=HEADERS
+        )
+        assert tested.status_code == status.HTTP_202_ACCEPTED
+
+        import dataclasses
+
+        from app.main import app
+        from app.middleware.auth import get_current_context
+
+        developer = dataclasses.replace(ctx, workspace_role="Dev", tenant_role=None)
+        app.dependency_overrides[get_current_context] = lambda: developer
+        try:
+            refused = await async_client.get(
+                "/api/v1/notifications/workspace-endpoints", headers=HEADERS
+            )
+        finally:
+            app.dependency_overrides[get_current_context] = lambda: ctx
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+
+        removed = await async_client.delete(
+            f"/api/v1/notifications/workspace-endpoints/{endpoint['id']}", headers=HEADERS
+        )
+        assert removed.status_code == status.HTTP_204_NO_CONTENT

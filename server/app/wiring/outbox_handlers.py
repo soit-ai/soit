@@ -137,6 +137,20 @@ def register_outbox_handlers() -> None:
         "notification.credit.balance_low",
         handle_credit_balance_low,
     )
+
+    from app.modules.billing.events import BUDGET_THRESHOLD_REACHED
+    from app.modules.notification.handlers.on_budget_threshold import (
+        CONSUMER_NAME as BUDGET_NOTIFICATION_CONSUMER,
+    )
+    from app.modules.notification.handlers.on_budget_threshold import (
+        handle_budget_threshold,
+    )
+
+    reg.register(
+        BUDGET_THRESHOLD_REACHED,
+        BUDGET_NOTIFICATION_CONSUMER,
+        handle_budget_threshold,
+    )
     reg.register(
         ObserveEventType.RUN_STATUS_UPDATED,
         "observe.run_status.trace_metrics",

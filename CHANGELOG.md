@@ -14,6 +14,15 @@ record for operators.
 
 ### Added
 
+- Workspace notification endpoints: team channels and webhooks that receive
+  a workspace's alerts in the categories they subscribe to (`alert` for
+  budgets and credit, `task` for failed runs), whoever is on the team
+  (`/api/v1/notifications/workspace-endpoints`, workspace owners and admins,
+  migration `20260927160000`). Budget thresholds now notify workspace owners
+  and admins, and credit and budget alerts, like failed runs, reach members'
+  own email and webhook endpoints as their delivery preferences allow instead
+  of only the in-app inbox. The preference check and delivery staging are one
+  shared step for every alert.
 - Budgets: spending limits for a workspace, an API key, a user or service
   principal, or an agent, per UTC day or month, in one currency
   (`/api/v1/billing/budgets`, migration `20260927150000`). Spend is read from

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, status
 from app.api.v1.notification.dependencies import get_notification_service
 from app.api.v1.notification.handlers import NotificationHandlers
 from app.api.v1.permissions import (
+    require_workspace_governance_ctx,
     require_workspace_read_ctx,
     require_workspace_write_ctx,
 )
@@ -26,6 +27,7 @@ from app.modules.notification.application.schemas import (
     NotificationReadRequest,
     NotificationResponse,
     NotificationUnreadCount,
+    WorkspaceEndpointCreate,
 )
 from app.modules.notification.application.service import NotificationService
 
@@ -140,6 +142,63 @@ async def test_notification_endpoint(
     service: NotificationService = Depends(get_notification_service),
 ):
     return await NotificationHandlers(service).test_endpoint(ctx, endpoint_id)
+
+
+@router.get(
+    "/workspace-endpoints",
+    response_model=list[NotificationEndpointResponse],
+    dependencies=[Depends(require_workspace_governance_ctx)],
+)
+async def list_workspace_endpoints(
+    service: NotificationService = Depends(get_notification_service),
+):
+    """Team channels and webhooks that receive the workspace's alerts."""
+    return [
+        NotificationEndpointResponse.model_validate(item)
+        for item in await service.list_workspace_endpoints()
+    ]
+
+
+@router.post(
+    "/workspace-endpoints",
+    response_model=NotificationEndpointResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_workspace_governance_ctx)],
+)
+async def create_workspace_endpoint(
+    data: WorkspaceEndpointCreate,
+    service: NotificationService = Depends(get_notification_service),
+):
+    return NotificationEndpointResponse.model_validate(
+        await service.create_workspace_endpoint(data)
+    )
+
+
+@router.delete(
+    "/workspace-endpoints/{endpoint_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_workspace_governance_ctx)],
+)
+async def delete_workspace_endpoint(
+    endpoint_id: str,
+    service: NotificationService = Depends(get_notification_service),
+):
+    await service.delete_workspace_endpoint(endpoint_id)
+
+
+@router.post(
+    "/workspace-endpoints/{endpoint_id}/test",
+    response_model=NotificationDeliveryResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_workspace_governance_ctx)],
+)
+async def test_workspace_endpoint(
+    endpoint_id: str,
+    service: NotificationService = Depends(get_notification_service),
+):
+    return NotificationDeliveryResponse.model_validate(
+        await service.test_workspace_endpoint(endpoint_id)
+    )
 
 
 @router.get("/{notification_id}", response_model=NotificationResponse)

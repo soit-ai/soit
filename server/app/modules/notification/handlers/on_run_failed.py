@@ -11,16 +11,15 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.ids import generate_notification_id
-from app.kernel.commons.time import utc_now
 from app.kernel.events.checkpoint import try_claim_consumer_slot
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run
-from app.modules.identity.domain.models import WorkspaceMembership
-from app.modules.notification.domain.models import Notification, NotificationPreference
+from app.modules.notification.application.fanout import (
+    notify_members,
+    notify_workspace_endpoints,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,34 +30,6 @@ _ALERT_ROLES = ("Owner", "Admin", "Dev")
 
 _CATEGORY = "task"
 """The preference category a member can switch off."""
-
-
-async def _members_to_notify(db: AsyncSession, tenant_id: str, workspace_id: str) -> list[str]:
-    query = select(WorkspaceMembership).where(
-        and_(
-            WorkspaceMembership.tenant_id == tenant_id,
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.role.in_(_ALERT_ROLES),
-        )
-    )
-    rows = list((await db.exec(query)).all())
-    members = [item if hasattr(item, "user_id") else item[0] for item in rows]
-    return [member.user_id for member in members]
-
-
-async def _wants_it(db: AsyncSession, user_id: str) -> bool:
-    """Whether this member left run alerts switched on.
-
-    Absent preferences mean the default, which is on: a member who never opened
-    the settings still hears that their agents are failing.
-    """
-    query = select(NotificationPreference).where(NotificationPreference.user_id == user_id)
-    row = (await db.exec(query)).first()
-    preference = row if row is None or hasattr(row, "categories_json") else row[0]
-    if preference is None:
-        return True
-    categories = preference.categories_json or {}
-    return bool(categories.get(_CATEGORY, True))
 
 
 async def handle_run_failed(db: AsyncSession, row: EventOutbox) -> None:
@@ -99,26 +70,28 @@ async def handle_run_failed(db: AsyncSession, row: EventOutbox) -> None:
     if reason:
         content = f"{content} {reason}"
 
-    now = utc_now()
-    for user_id in await _members_to_notify(db, tenant_id, workspace_id):
-        if not await _wants_it(db, user_id):
-            continue
-        db.add(
-            Notification(
-                id=generate_notification_id(),
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-                user_id=user_id,
-                type="alert",
-                severity="error",
-                status="unread",
-                title="A run failed",
-                content=content,
-                source_module="observe",
-                action={"type": "open", "target": f"/observe/runs/{run_id}"},
-                meta={"run_id": run_id, "subject_id": subject},
-                created_at=now,
-                updated_at=now,
-            )
-        )
+    await notify_members(
+        db,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        roles=_ALERT_ROLES,
+        category=_CATEGORY,
+        title="A run failed",
+        content=content,
+        severity="error",
+        source_module="observe",
+        action={"type": "open", "target": f"/observe/runs/{run_id}"},
+        meta={"run_id": run_id, "subject_id": subject},
+    )
+    await notify_workspace_endpoints(
+        db,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        category=_CATEGORY,
+        title="A run failed",
+        content=content,
+        severity="error",
+        source_module="observe",
+        meta={"run_id": run_id, "subject_id": subject},
+    )
     await db.flush()
