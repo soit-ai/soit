@@ -3,6 +3,15 @@ import type { PaginatedResponse } from '@/types/api'
 
 export type { PaginatedResponse } from '@/types/api'
 
+/** Where a run came from: the console and its agents, or the `/v1` gateway. */
+export type RunSource = 'platform' | 'gateway'
+
+/** Narrows runs and their costs to one entry, or to what one key started. */
+export interface RunEntryFilter {
+  source?: RunSource
+  api_key_id?: string
+}
+
 export interface RunResponse {
   id: string
   trace_id?: string | null
@@ -17,6 +26,10 @@ export interface RunResponse {
   subject_id?: string | null
   subject_version_id?: string | null
   status: string
+  /** The entry the run came through: `platform`, or `gateway` for `/v1` calls. */
+  source?: RunSource | string
+  /** The API key that started the run, when one did. */
+  api_key_id?: string | null
   input_summary?: string | null
   output_summary?: string | null
   started_at: string
@@ -264,7 +277,7 @@ export interface RunAuditLogResponse {
   created_at?: string | null
 }
 
-export const listRuns = (params?: {
+export const listRuns = (params?: RunEntryFilter & {
   mode?: string
   kind?: string
   subject_kind?: string
@@ -326,7 +339,7 @@ export const listToolInvocations = (params?: {
   return get<RunToolInvocation[]>('/runs/tools/invocations', params)
 }
 
-export const getRunCostSummary = (params?: {
+export const getRunCostSummary = (params?: RunEntryFilter & {
   mode?: string
   kind?: string
   subject_kind?: string
@@ -339,7 +352,7 @@ export const getRunCostSummary = (params?: {
   return get<RunCostSummary>('/runs/costs/summary', params)
 }
 
-export const getRunCostByMode = (params?: {
+export const getRunCostByMode = (params?: RunEntryFilter & {
   mode?: string
   subject_kind?: string
   subject_id?: string
@@ -352,7 +365,7 @@ export const getRunCostByMode = (params?: {
   return get<RunCostByMode[]>('/runs/costs/by-mode', params)
 }
 
-export const getRunCostByDay = (params?: {
+export const getRunCostByDay = (params?: RunEntryFilter & {
   mode?: string
   kind?: string
   subject_kind?: string
@@ -365,7 +378,7 @@ export const getRunCostByDay = (params?: {
   return get<RunCostByDay[]>('/runs/costs/by-day', params)
 }
 
-export const getRunCostByProvider = (params?: {
+export const getRunCostByProvider = (params?: RunEntryFilter & {
   mode?: string
   kind?: string
   subject_kind?: string
@@ -378,7 +391,7 @@ export const getRunCostByProvider = (params?: {
   return get<RunCostByProvider[]>('/runs/costs/by-provider', params)
 }
 
-export const getRunCostByModel = (params?: {
+export const getRunCostByModel = (params?: RunEntryFilter & {
   mode?: string
   kind?: string
   subject_kind?: string

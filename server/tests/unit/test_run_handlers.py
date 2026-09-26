@@ -303,6 +303,59 @@ async def test_list_runs_filters_by_entry_and_api_key(async_db, ctx):
 
 
 @pytest.mark.asyncio
+async def test_cost_summaries_narrow_to_an_entry_and_a_key(async_db, ctx):
+    """Every cost breakdown reads the same entry and key filters as the run list."""
+    for index, (source, api_key_id, tokens) in enumerate(
+        [("platform", None, 100), ("gateway", "key_a", 10), ("gateway", "key_b", 1)]
+    ):
+        run_id = f"run_cost_entry_{index}"
+        async_db.add(
+            Run(
+                id=run_id,
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                user_id=ctx.user_id,
+                mode="gateway" if source == "gateway" else "agent",
+                status="succeeded",
+                source=source,
+                api_key_id=api_key_id,
+                started_at=utc_now(),
+            )
+        )
+        async_db.add(
+            RunCostEntry(
+                run_id=run_id,
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                billing_basis="tokens",
+                billed_quantity=Decimal(tokens),
+                provider="openai",
+                model_ref="model:openai:gpt-5.5",
+                prompt_tokens=tokens,
+                total_tokens=tokens,
+            )
+        )
+    await async_db.commit()
+    handlers = RunHandlers(RunService(async_db, ctx))
+
+    everything = await handlers.summarize_costs(ctx)
+    gateway = await handlers.summarize_costs(ctx, source="gateway")
+    key_a = await handlers.summarize_costs(ctx, api_key_id="key_a")
+    by_model = await handlers.summarize_costs_by_model(ctx, source="gateway")
+    by_provider = await handlers.summarize_costs_by_provider(ctx, api_key_id="key_b")
+    by_day = await handlers.summarize_costs_by_day(ctx, source="platform")
+    by_mode = await handlers.summarize_costs_by_mode(ctx, source="gateway")
+    by_subject = await handlers.summarize_costs_by_subject(ctx, api_key_id="key_a")
+
+    assert (everything.tokens_prompt, gateway.tokens_prompt, key_a.tokens_prompt) == (111, 11, 10)
+    assert [(row.model_ref, row.tokens_prompt) for row in by_model] == [("model:openai:gpt-5.5", 11)]
+    assert [(row.provider, row.tokens_prompt) for row in by_provider] == [("openai", 1)]
+    assert [row.tokens_prompt for row in by_day] == [100]
+    assert [(row.mode, row.tokens_prompt) for row in by_mode] == [("gateway", 11)]
+    assert [row.tokens_prompt for row in by_subject] == [10]
+
+
+@pytest.mark.asyncio
 async def test_list_audits_returns_entries(async_db, ctx):
     """Audit entries can be queried by run_id."""
     trace_writer = TraceWriter(async_db, ctx)

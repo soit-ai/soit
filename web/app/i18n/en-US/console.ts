@@ -221,6 +221,7 @@ const translation = {
       rotate: 'Rotate',
       editLimits: 'Limits',
       actsAs: 'acts as {{name}}',
+      viewRuns: 'runs →',
       createTitle: 'New API key',
       createNote: 'the secret is shown once, on creation',
       fields: {
@@ -416,7 +417,13 @@ const translation = {
     title: 'Runs',
     description: 'Every execution, captured as evidence: steps, policy verdicts, cost and trace, queryable and replayable.',
     export: 'Export',
+    viaKey: 'via key {{id}}',
     filters: {
+      source: 'Entry',
+      sourceAll: 'Entry: any',
+      sourcePlatform: 'platform',
+      sourceGateway: 'gateway (/v1)',
+      apiKey: 'key {{id}} ×',
       all: 'All',
       succeeded: 'Succeeded',
       running: 'Running',

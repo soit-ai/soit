@@ -1504,7 +1504,7 @@ class RunService:
             return entries[offset : offset + limit]
         return entries
 
-    async def summarize_costs(
+    def _cost_clauses(
         self,
         *,
         mode: str | None = None,
@@ -1516,14 +1516,12 @@ class RunService:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
-        include_sandbox: bool = False,
-    ) -> RunCostSummaryResponse:
-        """Aggregate cost metrics for runs.
-
-        Rehearsal runs are excluded unless asked for: pre-release regression
-        executes real agents, and counting that spend as production would
-        misstate what the workspace actually cost.
-        """
+        source: str | None = None,
+        api_key_id: str | None = None,
+        exclude_sandbox: bool = False,
+    ) -> list:
+        """The WHERE clauses every cost summary shares: cost entries joined to
+        the runs they belong to, narrowed by the same run filters."""
         clauses = [
             RunCostEntry.tenant_id == self.ctx.tenant_id,
             RunCostEntry.workspace_id == self.ctx.workspace_id,
@@ -1531,7 +1529,7 @@ class RunService:
             Run.tenant_id == self.ctx.tenant_id,
             Run.workspace_id == self.ctx.workspace_id,
         ]
-        if not include_sandbox:
+        if exclude_sandbox:
             clauses.append(Run.sandbox.is_(False))
         if mode:
             clauses.append(Run.mode == mode)
@@ -1547,10 +1545,52 @@ class RunService:
             clauses.append(Run.subject_version_id.in_(subject_version_ids))
         if status:
             clauses.append(Run.status == status)
+        if source:
+            clauses.append(Run.source == source)
+        if api_key_id:
+            clauses.append(Run.api_key_id == api_key_id)
         if started_after:
             clauses.append(Run.started_at >= started_after)
         if started_before:
             clauses.append(Run.started_at <= started_before)
+        return clauses
+
+    async def summarize_costs(
+        self,
+        *,
+        mode: str | None = None,
+        kind: str | None = None,
+        subject_version_id: str | None = None,
+        subject_version_ids: list[str] | None = None,
+        subject_kind: str | None = None,
+        subject_id: str | None = None,
+        status: str | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        include_sandbox: bool = False,
+        source: str | None = None,
+        api_key_id: str | None = None,
+    ) -> RunCostSummaryResponse:
+        """Aggregate cost metrics for runs.
+
+        Rehearsal runs are excluded unless asked for: pre-release regression
+        executes real agents, and counting that spend as production would
+        misstate what the workspace actually cost.
+        """
+        clauses = self._cost_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            started_after=started_after,
+            started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
+            exclude_sandbox=not include_sandbox,
+        )
 
         query = select(*_dimension_sum_columns()).select_from(RunCostEntry).join(Run, RunCostEntry.run_id == Run.id).where(and_(*clauses))
 
@@ -1690,33 +1730,23 @@ class RunService:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostDailyResponse]:
         """Aggregate cost metrics per day."""
-        clauses = [
-            RunCostEntry.tenant_id == self.ctx.tenant_id,
-            RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.run_id == Run.id,
-            Run.tenant_id == self.ctx.tenant_id,
-            Run.workspace_id == self.ctx.workspace_id,
-        ]
-        if mode:
-            clauses.append(Run.mode == mode)
-        if kind:
-            clauses.append(Run.kind == kind)
-        if subject_kind:
-            clauses.append(Run.subject_kind == subject_kind)
-        if subject_id:
-            clauses.append(Run.subject_id == subject_id)
-        if subject_version_id:
-            clauses.append(Run.subject_version_id == subject_version_id)
-        if subject_version_ids:
-            clauses.append(Run.subject_version_id.in_(subject_version_ids))
-        if status:
-            clauses.append(Run.status == status)
-        if started_after:
-            clauses.append(Run.started_at >= started_after)
-        if started_before:
-            clauses.append(Run.started_at <= started_before)
+        clauses = self._cost_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            started_after=started_after,
+            started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
+        )
 
         day_col = func.date(Run.started_at)
         query = (
@@ -1752,33 +1782,23 @@ class RunService:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostBySubjectResponse]:
         """Aggregate cost metrics per subject version."""
-        clauses = [
-            RunCostEntry.tenant_id == self.ctx.tenant_id,
-            RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.run_id == Run.id,
-            Run.tenant_id == self.ctx.tenant_id,
-            Run.workspace_id == self.ctx.workspace_id,
-        ]
-        if mode:
-            clauses.append(Run.mode == mode)
-        if kind:
-            clauses.append(Run.kind == kind)
-        if subject_kind:
-            clauses.append(Run.subject_kind == subject_kind)
-        if subject_id:
-            clauses.append(Run.subject_id == subject_id)
-        if subject_version_id:
-            clauses.append(Run.subject_version_id == subject_version_id)
-        if subject_version_ids:
-            clauses.append(Run.subject_version_id.in_(subject_version_ids))
-        if status:
-            clauses.append(Run.status == status)
-        if started_after:
-            clauses.append(Run.started_at >= started_after)
-        if started_before:
-            clauses.append(Run.started_at <= started_before)
+        clauses = self._cost_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            started_after=started_after,
+            started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
+        )
 
         query = (
             select(
@@ -1813,33 +1833,23 @@ class RunService:
         started_after: datetime | None = None,
         started_before: datetime | None = None,
         kind: str | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostByModeResponse]:
         """Aggregate cost metrics per run mode."""
-        clauses = [
-            RunCostEntry.tenant_id == self.ctx.tenant_id,
-            RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.run_id == Run.id,
-            Run.tenant_id == self.ctx.tenant_id,
-            Run.workspace_id == self.ctx.workspace_id,
-        ]
-        if mode:
-            clauses.append(Run.mode == mode)
-        if subject_kind:
-            clauses.append(Run.subject_kind == subject_kind)
-        if subject_id:
-            clauses.append(Run.subject_id == subject_id)
-        if subject_version_id:
-            clauses.append(Run.subject_version_id == subject_version_id)
-        if subject_version_ids:
-            clauses.append(Run.subject_version_id.in_(subject_version_ids))
-        if status:
-            clauses.append(Run.status == status)
-        if started_after:
-            clauses.append(Run.started_at >= started_after)
-        if started_before:
-            clauses.append(Run.started_at <= started_before)
-        if kind:
-            clauses.append(Run.kind == kind)
+        clauses = self._cost_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            started_after=started_after,
+            started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
+        )
 
         query = (
             select(
@@ -1926,33 +1936,23 @@ class RunService:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostByProviderResponse]:
         """Aggregate cost metrics per provider."""
-        clauses = [
-            RunCostEntry.tenant_id == self.ctx.tenant_id,
-            RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.run_id == Run.id,
-            Run.tenant_id == self.ctx.tenant_id,
-            Run.workspace_id == self.ctx.workspace_id,
-        ]
-        if mode:
-            clauses.append(Run.mode == mode)
-        if kind:
-            clauses.append(Run.kind == kind)
-        if subject_kind:
-            clauses.append(Run.subject_kind == subject_kind)
-        if subject_id:
-            clauses.append(Run.subject_id == subject_id)
-        if subject_version_id:
-            clauses.append(Run.subject_version_id == subject_version_id)
-        if subject_version_ids:
-            clauses.append(Run.subject_version_id.in_(subject_version_ids))
-        if status:
-            clauses.append(Run.status == status)
-        if started_after:
-            clauses.append(Run.started_at >= started_after)
-        if started_before:
-            clauses.append(Run.started_at <= started_before)
+        clauses = self._cost_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            started_after=started_after,
+            started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
+        )
 
         query = (
             select(
@@ -1987,33 +1987,23 @@ class RunService:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostByModelResponse]:
         """Aggregate cost metrics per model."""
-        clauses = [
-            RunCostEntry.tenant_id == self.ctx.tenant_id,
-            RunCostEntry.workspace_id == self.ctx.workspace_id,
-            RunCostEntry.run_id == Run.id,
-            Run.tenant_id == self.ctx.tenant_id,
-            Run.workspace_id == self.ctx.workspace_id,
-        ]
-        if mode:
-            clauses.append(Run.mode == mode)
-        if kind:
-            clauses.append(Run.kind == kind)
-        if subject_kind:
-            clauses.append(Run.subject_kind == subject_kind)
-        if subject_id:
-            clauses.append(Run.subject_id == subject_id)
-        if subject_version_id:
-            clauses.append(Run.subject_version_id == subject_version_id)
-        if subject_version_ids:
-            clauses.append(Run.subject_version_id.in_(subject_version_ids))
-        if status:
-            clauses.append(Run.status == status)
-        if started_after:
-            clauses.append(Run.started_at >= started_after)
-        if started_before:
-            clauses.append(Run.started_at <= started_before)
+        clauses = self._cost_clauses(
+            mode=mode,
+            kind=kind,
+            subject_version_id=subject_version_id,
+            subject_version_ids=subject_version_ids,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            status=status,
+            started_after=started_after,
+            started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
+        )
 
         query = (
             select(

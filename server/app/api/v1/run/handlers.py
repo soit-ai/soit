@@ -245,6 +245,8 @@ class RunHandlers:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> RunCostSummaryResponse:
         """Summarize run costs."""
         return await self.service.summarize_costs(
@@ -257,6 +259,8 @@ class RunHandlers:
             status=status,
             started_after=started_after,
             started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
         )
 
     async def summarize_run_window(
@@ -336,6 +340,8 @@ class RunHandlers:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostDailyResponse]:
         """Summarize run costs by day."""
         return await self.service.summarize_costs_by_day(
@@ -348,6 +354,8 @@ class RunHandlers:
             status=status,
             started_after=started_after,
             started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
         )
 
     async def summarize_costs_by_subject(
@@ -363,6 +371,8 @@ class RunHandlers:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostBySubjectResponse]:
         """Summarize run costs by subject version."""
         return await self.service.summarize_costs_by_subject(
@@ -375,6 +385,8 @@ class RunHandlers:
             status=status,
             started_after=started_after,
             started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
         )
 
     async def summarize_costs_by_mode(
@@ -390,6 +402,8 @@ class RunHandlers:
         started_after: datetime | None = None,
         started_before: datetime | None = None,
         kind: str | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostByModeResponse]:
         """Summarize run costs by mode."""
         return await self.service.summarize_costs_by_mode(
@@ -402,6 +416,8 @@ class RunHandlers:
             started_after=started_after,
             started_before=started_before,
             kind=kind,
+            source=source,
+            api_key_id=api_key_id,
         )
 
     async def summarize_costs_by_provider(
@@ -417,6 +433,8 @@ class RunHandlers:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostByProviderResponse]:
         """Summarize run costs by provider."""
         return await self.service.summarize_costs_by_provider(
@@ -429,6 +447,8 @@ class RunHandlers:
             status=status,
             started_after=started_after,
             started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
         )
 
     async def summarize_costs_by_model(
@@ -444,6 +464,8 @@ class RunHandlers:
         status: str | None = None,
         started_after: datetime | None = None,
         started_before: datetime | None = None,
+        source: str | None = None,
+        api_key_id: str | None = None,
     ) -> list[RunCostByModelResponse]:
         """Summarize run costs by model."""
         return await self.service.summarize_costs_by_model(
@@ -456,6 +478,8 @@ class RunHandlers:
             status=status,
             started_after=started_after,
             started_before=started_before,
+            source=source,
+            api_key_id=api_key_id,
         )
 
     async def export_runs_csv(

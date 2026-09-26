@@ -176,3 +176,29 @@ test('console runs row click opens the run detail route', async ({ page }) => {
   await page.getByText('run_01J9KD7Z2M').click()
   await expect(page).toHaveURL(/\/observe\/runs\/run_01J9KD7Z2M/)
 })
+
+test('console runs narrow to the gateway and to one key, costs included', async ({ page }) => {
+  const seen: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/api/v1/runs')) seen.push(request.url())
+  })
+  const asked = (path: RegExp, param: string) =>
+    seen.some((url) => path.test(url) && url.includes(param))
+
+  // Settings › API links each key here.
+  await page.goto('/observe/runs?api_key_id=key_1', { waitUntil: 'domcontentloaded' })
+  const keyChip = page.locator('.fchip', { hasText: 'key key_1' })
+  await expect(keyChip).toBeVisible()
+  await expect.poll(() => asked(/\/runs\?/, 'api_key_id=key_1')).toBe(true)
+  await expect.poll(() => asked(/\/runs\/costs\/summary/, 'api_key_id=key_1')).toBe(true)
+
+  await page.getByLabel('Entry').click()
+  await page.getByRole('option', { name: 'gateway (/v1)' }).click()
+  await expect(page).toHaveURL(/source=gateway/)
+  await expect.poll(() => asked(/\/runs\?/, 'source=gateway')).toBe(true)
+  await expect.poll(() => asked(/\/runs\/costs\/by-model/, 'source=gateway')).toBe(true)
+
+  await keyChip.click()
+  await expect(page).not.toHaveURL(/api_key_id=/)
+  await expect(page).toHaveURL(/source=gateway/)
+})

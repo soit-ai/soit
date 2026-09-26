@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Navigate, useLocation, useParams } from 'react-router'
+import { Navigate, NavLink, useLocation, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import {
@@ -1163,7 +1163,14 @@ export default function ConsoleSettings() {
                     return (
                       <tr key={key.id}>
                         <td>
-                          <b style={{ fontWeight: 600 }}>{key.name}</b>
+                          <b style={{ fontWeight: 600 }}>{key.name}</b>{' '}
+                          <NavLink
+                            className="mono dimmer"
+                            style={{ fontSize: 10.5 }}
+                            to={`/observe/runs?api_key_id=${encodeURIComponent(key.id)}`}
+                          >
+                            {t('console.settings.apiPane.viewRuns')}
+                          </NavLink>
                           {key.principal_id && (
                             <span className="dimmer mono" style={{ display: 'block', fontSize: 10.5 }}>
                               {t('console.settings.apiPane.actsAs', {

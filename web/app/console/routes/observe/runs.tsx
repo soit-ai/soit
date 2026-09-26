@@ -42,6 +42,7 @@ import {
   getRunCostSummary,
   listRuns,
   type RunResponse,
+  type RunSource,
 } from '@/services/run-service'
 
 const RANGES = ['1h', '24h', '7d', '30d'] as const
@@ -92,6 +93,9 @@ export default function ConsoleRuns() {
     : '24h'
   const quickStatus = (searchParams.get('status') as QuickStatus) || 'all'
   const mode = searchParams.get('mode') || 'all'
+  const source = searchParams.get('source') || 'all'
+  // A key is reached from Settings › API; it has no picker of its own here.
+  const apiKeyId = searchParams.get('api_key_id') || undefined
   const kind = searchParams.get('subject_kind') || 'all'
   const hasToolCall = searchParams.get('has_tool_call') === '1'
   const hasCitation = searchParams.get('has_citation') === '1'
@@ -124,6 +128,8 @@ export default function ConsoleRuns() {
     () => ({
       status: quickStatus === 'all' ? undefined : quickStatus,
       mode: mode === 'all' ? undefined : mode,
+      source: source === 'all' ? undefined : (source as RunSource),
+      api_key_id: apiKeyId,
       subject_kind: kind === 'all' ? undefined : kind,
       has_tool_call: hasToolCall || undefined,
       has_citation: hasCitation || undefined,
@@ -133,17 +139,37 @@ export default function ConsoleRuns() {
       page_size: PAGE_SIZE,
       page_token: pageToken,
     }),
-    [quickStatus, mode, kind, hasToolCall, hasCitation, hasAudit, startedAfter, pageToken],
+    [
+      quickStatus,
+      mode,
+      source,
+      apiKeyId,
+      kind,
+      hasToolCall,
+      hasCitation,
+      hasAudit,
+      startedAfter,
+      pageToken,
+    ],
   )
 
   const costParams = useMemo(
     () => ({
       status: listParams.status,
       mode: listParams.mode,
+      source: listParams.source,
+      api_key_id: listParams.api_key_id,
       subject_kind: listParams.subject_kind,
       started_after: startedAfter,
     }),
-    [listParams.status, listParams.mode, listParams.subject_kind, startedAfter],
+    [
+      listParams.status,
+      listParams.mode,
+      listParams.source,
+      listParams.api_key_id,
+      listParams.subject_kind,
+      startedAfter,
+    ],
   )
 
   const runsQuery = useQuery({
@@ -282,8 +308,27 @@ export default function ConsoleRuns() {
               <SelectItem value="task">task</SelectItem>
               <SelectItem value="workflow">workflow</SelectItem>
               <SelectItem value="api">api</SelectItem>
+              <SelectItem value="gateway">gateway</SelectItem>
             </SelectContent>
           </Select>
+          <Select
+            value={source}
+            onValueChange={(value) => value != null && patchParams({ source: value })}
+          >
+            <SelectTrigger size="sm" aria-label={t('console.runs.filters.source')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('console.runs.filters.sourceAll')}</SelectItem>
+              <SelectItem value="platform">{t('console.runs.filters.sourcePlatform')}</SelectItem>
+              <SelectItem value="gateway">{t('console.runs.filters.sourceGateway')}</SelectItem>
+            </SelectContent>
+          </Select>
+          {apiKeyId && (
+            <FilterChip active onClick={() => patchParams({ api_key_id: null })}>
+              {t('console.runs.filters.apiKey', { id: apiKeyId })}
+            </FilterChip>
+          )}
           <Select
             value={kind}
             onValueChange={(value) => value != null && patchParams({ subject_kind: value })}
@@ -405,7 +450,14 @@ export default function ConsoleRuns() {
                   <TableCell>
                     <KindChip kind={subjectKind(run)} label={subjectName(run.subject_id)} />
                   </TableCell>
-                  <TableCell className="dim">{run.mode}</TableCell>
+                  <TableCell className="dim">
+                    {run.mode}
+                    {run.api_key_id && (
+                      <span className="mono dimmer" style={{ display: 'block', fontSize: 10.5 }}>
+                        {t('console.runs.viaKey', { id: run.api_key_id })}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell className="num dim">
                     {run.observe_summary?.step_count ?? '—'}
                   </TableCell>

@@ -107,6 +107,8 @@ async def summarize_costs(
     status: str | None = None,
     started_after: datetime | None = None,
     started_before: datetime | None = None,
+    source: str | None = None,
+    api_key_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -122,6 +124,8 @@ async def summarize_costs(
         status=status,
         started_after=started_after,
         started_before=started_before,
+        source=source,
+        api_key_id=api_key_id,
     )
 
 
@@ -135,6 +139,8 @@ async def summarize_costs_by_day(
     status: str | None = None,
     started_after: datetime | None = None,
     started_before: datetime | None = None,
+    source: str | None = None,
+    api_key_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -150,6 +156,8 @@ async def summarize_costs_by_day(
         status=status,
         started_after=started_after,
         started_before=started_before,
+        source=source,
+        api_key_id=api_key_id,
     )
 
 
@@ -163,6 +171,8 @@ async def summarize_costs_by_subject(
     status: str | None = None,
     started_after: datetime | None = None,
     started_before: datetime | None = None,
+    source: str | None = None,
+    api_key_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -178,6 +188,8 @@ async def summarize_costs_by_subject(
         status=status,
         started_after=started_after,
         started_before=started_before,
+        source=source,
+        api_key_id=api_key_id,
     )
 
 
@@ -191,6 +203,8 @@ async def summarize_costs_by_mode(
     started_after: datetime | None = None,
     started_before: datetime | None = None,
     kind: str | None = None,
+    source: str | None = None,
+    api_key_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -206,6 +220,8 @@ async def summarize_costs_by_mode(
         started_after=started_after,
         started_before=started_before,
         kind=kind,
+        source=source,
+        api_key_id=api_key_id,
     )
 
 
@@ -219,6 +235,8 @@ async def summarize_costs_by_provider(
     status: str | None = None,
     started_after: datetime | None = None,
     started_before: datetime | None = None,
+    source: str | None = None,
+    api_key_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -234,6 +252,8 @@ async def summarize_costs_by_provider(
         status=status,
         started_after=started_after,
         started_before=started_before,
+        source=source,
+        api_key_id=api_key_id,
     )
 
 
@@ -247,6 +267,8 @@ async def summarize_costs_by_model(
     status: str | None = None,
     started_after: datetime | None = None,
     started_before: datetime | None = None,
+    source: str | None = None,
+    api_key_id: str | None = None,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
@@ -262,6 +284,8 @@ async def summarize_costs_by_model(
         status=status,
         started_after=started_after,
         started_before=started_before,
+        source=source,
+        api_key_id=api_key_id,
     )
 
 

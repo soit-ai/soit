@@ -33,10 +33,13 @@ record for operators.
   creates, disables and deletes them. Settings › Security switches the
   workspace between recording run content and metadata only.
 - Runs report the entry they came through and the key that started them
-  (`source`, `api_key_id`), and the run list (`GET /api/v1/runs`) and its CSV
-  export filter by both, so gateway traffic can be read on its own or per
-  key. The Observe dashboard's recent runs include gateway embedding and
-  image calls alongside chat.
+  (`source`, `api_key_id`), and the run list (`GET /api/v1/runs`), its CSV
+  export and every cost breakdown under `/api/v1/runs/costs` filter by both,
+  so gateway traffic and its spend can be read on their own or per key. In
+  the console, Observe › Runs has an Entry filter and a key filter that
+  Settings › API links each key to, and the cost overview follows them. The
+  Observe dashboard's recent runs include gateway embedding and image calls
+  alongside chat.
 - Workspace notification endpoints: team channels and webhooks that receive
   a workspace's alerts in the categories they subscribe to (`alert` for
   budgets and credit, `task` for failed runs), whoever is on the team
