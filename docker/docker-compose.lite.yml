@@ -1,0 +1,210 @@
+# SOIT lite profile: the smallest install that runs every feature, for
+# evaluating SOIT on a laptop. Five long-running containers instead of eleven:
+#
+#   postgres (with pgvector)  redis  api  web  worker
+#
+# plus the one-shot storage-init, migrate and bootstrap jobs. Compared with the full
+# quickstart (docker-compose.yml):
+#
+#   - vectors live in PostgreSQL through pgvector instead of Milvus and etcd;
+#   - files live on a local volume instead of MinIO;
+#   - secret values live in PostgreSQL, sealed with a key derived from
+#     SECRET_KEY, instead of Vault. Changing SECRET_KEY orphans them;
+#   - one worker container runs knowledge ingest, the outbox dispatcher and
+#     the scheduler, and the API runs the chat interaction worker.
+#
+# It is an evaluation profile: the settings refuse pgvector and sealed secrets
+# when ENVIRONMENT=production. Start it from the repository root:
+#
+#   docker compose -f docker/docker-compose.lite.yml up -d
+#
+# then open http://localhost:5000 and sign in as the bootstrap admin
+# (admin@example.com / changeme123 unless overridden in .env).
+name: soit-lite
+
+x-logging: &default-logging
+  driver: 'json-file'
+  options:
+    max-size: '100m'
+    max-file: '3'
+
+x-server-environment: &server_environment
+  ENVIRONMENT: ${ENVIRONMENT:-local}
+  DATABASE_HOST: postgres
+  DATABASE_PORT: 5432
+  DATABASE_USER: ${DATABASE_USER:-soit}
+  DATABASE_PASS: ${DATABASE_PASS:-soit}
+  DATABASE_NAME: ${DATABASE_NAME:-soit}
+  REDIS_URL: redis://redis:6379/0
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  EVENT_BUS_BACKEND: redis
+  EVENT_BUS_REDIS_URL: redis://redis:6379/0
+  STORAGE_URL: file:///data/storage
+  STORAGE_AUTO_MKDIR: "true"
+  VECTOR_BACKEND: pgvector
+  SECRETS_BACKEND: sealed
+  SECRET_KEY: ${SECRET_KEY:-soit-lite-evaluation-secret-key-change-me}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
+  PLATFORM_VERSION: ${PLATFORM_VERSION:-1.0.0}
+  PLATFORM_EDITION: ${PLATFORM_EDITION:-community}
+  ENABLE_EGRESS_POLICY: ${ENABLE_EGRESS_POLICY:-true}
+  EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-[]}
+  EGRESS_BLOCKLIST: ${EGRESS_BLOCKLIST:-[]}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OUTBOX_DISPATCHER_METRICS_PORT: 9201
+  OTEL_ENABLED: "false"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-soit}
+      POSTGRES_PASSWORD: ${DATABASE_PASS:-soit}
+      POSTGRES_DB: ${DATABASE_NAME:-soit}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-soit} -d ${DATABASE_NAME:-soit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *default-logging
+
+  redis:
+    image: redis:7.2-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *default-logging
+
+  # The application images run as appuser (uid 10001), and a fresh named
+  # volume is owned by root; hand the file store to the application once.
+  storage-init:
+    build:
+      context: ../server
+      target: runtime
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 10001:10001 /data/storage"]
+    volumes:
+      - storage_data:/data/storage
+    restart: "no"
+    logging: *default-logging
+
+  migrate:
+    build:
+      context: ../server
+      target: runtime
+    environment: *server_environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "scripts/migrate.sh"]
+    restart: "no"
+    logging: *default-logging
+
+  bootstrap:
+    build:
+      context: ../server
+      target: runtime
+    environment:
+      <<: *server_environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      storage-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command:
+      - python
+      - scripts/bootstrap_admin.py
+      - --email
+      - ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
+      - --password
+      - ${BOOTSTRAP_ADMIN_PASSWORD:-changeme123}
+      - --name
+      - ${BOOTSTRAP_ADMIN_NAME:-Admin}
+      - --tenant-name
+      - ${BOOTSTRAP_TENANT_NAME:-default}
+    restart: "no"
+    logging: *default-logging
+
+  api:
+    build:
+      context: ../server
+      target: runtime
+    environment:
+      <<: *server_environment
+      OUTBOX_DISPATCHER_ENABLED: "false"
+      RESPONSE_INTERACTION_WORKER_ENABLED: "true"
+      RESPONSE_INTERACTION_WORKER_IN_API: "true"
+      WORKFLOW_ORPHAN_REAPER_ENABLED: "true"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9200"]
+    ports:
+      - "${API_PUBLISHED_PORT:-9200}:9200"
+    volumes:
+      - storage_data:/data/storage
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9200/health/ready', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    logging: *default-logging
+
+  worker:
+    build:
+      context: ../server
+      target: knowledge-worker
+    environment:
+      <<: *server_environment
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    command: ["python", "scripts/combined_worker.py"]
+    volumes:
+      - storage_data:/data/storage
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    expose:
+      - "9201"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9201/metrics', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    logging: *default-logging
+
+  web:
+    build:
+      context: ../web
+      args:
+        VITE_BASE_URL: ${VITE_BASE_URL:-http://localhost:9200/api/v1}
+    environment:
+      PORT: 5000
+    ports:
+      - "${WEB_PUBLISHED_PORT:-5000}:5000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_data:

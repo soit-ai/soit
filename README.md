@@ -114,23 +114,37 @@ Enterprise platforms live and die by what they refuse to do. SOIT treats governa
 
 ## Quick start
 
-The fastest way to try SOIT locally:
+The fastest way to try SOIT locally is the lite profile: five containers
+(PostgreSQL with pgvector, Redis, the API, the web UI and one background
+worker), no `.env` required.
 
 ```bash
 git clone https://github.com/soit-ai/soit.git
 cd soit
-cp .env.example .env
-docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose -f docker/docker-compose.lite.yml up -d
 ```
 
-Then open `http://localhost:5000` and sign in with the bootstrap admin credentials from your `.env` file.
+Then open `http://localhost:5000` and sign in as `admin@example.com` /
+`changeme123` (override with `BOOTSTRAP_ADMIN_EMAIL` and
+`BOOTSTRAP_ADMIN_PASSWORD`).
 
 What you get on first launch:
 
 - Web UI on `:5000`, API on `:9200`
-- PostgreSQL, Redis, Milvus, MinIO, and Vault all wired and healthy
+- Every feature: vectors in PostgreSQL through pgvector, files on a local
+  volume, secret values sealed in the database with a key derived from
+  `SECRET_KEY`
 - Database migrations applied automatically
 - An empty Community workspace where Agents, Workflows, and Knowledge bases can be created through the UI without demo seed data
+
+The lite profile is for evaluation; the settings refuse pgvector and sealed
+secrets when `ENVIRONMENT=production`. The full topology runs Milvus, MinIO
+and Vault the way a production deployment does:
+
+```bash
+cp .env.example .env
+docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher scheduler
+```
 
 ### Deploy from released images
 

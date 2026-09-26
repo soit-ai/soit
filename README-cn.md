@@ -167,8 +167,18 @@ npm run dev
 
 ### Docker Compose 启动
 
+最快的体验方式是 lite 配置：5 个容器（带 pgvector 的 PostgreSQL、Redis、API、Web、一个后台 worker），无需 `.env`：
+
 ```bash
-docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose -f docker/docker-compose.lite.yml up -d
+```
+
+打开 `http://localhost:5000`，用 `admin@example.com` / `changeme123` 登录（可用 `BOOTSTRAP_ADMIN_EMAIL`、`BOOTSTRAP_ADMIN_PASSWORD` 覆盖）。lite 配置把向量存进 PostgreSQL（pgvector）、文件存本地卷、密钥值用 `SECRET_KEY` 派生的密钥加密后存数据库；它面向评估，`ENVIRONMENT=production` 时配置校验会拒绝 pgvector 与密封密钥。
+
+完整拓扑按生产方式运行 Milvus、MinIO 与 Vault：
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher scheduler
 ```
 
 **使用发布镜像部署**（免本地构建，镜像含 SBOM 与 Sigstore 溯源，见 [Releases](https://github.com/soit-ai/soit/releases)）：

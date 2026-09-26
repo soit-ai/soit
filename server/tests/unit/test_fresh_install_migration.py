@@ -65,6 +65,7 @@ DRAFT_REVIEW_PATH = VERSIONS_ROOT / "20260831110000_agent_draft_review.py"
 OUTBOX_INDEX_DIET_PATH = VERSIONS_ROOT / "20260917100000_outbox_index_diet.py"
 PREFIX_INDEX_DIET_PATH = VERSIONS_ROOT / "20260917120000_prefix_index_diet.py"
 KNOWLEDGE_VISIBILITY_PATH = VERSIONS_ROOT / "20260926100000_knowledge_visibility_enforced.py"
+SEALED_SECRETS_PATH = VERSIONS_ROOT / "20260926110000_sealed_secret_values.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -127,6 +128,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         OUTBOX_INDEX_DIET_PATH.name,
         PREFIX_INDEX_DIET_PATH.name,
         KNOWLEDGE_VISIBILITY_PATH.name,
+        SEALED_SECRETS_PATH.name,
     ]
 
     module = _load_baseline()

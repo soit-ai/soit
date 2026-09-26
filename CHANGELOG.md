@@ -14,6 +14,19 @@ record for operators.
 
 ### Added
 
+- A lite profile, `docker/docker-compose.lite.yml`, runs every feature in
+  five long-running containers with no `.env`: PostgreSQL with pgvector,
+  Redis, the API (which also runs the chat interaction worker), the web UI,
+  and one worker that runs knowledge ingest, the outbox dispatcher and the
+  scheduler (`scripts/combined_worker.py`). Files live on a local volume, and
+  a new `SECRETS_BACKEND=sealed` keeps secret values in PostgreSQL sealed with
+  a key derived from `SECRET_KEY`, so they survive restarts without Vault
+  (migration `20260926110000` adds the table). It is an evaluation profile:
+  the settings refuse pgvector and sealed secrets in production. The README
+  quick start leads with it, and CI starts it and runs `docker/lite-smoke.sh`,
+  which stores a secret, restarts the API and checks the secret still
+  resolves.
+
 - The quickstart Compose stack is split into `docker/docker-compose.infra.yml`
   (PostgreSQL, Redis, MinIO, Milvus, Vault) and `docker/docker-compose.app.yml`
   (migrations, API, web and workers), so an operator who already runs some of
@@ -292,6 +305,13 @@ record for operators.
 
 ### Fixed
 
+- The quickstart API runs the durable interaction worker
+  (`RESPONSE_INTERACTION_WORKER_ENABLED=true`). Without it, queued
+  interactions such as task retries and approval resumes were accepted and
+  never executed.
+- Testing a secret fails when its value is missing from the store. Stores
+  that cannot find a value answer with an empty string, which the test used
+  to report as a successful resolution.
 - Deciding an agent run's approvals anywhere other than the chat (the
   approvals page, the task page, the API) now finishes the run. The approval
   consumer used to mark the task running and stop there, so a run whose chat

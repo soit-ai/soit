@@ -151,8 +151,12 @@ class SecretsService:
         if not secret:
             raise NotFoundError(f"Secret not found: {secret_id}")
         try:
-            await self.value_store.get_secret_value(
+            value = await self.value_store.get_secret_value(
                 locator=SecretLocator(secret.secret_ref)
             )
         except Exception as exc:
             raise KernelError("SECRETS_TEST_FAILED", f"Failed to resolve secret: {str(exc)}")
+        if not value:
+            # Stores that cannot find a value answer with an empty string, so
+            # an empty answer is a lost value, not a successful resolution.
+            raise KernelError("SECRETS_TEST_FAILED", "Secret value is missing from the store")

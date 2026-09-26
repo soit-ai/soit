@@ -183,6 +183,10 @@ class Settings(BaseSettings):
     """HashiCorp Vault URL."""
     vault_token: str | None = None
     """Vault token."""
+    secrets_backend: str = "vault"
+    """Where secret values live: `vault`, or `sealed` for evaluation
+    installs, which keeps them in the application database sealed with a key
+    derived from `SECRET_KEY`. Production requires Vault."""
 
     # Observe
     sentry_dsn: str | None = None
@@ -542,6 +546,14 @@ class Settings(BaseSettings):
         self.milvus_mode = mode
         return self
 
+    @model_validator(mode="after")
+    def _validate_secrets_backend(self) -> "Settings":
+        backend = (self.secrets_backend or "").strip().lower()
+        if backend not in {"vault", "sealed"}:
+            raise ValueError("SECRETS_BACKEND must be 'vault' or 'sealed'")
+        self.secrets_backend = backend
+        return self
+
     def validate_runtime_requirements(self) -> None:
         """Fail closed when production runtime dependencies are not configured."""
         if (self.environment or "").strip().lower() != "production":
@@ -598,6 +610,10 @@ class Settings(BaseSettings):
             raise ValueError("Production requires OpenTelemetry tracing")
         if not (self.otel_exporter_otlp_endpoint or "").strip():
             raise ValueError("Production requires an OpenTelemetry OTLP endpoint")
+        if self.secrets_backend != "vault":
+            # Sealed values sit next to the data they protect, behind the one
+            # application key; production keeps them in the operated Vault.
+            raise ValueError("Production requires the Vault secrets backend")
         if not self.vault_url or not self.vault_token:
             raise ValueError("Production requires Vault URL and token")
         if not any(

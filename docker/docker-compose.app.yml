@@ -136,6 +136,9 @@ services:
     environment:
       <<: *server_environment
       WORKFLOW_ORPHAN_REAPER_ENABLED: ${WORKFLOW_ORPHAN_REAPER_ENABLED:-true}
+      # Queued interactions (approval resumes, task retries) run in the API's
+      # durable worker; without it they wait forever.
+      RESPONSE_INTERACTION_WORKER_ENABLED: ${RESPONSE_INTERACTION_WORKER_ENABLED:-true}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9200"]
     ports:
       - "${API_PUBLISHED_PORT:-9200}:9200"

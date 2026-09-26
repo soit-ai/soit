@@ -735,6 +735,12 @@ class Container:
         if self._is_explicit_test_runtime():
             from app.adapters.secrets.memory import InMemorySecretValueStore
             return InMemorySecretValueStore()
+        if settings.secrets_backend == "sealed":
+            if (settings.environment or "").strip().lower() == "production":
+                raise RuntimeError("Production requires the Vault secrets backend")
+            from app.adapters.secrets.sealed import SealedDatabaseSecretValueStore
+
+            return SealedDatabaseSecretValueStore()
         if not settings.vault_url or not settings.vault_token:
             if self._allows_in_memory_adapters():
                 from app.adapters.secrets.memory import InMemorySecretValueStore

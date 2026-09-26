@@ -17,6 +17,7 @@ from app.kernel.runtime.db.models.runs import (
     RunStepToolCall,
 )
 from app.kernel.runtime.db.models.schedules import Schedule
+from app.kernel.runtime.db.models.secrets import SealedSecretValue
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
 from app.kernel.runtime.db.models.threads import Thread, ThreadMessage
 
@@ -34,6 +35,7 @@ __all__ = [
     "RunCostEntry",
     "RunStep",
     "Schedule",
+    "SealedSecretValue",
     "Task",
     "TaskCheckpoint",
     "TaskEvent",

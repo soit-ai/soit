@@ -7,6 +7,7 @@ quickstart validation.
 
 | File | Contents |
 | --- | --- |
+| `docker-compose.lite.yml` | Lite evaluation profile: PostgreSQL with pgvector, Redis, `api`, `web` and one `worker`. Standalone, project name `soit-lite`. |
 | `docker-compose.yml` | Quickstart entry point. Includes the three files below; defines nothing itself. |
 | `docker-compose.infra.yml` | Bundled infrastructure: PostgreSQL, Redis, MinIO, Milvus with etcd, dev-mode Vault. |
 | `docker-compose.app.yml` | Application processes: `migrate`, `bootstrap`, `api`, `web`, `knowledge-ingest-worker`, `outbox-dispatcher`, `scheduler`. |
@@ -20,6 +21,29 @@ are the same however the stack is started. Splitting the files did not rename
 anything: an existing quickstart keeps its data.
 
 Requires Docker Compose v2.24 or later.
+
+## Lite Profile
+
+The smallest install that runs every feature, for trying SOIT on a laptop:
+
+```bash
+docker compose -f docker/docker-compose.lite.yml up -d
+```
+
+It runs five long-running containers plus the one-shot `storage-init`,
+`migrate` and `bootstrap` jobs, and needs no `.env`:
+
+| Full quickstart | Lite profile |
+| --- | --- |
+| Milvus with etcd | pgvector in the same PostgreSQL (`VECTOR_BACKEND=pgvector`) |
+| MinIO | a local volume (`STORAGE_URL=file:///data/storage`) |
+| dev-mode Vault, values lost on restart | values sealed in PostgreSQL with a key derived from `SECRET_KEY` (`SECRETS_BACKEND=sealed`) |
+| `knowledge-ingest-worker`, `outbox-dispatcher`, `scheduler` | one `worker` running all three loops (`scripts/combined_worker.py`) |
+
+Changing `SECRET_KEY` orphans the sealed secret values, and the settings
+refuse pgvector and sealed secrets when `ENVIRONMENT=production`: the lite
+profile is for evaluation, not for production. `docker/lite-smoke.sh` checks a
+running lite stack end to end (it is what CI runs).
 
 ## Quick Start
 
