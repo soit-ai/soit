@@ -7,6 +7,8 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+from app.middleware.openai_errors import is_openai_compatible_path
+
 
 def _success_envelope_schema(data_schema: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -36,7 +38,10 @@ def install_enveloped_openapi(app: FastAPI) -> None:
             routes=app.routes,
             tags=app.openapi_tags,
         )
-        for path_item in schema.get("paths", {}).values():
+        for path, path_item in schema.get("paths", {}).items():
+            if is_openai_compatible_path(path):
+                # The OpenAI-compatible surface answers without the envelope.
+                continue
             for operation in path_item.values():
                 if not isinstance(operation, dict):
                     continue
@@ -73,4 +78,8 @@ tags_metadata = [
     {"name": "notifications", "description": "Notification inbox and delivery endpoints."},
     {"name": "api_keys", "description": "API key lifecycle endpoints."},
     {"name": "health", "description": "Health check and monitoring endpoints."},
+    {
+        "name": "openai-compatible",
+        "description": "OpenAI-compatible model gateway under /v1, in OpenAI's request, response and error shapes.",
+    },
 ]

@@ -14,6 +14,19 @@ record for operators.
 
 ### Added
 
+- An OpenAI-compatible gateway under `/v1`: `POST /v1/chat/completions`
+  (whole or streamed, with tools, images and structured output),
+  `GET /v1/models`, `POST /v1/embeddings` and `POST /v1/images/generations`.
+  An OpenAI SDK pointed at SOIT with a SOIT API key works unchanged. Every
+  call is a governed run (`mode=gateway`, subject the API key or the user)
+  that passes the same rate limits, quotas, credit checks, content safety and
+  cost recording as SOIT's own agents, and the run id comes back in the
+  `x-soit-run-id` header. A refusal before a stream starts answers with its
+  own status code, a failure mid-stream ends the stream with an OpenAI error
+  event, and a stream the client abandons fails its run with
+  `CLIENT_DISCONNECTED`. `/v1/models` lists the workspace's active models by
+  the ref a call names. Only `n=1` is accepted, so each choice stays one
+  governed call.
 - Anthropic models call tools natively. The adapter refused any request with
   tools; it now offers them under provider-safe names, sends assistant tool
   calls as `tool_use` blocks and tool results as `tool_result` blocks (merging

@@ -50,6 +50,7 @@ from app.modules.modelhub.application.schemas import (
     ProviderModelCreate,
     ProviderModelUpdate,
     ProviderUpdate,
+    RuntimeModel,
     SyncFromPlatformRequest,
 )
 from app.modules.modelhub.domain.models import (
@@ -390,6 +391,39 @@ class ModelHubService:
         if lifecycle_status is not None:
             return lifecycle_status
         return current
+
+    @workspace_guard("read")
+    async def list_runtime_models(self) -> list[RuntimeModel]:
+        """Models a call can use now: active models of active providers.
+
+        Each is addressed by the `model:{slug}:{model_id}` ref the runtime
+        routes on, so a listed id is always one a call can name.
+        """
+        entries: list[RuntimeModel] = []
+        for provider in await self.provider_repo.list(limit=200):
+            if provider.status != "active":
+                continue
+            models = await self.provider_model_repo.list_by_provider(
+                provider.id, limit=500, status="active"
+            )
+            for model in models:
+                # The runtime router refuses these, so they are not listed.
+                if model.sync_status in {"platform_removed", "user_removed"}:
+                    continue
+                entries.append(
+                    RuntimeModel(
+                        model_ref=self._provider_model_ref(provider, model.model_id),
+                        model_id=model.model_id,
+                        provider_kind=provider.kind,
+                        owned_by=provider.slug or provider.kind,
+                        display_name=model.display_name,
+                        created_at=model.created_at,
+                        capabilities=normalize_capability_matrix(
+                            model.capability_matrix_json or {}
+                        ),
+                    )
+                )
+        return entries
 
     @workspace_guard("read")
     async def list_providers(self, limit: int = 200) -> list[Provider]:

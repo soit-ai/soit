@@ -437,3 +437,15 @@ class ModelTestResponse(BaseModel):
     tokens_prompt: int | None = None
     tokens_completion: int | None = None
     request_id: str | None = None
+
+
+class RuntimeModel(BaseModel):
+    """A model the workspace can call right now, addressed by its model ref."""
+
+    model_ref: str
+    model_id: str
+    provider_kind: str
+    owned_by: str
+    display_name: str | None = None
+    created_at: datetime
+    capabilities: dict[str, Any] = Field(default_factory=dict)
