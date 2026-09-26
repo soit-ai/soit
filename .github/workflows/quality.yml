@@ -122,6 +122,9 @@ jobs:
       - name: Entrypoint tests
         run: uv run pytest tests/entrypoints -q
 
+      - name: OpenAI SDK compatibility
+        run: uv run pytest tests/compat -q
+
       - name: Integration tests
         run: uv run pytest tests/integration -q
 

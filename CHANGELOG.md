@@ -14,6 +14,11 @@ record for operators.
 
 ### Added
 
+- Gateway examples for curl, the OpenAI Python and Node SDKs, LangChain and
+  the OpenAI Agents SDK (`examples/gateway/`), and a compatibility suite that
+  drives the OpenAI Python SDK against `/v1` in CI (`server/tests/compat`):
+  completions, streams, tool calls, structured output, base64 embeddings,
+  model listing, image generation and edits, and error classes.
 - Console: Settings › Notifications lists the workspace's team channels with
   the alerts each receives, and lets owners and admins add, test and delete
   them; other members are told who manages them. The budget row now switches
