@@ -234,3 +234,56 @@ async def test_anthropic_llm_stream_exposes_thinking_delta(monkeypatch):
     ]
 
     assert chunks[0].reasoning_delta == "Checking."
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_reports_prompt_tokens_including_cache(monkeypatch):
+    class FakeByteStream:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            lines = [
+                'data: {"type":"message_start","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":40,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":1}}}',
+                'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}',
+                'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}',
+                'data: {"type":"message_stop"}',
+            ]
+            for line in lines:
+                yield line
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method, url, headers=None, json=None):
+            return FakeByteStream()
+
+    monkeypatch.setattr("app.adapters.llm.anthropic.httpx.AsyncClient", FakeClient)
+    port = AnthropicLLMPort(api_key="anthropic-key")
+
+    chunks = [
+        chunk
+        async for chunk in port.stream_chat(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="model:anthropic:claude-sonnet-4-6",
+        )
+    ]
+
+    final = chunks[-1]
+    assert final.done is True
+    # A streamed call used to report zero prompt tokens, so it was billed as
+    # output only.
+    assert final.tokens_prompt == 145
+    assert final.tokens_completion == 7

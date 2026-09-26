@@ -23,6 +23,18 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 
 
+def _prompt_tokens(usage: dict[str, Any]) -> int:
+    """Every input token the call consumed.
+
+    Anthropic reports prompt-cache writes and reads apart from
+    `input_tokens`; all three are input the call was charged for.
+    """
+    return sum(
+        int(usage.get(key) or 0)
+        for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+    )
+
+
 class AnthropicLLMPort(LLMPort):
     """Anthropic Messages API adapter."""
 
@@ -65,7 +77,7 @@ class AnthropicLLMPort(LLMPort):
         return ChatResponse(
             text=self._extract_text(body),
             reasoning=self._extract_reasoning(body),
-            tokens_prompt=int(usage.get("input_tokens") or 0),
+            tokens_prompt=_prompt_tokens(usage),
             tokens_completion=int(usage.get("output_tokens") or 0),
             model=body.get("model") or self._resolve_model_name(model),
             finish_reason=body.get("stop_reason"),
@@ -88,6 +100,7 @@ class AnthropicLLMPort(LLMPort):
             **kwargs,
         )
         finish_reason: str | None = None
+        tokens_prompt = 0
         tokens_completion = 0
         model_name = self._resolve_model_name(model)
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -110,6 +123,7 @@ class AnthropicLLMPort(LLMPort):
                         message = event.get("message") or {}
                         model_name = message.get("model") or model_name
                         usage = message.get("usage") or {}
+                        tokens_prompt = _prompt_tokens(usage) or tokens_prompt
                         tokens_completion = int(usage.get("output_tokens") or tokens_completion)
                     elif event_type == "content_block_delta":
                         delta = event.get("delta") or {}
@@ -126,11 +140,13 @@ class AnthropicLLMPort(LLMPort):
                         delta = event.get("delta") or {}
                         finish_reason = delta.get("stop_reason") or finish_reason
                         usage = event.get("usage") or {}
+                        tokens_prompt = _prompt_tokens(usage) or tokens_prompt
                         tokens_completion = int(usage.get("output_tokens") or tokens_completion)
                     elif event_type == "message_stop":
                         yield ChatStreamChunk(
                             delta="",
                             done=True,
+                            tokens_prompt=tokens_prompt,
                             tokens_completion=tokens_completion,
                             model=model_name,
                             finish_reason=finish_reason,

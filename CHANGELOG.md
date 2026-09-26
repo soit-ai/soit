@@ -21,6 +21,10 @@ record for operators.
   a sentence at a time after inspection: a redaction replaces the text before
   the client sees it, and a refusal ends the stream. Findings are recorded on
   the run step as they are for a whole reply.
+- A streamed Anthropic call reports its prompt tokens. The stream's
+  `message_start` usage was ignored, so streamed calls recorded zero input
+  tokens and were priced on output alone. Prompt-cache writes and reads now
+  count as input on both the streamed and the whole-reply path.
 
 ### Changed
 
