@@ -52,6 +52,10 @@ from app.middleware.error_handler import (  # noqa: E402
     ERROR_CODE_TO_STATUS,
     ErrorHandlerMiddleware,
 )
+from app.middleware.openai_errors import (  # noqa: E402
+    error_response,
+    retry_after_headers,
+)
 from app.middleware.request_id import RequestIdMiddleware  # noqa: E402
 from app.middleware.response_envelope import (  # noqa: E402
     ResponseEnvelopeMiddleware,
@@ -340,15 +344,13 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     }
     error_code = status_to_code.get(exc.status_code, "HTTP_ERROR")
     request_id, run_id = _resolve_trace_ids(request)
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=error_envelope(
-            code=error_code,
-            message=str(exc.detail) if exc.detail else f"HTTP {exc.status_code}",
-            request_id=request_id,
-            run_id=run_id,
-        ),
+    envelope = error_envelope(
+        code=error_code,
+        message=str(exc.detail) if exc.detail else f"HTTP {exc.status_code}",
+        request_id=request_id,
+        run_id=run_id,
     )
+    return error_response(request.url.path, exc.status_code, envelope)
 
 
 @app.exception_handler(RequestValidationError)
@@ -361,16 +363,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "type": error.get("type", "validation_error"),
         })
     request_id, run_id = _resolve_trace_ids(request)
-    return JSONResponse(
-        status_code=400,
-        content=error_envelope(
-            code="VALIDATION_ERROR",
-            message="Request validation failed",
-            details={"errors": errors},
-            request_id=request_id,
-            run_id=run_id,
-        ),
+    envelope = error_envelope(
+        code="VALIDATION_ERROR",
+        message="Request validation failed",
+        details={"errors": errors},
+        request_id=request_id,
+        run_id=run_id,
     )
+    return error_response(request.url.path, 400, envelope)
 
 
 @app.exception_handler(KernelError)
@@ -378,15 +378,18 @@ async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONRe
     error_code = exc.code
     status_code = ERROR_CODE_TO_STATUS.get(error_code, 500)
     request_id, run_id = _resolve_trace_ids(request)
-    return JSONResponse(
-        status_code=status_code,
-        content=error_envelope(
-            code=error_code,
-            message=exc.message,
-            details=exc.details,
-            request_id=request_id,
-            run_id=run_id,
-        ),
+    envelope = error_envelope(
+        code=error_code,
+        message=exc.message,
+        details=exc.details,
+        request_id=request_id,
+        run_id=run_id,
+    )
+    return error_response(
+        request.url.path,
+        status_code,
+        envelope,
+        headers=retry_after_headers(error_code, exc.details),
     )
 
 

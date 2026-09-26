@@ -67,6 +67,13 @@ class TimeoutError(KernelError):
         super().__init__("TIMEOUT", message, details)
 
 
+class RateLimitExceededError(KernelError):
+    """A rate limit or quota refused the call; retry after `details['retry_after']`."""
+
+    def __init__(self, message: str = "Rate limit exceeded", details: dict[str, Any] | None = None):
+        super().__init__("RATE_LIMIT_EXCEEDED", message, details)
+
+
 class CreditExhaustedError(KernelError):
     """Workspace credit balance is exhausted; metered invocations are blocked."""
 

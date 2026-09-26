@@ -7,7 +7,7 @@ import time
 
 import redis.asyncio as redis_async
 
-from app.kernel.commons.errors import ForbiddenError
+from app.kernel.commons.errors import RateLimitExceededError
 from app.settings.settings import settings
 
 
@@ -57,7 +57,7 @@ class RateLimiter:
             True if within limit, False if rate limit exceeded.
 
         Raises:
-            ForbiddenError: If rate limit is exceeded.
+            RateLimitExceededError: If rate limit is exceeded.
         """
         redis = await self._get_redis()
 
@@ -107,7 +107,7 @@ class RateLimiter:
                 # Rate limit exceeded
                 # Get remaining time
                 ttl = await redis.ttl(redis_key)
-                raise ForbiddenError(
+                raise RateLimitExceededError(
                     f"Rate limit exceeded: {limit} requests per {window_seconds} seconds",
                     {
                         "limit": limit,
@@ -117,7 +117,7 @@ class RateLimiter:
                 )
 
             return True
-        except ForbiddenError:
+        except RateLimitExceededError:
             raise
         except Exception as e:
             # If Redis is unavailable, log and allow request (fail-open)

@@ -12,6 +12,17 @@ record for operators.
 
 ## [Unreleased]
 
+### Changed
+
+- A call refused by a rate limit or a daily quota answers 429 with a
+  `Retry-After` header and the code `RATE_LIMIT_EXCEEDED`; it was a 403
+  `FORBIDDEN`, which clients could not tell apart from a permission refusal
+  and so never retried.
+- Routes under `/v1` answer errors in the OpenAI shape
+  (`{"error": {"message", "type", "param", "code"}}`) and without the SOIT
+  envelope, ready for the OpenAI-compatible entry point. Routes under
+  `/api/v1` are unchanged.
+
 ## [1.1.0] - 2026-09-26
 
 ### Added

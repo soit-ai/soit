@@ -9,7 +9,6 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -19,6 +18,7 @@ from app.kernel.commons.errors import (
     KernelError,
 )
 from app.kernel.observe.context import get_log_context
+from app.middleware.openai_errors import error_response, retry_after_headers
 from app.middleware.response_envelope import error_envelope
 
 logger = logging.getLogger(__name__)
@@ -153,16 +153,18 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 sanitized_message = sanitize_error_message(e.message)
 
             request_id, run_id = self._resolve_trace_ids(request)
-            error_response = error_envelope(
+            envelope = error_envelope(
                 code=e.code,
                 message=sanitized_message,
                 details=filtered_details,
                 request_id=request_id,
                 run_id=run_id,
             )
-            return JSONResponse(
-                status_code=status_code,
-                content=error_response,
+            return error_response(
+                request.url.path,
+                status_code,
+                envelope,
+                headers=retry_after_headers(e.code, e.details),
             )
         except RequestValidationError as e:
             # Handle FastAPI validation errors
@@ -183,17 +185,14 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 })
 
             request_id, run_id = self._resolve_trace_ids(request)
-            error_response = error_envelope(
+            envelope = error_envelope(
                 code="VALIDATION_ERROR",
                 message="Request validation failed",
                 details={"errors": errors},
                 request_id=request_id,
                 run_id=run_id,
             )
-            return JSONResponse(
-                status_code=400,
-                content=error_response,
-            )
+            return error_response(request.url.path, 400, envelope)
         except StarletteHTTPException as e:
             # Handle Starlette HTTP exceptions
             logger.warning(
@@ -218,16 +217,13 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             error_code = status_to_code.get(e.status_code, "HTTP_ERROR")
 
             request_id, run_id = self._resolve_trace_ids(request)
-            error_response = error_envelope(
+            envelope = error_envelope(
                 code=error_code,
                 message=str(e.detail) if e.detail else f"HTTP {e.status_code}",
                 request_id=request_id,
                 run_id=run_id,
             )
-            return JSONResponse(
-                status_code=e.status_code,
-                content=error_response,
-            )
+            return error_response(request.url.path, e.status_code, envelope)
         except Exception as e:
             # Handle unexpected errors
             logger.exception(
@@ -252,14 +248,11 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 }
 
             request_id, run_id = self._resolve_trace_ids(request)
-            error_response = error_envelope(
+            envelope = error_envelope(
                 code="INTERNAL_ERROR",
                 message=error_message,
                 details=error_details,
                 request_id=request_id,
                 run_id=run_id,
             )
-            return JSONResponse(
-                status_code=500,
-                content=error_response,
-            )
+            return error_response(request.url.path, 500, envelope)

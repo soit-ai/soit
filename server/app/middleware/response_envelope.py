@@ -13,6 +13,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.kernel.observe.context import get_log_context
+from app.middleware.openai_errors import is_openai_compatible_path
 
 
 def success_envelope(
@@ -130,6 +131,9 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
         if request.app.openapi_url and request.url.path == request.app.openapi_url:
+            return response
+        if is_openai_compatible_path(request.url.path):
+            # OpenAI SDK clients parse the bare OpenAI shapes.
             return response
         if not self._should_wrap(response):
             return response

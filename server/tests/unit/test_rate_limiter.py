@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 import redis.asyncio as redis_async
 
-from app.kernel.commons.errors import ForbiddenError
+from app.kernel.commons.errors import RateLimitExceededError
 from app.kernel.ports.common.rate_limiter import RateLimiter
 
 
@@ -40,18 +40,21 @@ async def test_rate_limit_allowed(mock_redis):
 
 @pytest.mark.asyncio
 async def test_rate_limit_exceeded(mock_redis):
-    """Test that exceeding rate limit raises ForbiddenError."""
+    """Exceeding the limit raises RateLimitExceededError, which maps to HTTP 429."""
     # Mock Redis to return 0 (rate limit exceeded)
     mock_redis.eval = AsyncMock(return_value=0)
 
     limiter = RateLimiter(redis_client=mock_redis)
 
-    with pytest.raises(ForbiddenError):
+    with pytest.raises(RateLimitExceededError) as raised:
         await limiter.check_rate_limit(
             key="test_key",
             limit=10,
             window_seconds=60,
         )
+    assert raised.value.code == "RATE_LIMIT_EXCEEDED"
+    assert raised.value.details["limit"] == 10
+    assert raised.value.details["retry_after"] > 0
 
 
 @pytest.mark.asyncio
