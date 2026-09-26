@@ -3,16 +3,19 @@
 OpenAI LLM port adapter implementation.
 """
 
-import hashlib as _hashlib
 import json as _json
 import mimetypes as _mimetypes
-import re as _re
 from typing import Any
 
 import httpx
 import numpy as np
 from openai import AsyncOpenAI
 
+from app.adapters.llm.tool_names import (
+    TOOL_NAME_PATTERN,
+    tool_name_alias,
+    tool_name_maps,
+)
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -32,7 +35,7 @@ from app.kernel.ports.llm.interface import (
 class OpenAILLMPort(LLMPort):
     """OpenAI LLM port adapter."""
 
-    _TOOL_NAME_PATTERN = _re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+    _TOOL_NAME_PATTERN = TOOL_NAME_PATTERN
     _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
     def __init__(
@@ -60,22 +63,14 @@ class OpenAILLMPort(LLMPort):
 
     @classmethod
     def _tool_name_alias(cls, name: str) -> str:
-        if cls._TOOL_NAME_PATTERN.fullmatch(name):
-            return name
-        normalized = _re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_-") or "tool"
-        digest = _hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
-        return f"{normalized[:53]}_{digest}"
+        return tool_name_alias(name)
 
     @classmethod
     def _tool_name_maps(
         cls,
         tools: list[ToolDefinition] | None,
     ) -> tuple[dict[str, str], dict[str, str]]:
-        outbound = {
-            tool.name: cls._tool_name_alias(tool.name)
-            for tool in tools or []
-        }
-        return outbound, {alias: original for original, alias in outbound.items()}
+        return tool_name_maps(tools)
 
     @classmethod
     def _convert_messages(

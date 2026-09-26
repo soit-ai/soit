@@ -51,7 +51,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "chat": True,
         "embeddings": False,
         "rerank": False,
-        "tools": False,
+        "tools": True,
         "image_generation": False,
         "image_edit": False,
     },

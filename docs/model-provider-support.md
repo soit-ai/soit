@@ -9,7 +9,7 @@ Status: Phase 1 acceptance support matrix. This document records implementation 
 | OpenAI | Yes, `app/adapters/llm/openai.py` | Catalog, chat test, embedding test | Accepted implementation path | Supports chat, streaming, tool calls, embeddings, and embedding-based rerank. |
 | OpenAI-compatible | Yes, through `OpenAILLMPort` with `base_url` | Catalog/chat/embedding diagnostics through OpenAI-compatible client paths | Accepted implementation path | Covers self-hosted or compatible gateways when API semantics match OpenAI. |
 | DeepSeek | Yes, `app/adapters/llm/deepseek.py` | Provider configuration is supported; runtime uses OpenAI-compatible chat adapter | Accepted implementation path for chat runtime | Model IDs containing `:` are preserved by DeepSeek-specific parsing. |
-| Anthropic | Yes, `app/adapters/llm/anthropic.py` | Catalog and chat diagnostics | Diagnostic/runtime foundation, with limitations | Chat is supported. Tool calling, embeddings, and rerank are explicitly unsupported in this adapter. |
+| Anthropic | Yes, `app/adapters/llm/anthropic.py` | Catalog and chat diagnostics | Accepted implementation path | Supports chat, streaming, and native tool calling (`tool_use` / `tool_result`, streamed `input_json_delta`). Embeddings and rerank are not offered by Anthropic. |
 | Gemini | No dedicated runtime adapter in `app/adapters/llm` | Chat diagnostics and catalog paths in ModelHub provider adapter | Diagnostic foundation only | Do not count as Phase 1 runtime acceptance until a runtime adapter is added. |
 
 ## Phase 1 acceptance
@@ -19,7 +19,7 @@ Phase 1 requires at least two mainstream model source types to be configurable a
 1. OpenAI or OpenAI-compatible provider.
 2. DeepSeek provider through the OpenAI-compatible runtime path.
 
-Anthropic can be used for chat runtime where configured, but it has documented limitations. Gemini must remain diagnostic-only until a runtime adapter is implemented.
+Anthropic supports chat, streaming and tool calling; it offers no embeddings or rerank, so a workspace pairs it with another provider for knowledge retrieval. Gemini must remain diagnostic-only until a runtime adapter is implemented.
 
 ## Verification commands
 

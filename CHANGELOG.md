@@ -12,6 +12,17 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- Anthropic models call tools natively. The adapter refused any request with
+  tools; it now offers them under provider-safe names, sends assistant tool
+  calls as `tool_use` blocks and tool results as `tool_result` blocks (merging
+  consecutive turns so roles alternate), translates `tool_choice`
+  (`auto`, `required`, `none` or a named tool), and streams tool input as
+  `input_json_delta` fragments assembled into complete calls. The Anthropic
+  capability preset now reports `tools`. Tool-name aliasing moved to one
+  module shared with the OpenAI adapter.
+
 ### Fixed
 
 - Streamed chat is inspected by content safety like a whole reply. The

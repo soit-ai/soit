@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.adapters.llm.tool_names import tool_name_alias, tool_name_maps
 from app.kernel.commons.errors import ValidationError
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -16,6 +17,8 @@ from app.kernel.ports.llm.interface import (
     EmbeddingResponse,
     LLMPort,
     RerankResponse,
+    ToolCall,
+    ToolCallDelta,
     ToolDefinition,
 )
 
@@ -27,12 +30,43 @@ def _prompt_tokens(usage: dict[str, Any]) -> int:
     """Every input token the call consumed.
 
     Anthropic reports prompt-cache writes and reads apart from
-    `input_tokens`; all three are input the call was charged for.
+    ``input_tokens``; all three are input the call was charged for.
     """
     return sum(
         int(usage.get(key) or 0)
         for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
     )
+
+
+def _tool_choice(tool_choice: Any, name_map: dict[str, str]) -> dict[str, Any] | None:
+    """Translate an OpenAI-style ``tool_choice`` into Anthropic's shape."""
+
+    if tool_choice is None:
+        return None
+    if isinstance(tool_choice, str):
+        choice = tool_choice.strip().lower()
+        if choice == "auto":
+            return {"type": "auto"}
+        if choice in {"required", "any"}:
+            return {"type": "any"}
+        if choice == "none":
+            return {"type": "none"}
+        # A bare tool name selects that tool.
+        return {"type": "tool", "name": name_map.get(tool_choice, tool_name_alias(tool_choice))}
+    if isinstance(tool_choice, dict):
+        function = tool_choice.get("function") if isinstance(tool_choice.get("function"), dict) else {}
+        name = function.get("name") or tool_choice.get("name")
+        if name:
+            return {"type": "tool", "name": name_map.get(str(name), tool_name_alias(str(name)))}
+    raise ValidationError("Unsupported tool_choice for Anthropic")
+
+
+def _text_blocks(content: Any) -> list[dict[str, Any]]:
+    if isinstance(content, list):
+        return [dict(block) for block in content]
+    if content:
+        return [{"type": "text", "text": str(content)}]
+    return []
 
 
 class AnthropicLLMPort(LLMPort):
@@ -51,17 +85,19 @@ class AnthropicLLMPort(LLMPort):
         max_tokens: int | None = None,
         *,
         tools: list[ToolDefinition] | None = None,
-        tool_choice: str | None = None,
+        tool_choice: Any = None,
         **kwargs: Any,
     ) -> ChatResponse:
-        if tools or tool_choice:
-            raise ValidationError("Anthropic tool calling is not supported by this adapter")
+        name_map, reverse_map = tool_name_maps(tools)
         payload = self._build_messages_payload(
             messages=messages,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=False,
+            tools=tools,
+            tool_choice=tool_choice,
+            name_map=name_map,
             **kwargs,
         )
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -74,6 +110,7 @@ class AnthropicLLMPort(LLMPort):
             body = response.json()
 
         usage = body.get("usage") or {}
+        tool_calls = self._extract_tool_calls(body, reverse_map)
         return ChatResponse(
             text=self._extract_text(body),
             reasoning=self._extract_reasoning(body),
@@ -81,6 +118,7 @@ class AnthropicLLMPort(LLMPort):
             tokens_completion=int(usage.get("output_tokens") or 0),
             model=body.get("model") or self._resolve_model_name(model),
             finish_reason=body.get("stop_reason"),
+            tool_calls=tool_calls or None,
         )
 
     async def stream_chat(
@@ -89,20 +127,31 @@ class AnthropicLLMPort(LLMPort):
         model: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        *,
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: Any = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatStreamChunk]:
+        name_map, reverse_map = tool_name_maps(tools)
         payload = self._build_messages_payload(
             messages=messages,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            tools=tools,
+            tool_choice=tool_choice,
+            name_map=name_map,
             **kwargs,
         )
         finish_reason: str | None = None
         tokens_prompt = 0
         tokens_completion = 0
         model_name = self._resolve_model_name(model)
+        # Content blocks are indexed across text and tool_use blocks; tool
+        # calls are numbered in the order they start, as OpenAI numbers them.
+        tool_positions: dict[int, int] = {}
+        assembled: dict[int, dict[str, str]] = {}
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream(
                 "POST",
@@ -125,10 +174,45 @@ class AnthropicLLMPort(LLMPort):
                         usage = message.get("usage") or {}
                         tokens_prompt = _prompt_tokens(usage) or tokens_prompt
                         tokens_completion = int(usage.get("output_tokens") or tokens_completion)
+                    elif event_type == "content_block_start":
+                        block = event.get("content_block") or {}
+                        if block.get("type") == "tool_use":
+                            position = len(tool_positions)
+                            tool_positions[int(event.get("index") or 0)] = position
+                            alias = str(block.get("name") or "")
+                            assembled[position] = {
+                                "id": str(block.get("id") or ""),
+                                "name": reverse_map.get(alias, alias),
+                                "arguments": "",
+                            }
+                            yield ChatStreamChunk(
+                                model=model_name,
+                                tool_call_deltas=[
+                                    ToolCallDelta(
+                                        index=position,
+                                        id=assembled[position]["id"],
+                                        name=assembled[position]["name"],
+                                        arguments_delta="",
+                                    )
+                                ],
+                            )
                     elif event_type == "content_block_delta":
                         delta = event.get("delta") or {}
+                        delta_type = delta.get("type")
+                        if delta_type == "input_json_delta":
+                            position = tool_positions.get(int(event.get("index") or 0))
+                            fragment = str(delta.get("partial_json") or "")
+                            if position is not None and fragment:
+                                assembled[position]["arguments"] += fragment
+                                yield ChatStreamChunk(
+                                    model=model_name,
+                                    tool_call_deltas=[
+                                        ToolCallDelta(index=position, arguments_delta=fragment)
+                                    ],
+                                )
+                            continue
                         reasoning = delta.get("thinking") or ""
-                        if delta.get("type") == "thinking_delta" and reasoning:
+                        if delta_type == "thinking_delta" and reasoning:
                             yield ChatStreamChunk(
                                 reasoning_delta=str(reasoning),
                                 model=model_name,
@@ -150,6 +234,7 @@ class AnthropicLLMPort(LLMPort):
                             tokens_completion=tokens_completion,
                             model=model_name,
                             finish_reason=finish_reason,
+                            tool_calls=self._completed_calls(assembled) or None,
                         )
 
     async def embed(
@@ -185,24 +270,49 @@ class AnthropicLLMPort(LLMPort):
         temperature: float | None,
         max_tokens: int | None,
         stream: bool,
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: Any = None,
+        name_map: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        name_map = name_map or {}
         system_messages: list[str] = []
-        anthropic_messages: list[dict[str, str]] = []
+        anthropic_messages: list[dict[str, Any]] = []
         for message in messages:
             if message.role == "system":
                 if message.content:
-                    system_messages.append(message.content)
+                    system_messages.append(str(message.content))
+                continue
+            if message.role == "tool":
+                # A tool result answers the assistant's tool_use and travels
+                # on the user side of the conversation.
+                block = {
+                    "type": "tool_result",
+                    "tool_use_id": message.tool_call_id or "",
+                    "content": str(message.content or ""),
+                }
+                self._append(anthropic_messages, "user", [block])
                 continue
             if message.role not in {"user", "assistant"}:
                 raise ValidationError(f"Anthropic chat does not support message role: {message.role}")
-            if message.tool_calls:
-                raise ValidationError("Anthropic tool calling is not supported by this adapter")
-            anthropic_messages.append({"role": message.role, "content": message.content or ""})
+            blocks = _text_blocks(message.content)
+            if message.role == "assistant" and message.tool_calls:
+                blocks.extend(
+                    {
+                        "type": "tool_use",
+                        "id": call.id,
+                        "name": name_map.get(call.name, tool_name_alias(call.name)),
+                        "input": call.arguments or {},
+                    }
+                    for call in message.tool_calls
+                )
+            if not blocks:
+                blocks = [{"type": "text", "text": ""}]
+            self._append(anthropic_messages, message.role, blocks)
 
         payload: dict[str, Any] = {
             "model": self._resolve_model_name(model),
-            "messages": anthropic_messages,
+            "messages": [self._collapse(message) for message in anthropic_messages],
             "max_tokens": max_tokens or 1024,
         }
         if system_messages:
@@ -214,7 +324,38 @@ class AnthropicLLMPort(LLMPort):
         top_p = kwargs.get("top_p")
         if top_p is not None:
             payload["top_p"] = top_p
+        stop = kwargs.get("stop")
+        if stop:
+            payload["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
+        if tools:
+            payload["tools"] = [
+                {
+                    "name": name_map.get(tool.name, tool_name_alias(tool.name)),
+                    "description": tool.description or "",
+                    "input_schema": tool.parameters or {"type": "object", "properties": {}},
+                }
+                for tool in tools
+            ]
+        choice = _tool_choice(tool_choice, name_map) if tools else None
+        if choice is not None:
+            payload["tool_choice"] = choice
         return payload
+
+    @staticmethod
+    def _append(messages: list[dict[str, Any]], role: str, blocks: list[dict[str, Any]]) -> None:
+        # The Messages API alternates roles, so consecutive turns of one role
+        # (several tool results, a result followed by a user note) merge.
+        if messages and messages[-1]["role"] == role:
+            messages[-1]["content"].extend(blocks)
+            return
+        messages.append({"role": role, "content": list(blocks)})
+
+    @staticmethod
+    def _collapse(message: dict[str, Any]) -> dict[str, Any]:
+        blocks = message["content"]
+        if len(blocks) == 1 and blocks[0].get("type") == "text":
+            return {"role": message["role"], "content": blocks[0].get("text", "")}
+        return message
 
     @staticmethod
     def _extract_text(payload: dict[str, Any]) -> str:
@@ -236,6 +377,42 @@ class AnthropicLLMPort(LLMPort):
                 parts.append(str(item["thinking"]))
         reasoning = "\n".join(parts).strip()
         return reasoning or None
+
+    @staticmethod
+    def _extract_tool_calls(
+        payload: dict[str, Any], reverse_map: dict[str, str]
+    ) -> list[ToolCall]:
+        calls: list[ToolCall] = []
+        for item in payload.get("content", []) or []:
+            if isinstance(item, dict) and item.get("type") == "tool_use":
+                alias = str(item.get("name") or "")
+                arguments = item.get("input")
+                calls.append(
+                    ToolCall(
+                        id=str(item.get("id") or ""),
+                        name=reverse_map.get(alias, alias),
+                        arguments=arguments if isinstance(arguments, dict) else {},
+                    )
+                )
+        return calls
+
+    @staticmethod
+    def _completed_calls(assembled: dict[int, dict[str, str]]) -> list[ToolCall]:
+        calls: list[ToolCall] = []
+        for position in sorted(assembled):
+            state = assembled[position]
+            try:
+                arguments = json.loads(state["arguments"]) if state["arguments"] else {}
+            except ValueError:
+                arguments = {}
+            calls.append(
+                ToolCall(
+                    id=state["id"],
+                    name=state["name"],
+                    arguments=arguments if isinstance(arguments, dict) else {},
+                )
+            )
+        return calls
 
     @staticmethod
     def _resolve_model_name(model: str) -> str:
