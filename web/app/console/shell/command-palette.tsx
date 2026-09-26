@@ -31,6 +31,7 @@ const JUMP_TARGETS: { labelKey: TranslationKey; to: string }[] = [
   { labelKey: 'console.nav.policies', to: '/govern/policies' },
   { labelKey: 'console.nav.audit', to: '/govern/audit' },
   { labelKey: 'console.nav.secrets', to: '/govern/secrets' },
+  { labelKey: 'console.nav.budgets', to: '/govern/budgets' },
   { labelKey: 'console.nav.settings', to: '/settings' },
 ]
 

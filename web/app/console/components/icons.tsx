@@ -284,3 +284,11 @@ export const IconNavSecrets = makeIcon(
   </>,
   14
 )
+
+export const IconNavBudgets = makeIcon(
+  <>
+    <path d="M4 18a8 8 0 1 1 16 0" />
+    <path d="m12 18 4-5M4 18h16" />
+  </>,
+  14
+)

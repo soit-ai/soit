@@ -58,6 +58,7 @@ async def grant_credits(
     _ = ctx
     return await service.grant(credits=body.credits, note=body.note)
 
+
 def _status_response(status: BudgetStatus) -> BudgetStatusResponse:
     return BudgetStatusResponse(
         budget=BudgetResponse.model_validate(status.budget),
@@ -78,6 +79,16 @@ async def list_budgets(
     """The workspace's budgets."""
     _ = ctx
     return [BudgetResponse.model_validate(budget) for budget in await service.list_budgets()]
+
+
+@router.get("/budgets/statuses", response_model=list[BudgetStatusResponse])
+async def list_budget_statuses(
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: BudgetService = Depends(get_budget_service),
+):
+    """Every budget with its spend in the current period, in one call."""
+    _ = ctx
+    return [_status_response(status) for status in await service.statuses()]
 
 
 @router.post("/budgets", response_model=BudgetResponse, status_code=201)

@@ -374,7 +374,13 @@ class BudgetService:
         await self.db.commit()
 
     async def status(self, budget_id: str) -> BudgetStatus:
-        budget = await self._get(budget_id)
+        return await self._status_of(await self._get(budget_id))
+
+    async def statuses(self) -> list[BudgetStatus]:
+        """Where every budget stands in its current period, for one overview."""
+        return [await self._status_of(budget) for budget in await self.list_budgets()]
+
+    async def _status_of(self, budget: Budget) -> BudgetStatus:
         now = self.clock()
         period = budget_period(budget.period, now)
         spend = await budget_spend(self.db, budget, now)

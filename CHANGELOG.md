@@ -14,6 +14,12 @@ record for operators.
 
 ### Added
 
+- Console: Govern › Budgets lists every budget with its spend in the current
+  period against the limit, its forecast, when it resets and what happens at
+  the limit, flags the ones at risk, spent or on course to overrun, and
+  creates, edits, disables and deletes them. A budget for one key, member,
+  service principal or agent names it. `GET /api/v1/billing/budgets/statuses`
+  returns every budget's status in one call.
 - Console: Settings › API shows what bounds each key and edits its limits
   (calls per minute and per 24 hours, tokens per day, allowed addresses and
   models, and whether its runs record content), sets them when a key is

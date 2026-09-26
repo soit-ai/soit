@@ -57,6 +57,17 @@ async def test_admins_keep_budgets_and_see_their_status(async_client, async_db, 
     assert Decimal(status["percent"]) == Decimal("25")
     assert Decimal(status["forecast"]) >= Decimal("2.5")
 
+    daily = await async_client.post(
+        BASE, json={"name": "Agents daily", "amount": "5", "currency": "USD", "period": "day"}
+    )
+    overview = (await async_client.get(f"{BASE}/statuses")).json()["data"]
+    assert [(item["budget"]["name"], Decimal(item["spent"])) for item in overview] == [
+        ("Agents daily", Decimal("2.5")),
+        ("Team monthly", Decimal("2.5")),
+    ]
+    assert (overview[1]["budget"]["id"], overview[1]["percent"]) == (budget["id"], status["percent"])
+    assert (await async_client.delete(f"{BASE}/{daily.json()['data']['id']}")).status_code == 204
+
     changed = await async_client.patch(f"{BASE}/{budget['id']}", json={"amount": "20", "hard_stop": False})
     assert (Decimal(changed.json()["data"]["amount"]), changed.json()["data"]["hard_stop"]) == (20, False)
     assert [item["id"] for item in (await async_client.get(BASE)).json()["data"]] == [budget["id"]]

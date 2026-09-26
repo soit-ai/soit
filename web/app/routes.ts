@@ -51,6 +51,7 @@ export default [
       route('audit', './console/routes/govern/audit.tsx'),
       route('access', './console/routes/govern/access.tsx'),
       route('secrets', './console/routes/govern/secrets.tsx'),
+      route('budgets', './console/routes/govern/budgets.tsx'),
     ]),
     route('settings/:section?', './console/routes/settings.tsx'),
     // Product feedback predates the rebuild and the prototype has no page for

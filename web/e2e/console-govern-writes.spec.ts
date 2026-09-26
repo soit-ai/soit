@@ -373,3 +373,138 @@ test('the audit explorer asks the ledger by actor, object and window', async ({
     )
     .toBe(true)
 })
+
+const budgetStatus = {
+  budget: {
+    id: 'bud_1',
+    name: 'Team monthly',
+    scope_kind: 'workspace',
+    scope_id: null,
+    period: 'month',
+    amount: '100.000000',
+    currency: 'USD',
+    thresholds: [50, 80, 100],
+    hard_stop: true,
+    status: 'active',
+    created_by: 'user-1',
+    created_at: NOW,
+    updated_at: NOW,
+  },
+  period_start: '2026-09-01T00:00:00Z',
+  resets_at: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+  spent: '81.000000',
+  remaining: '19.000000',
+  percent: '81.00',
+  forecast: '120.000000',
+}
+
+/** One handler per method: a second route on the same pattern would shadow it. */
+const mockBudgets = async (page: Page) => {
+  const calls: { method: string; url: string; body: unknown }[] = []
+  await page.route('**/api/v1/billing/budgets**', async (route) => {
+    const request = route.request()
+    if (request.method() !== 'GET') {
+      calls.push({ method: request.method(), url: request.url(), body: request.postDataJSON() })
+      return route.fulfill({
+        status: request.method() === 'POST' ? 201 : 200,
+        contentType: 'application/json',
+        body: ok(budgetStatus.budget),
+      })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok([budgetStatus]) })
+  })
+  return calls
+}
+
+test('budgets show spend against their limits and are created with their thresholds', async ({
+  page,
+}) => {
+  const calls = await mockBudgets(page)
+
+  await page.goto('/govern/budgets', { waitUntil: 'domcontentloaded' })
+  const row = page.locator('tr', { hasText: 'Team monthly' })
+  await expect(row).toContainText('$81.00 / $100.00')
+  // On course to overrun: the forecast is flagged, and the budget is at risk.
+  await expect(row).toContainText('$120.00')
+  await expect(row).toContainText('stops calls')
+  await expect(page.locator('.tile', { hasText: 'At risk' }).locator('.val')).toHaveText('1')
+  await expect(page.locator('.tile', { hasText: 'Forecast over' }).locator('.val')).toHaveText('1')
+
+  await page.getByRole('button', { name: 'New budget' }).click()
+  const create = page.locator('.console-modal').getByRole('button', { name: 'Create', exact: true })
+  await expect(create).toBeDisabled()
+
+  // Rows by the label they start with: a hint may mention another label.
+  const rowOf = (label: string) =>
+    page
+      .locator('.console-modal .mrow', { hasText: new RegExp(`^${label}`) })
+      .locator('input, select')
+  await rowOf('Name').fill('Gateway daily')
+  await rowOf('Period').selectOption('day')
+  await rowOf('Limit').first().fill('25')
+  await rowOf('Notify at').fill('100, 80, 80')
+  await rowOf('When spent').selectOption('warn')
+  await expect(create).toBeEnabled()
+  await create.click()
+
+  await expect.poll(() => calls.length).toBe(1)
+  expect(calls[0].method).toBe('POST')
+  expect(calls[0].body).toEqual({
+    name: 'Gateway daily',
+    scope_kind: 'workspace',
+    period: 'day',
+    amount: '25',
+    currency: 'USD',
+    thresholds: [80, 100],
+    hard_stop: false,
+  })
+})
+
+test('a budget of one key names the key, and its scope stays fixed when edited', async ({
+  page,
+}) => {
+  await json(page, '**/api/v1/api-keys**', {
+    items: [
+      {
+        id: 'key_1',
+        name: 'partner',
+        key_prefix: 'sk_fixture_a',
+        status: 'active',
+        scopes: ['read'],
+        created_at: NOW,
+        updated_at: NOW,
+      },
+    ],
+    next_page_token: null,
+    page_size: 100,
+  })
+  const calls = await mockBudgets(page)
+  budgetStatus.budget.scope_kind = 'api_key'
+  budgetStatus.budget.scope_id = 'key_1' as never
+  try {
+    await page.goto('/govern/budgets', { waitUntil: 'domcontentloaded' })
+    const row = page.locator('tr', { hasText: 'Team monthly' })
+    await expect(row).toContainText('API key · partner · sk_fixture_a…')
+
+    await row.getByRole('button', { name: 'Edit' }).click()
+    const modal = page.locator('.console-modal')
+    const scope = modal.locator('.mrow', { hasText: /^Applies to/ }).locator('select')
+    await expect(scope.first()).toBeDisabled()
+    await expect(scope.nth(1)).toHaveValue('key_1')
+    await modal.locator('.mrow', { hasText: /^Limit/ }).locator('input').first().fill('150')
+    await modal.getByRole('button', { name: 'Save', exact: true }).click()
+
+    await expect.poll(() => calls.length).toBe(1)
+    expect(calls[0].method).toBe('PATCH')
+    expect(calls[0].url).toContain('/billing/budgets/bud_1')
+    expect(calls[0].body).toEqual({
+      name: 'Team monthly',
+      amount: '150',
+      thresholds: [50, 80, 100],
+      hard_stop: true,
+    })
+  } finally {
+    budgetStatus.budget.scope_kind = 'workspace'
+    budgetStatus.budget.scope_id = null
+  }
+})
