@@ -196,7 +196,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
-用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.2.0`）。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
+用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.3.0`）。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
 
 启动后默认行为：
 - 自动执行数据库迁移（alembic upgrade head）。

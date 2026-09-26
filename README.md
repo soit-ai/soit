@@ -164,7 +164,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
-Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.2.0`). Images can be
+Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.3.0`). Images can be
 verified with `gh attestation verify`. The released `web` image serves the
 API at the default `http://localhost:9200/api/v1`; if you override the API
 host port, build the web image from source with `VITE_BASE_URL` instead.
@@ -272,8 +272,8 @@ We ship in tight, themed iterations. The current focus areas:
 - [x] Agent evaluation with regression sets, LLM judging and a release gate
 - [x] Approval workflows with human-in-the-loop checkpoints
 - [x] Five-container lite profile for evaluation
-- [ ] OpenAI-compatible gateway: any OpenAI SDK through SOIT's budgets, audit and ledger
-- [ ] SOIT as an MCP server for agents that run elsewhere
+- [x] OpenAI-compatible gateway: any OpenAI SDK through SOIT's budgets, audit and ledger
+- [x] SOIT as an MCP server for agents that run elsewhere
 - [ ] Cost-aware multi-model routing policies
 - [ ] MCP marketplace for one-click tool installation
 
