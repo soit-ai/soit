@@ -69,6 +69,10 @@ x-server-environment: &server_environment
   EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-[]}
   EGRESS_BLOCKLIST: ${EGRESS_BLOCKLIST:-[]}
 
+  # The TLS gateway below is the proxy in front of the API. Name its network
+  # here so API key address allowlists see the client, not the gateway.
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-[]}
+
   OTEL_ENABLED: "true"
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-soit-api}
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}

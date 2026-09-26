@@ -154,6 +154,17 @@ def test_the_gateway_terminates_tls_and_does_not_buffer_event_streams() -> None:
     assert "flush_interval -1" in caddyfile
 
 
+def test_the_gateway_routes_the_openai_compatible_api_unbuffered() -> None:
+    caddyfile = CADDYFILE_PATH.read_text(encoding="utf-8")
+
+    # Without this route /v1 falls through to the web app, and a streamed
+    # chat completion must reach the client chunk by chunk.
+    route = re.search(r"reverse_proxy /v1/\* api:9200 \{([^}]*)\}", caddyfile)
+    assert route is not None
+    assert "flush_interval -1" in route.group(1)
+    assert caddyfile.index("reverse_proxy /v1/*") < caddyfile.index("reverse_proxy /* web:5000")
+
+
 def test_the_collector_drops_attributes_that_carry_customer_data() -> None:
     collector = yaml.safe_load(COLLECTOR_PATH.read_text(encoding="utf-8"))
 

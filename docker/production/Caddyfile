@@ -15,6 +15,12 @@
 		flush_interval -1
 	}
 
+	# The OpenAI-compatible gateway. Chat completions stream when the client
+	# asks, so this route is never buffered either.
+	reverse_proxy /v1/* api:9200 {
+		flush_interval -1
+	}
+
 	reverse_proxy /api/* api:9200
 	reverse_proxy /* web:5000
 

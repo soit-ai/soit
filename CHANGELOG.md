@@ -152,7 +152,8 @@ record for operators.
   event, and a stream the client abandons fails its run with
   `CLIENT_DISCONNECTED`. `/v1/models` lists the workspace's active models by
   the ref a call names. Only `n=1` is accepted, so each choice stays one
-  governed call.
+  governed call. The production reference routes `/v1` through its TLS
+  gateway unbuffered and passes `TRUSTED_PROXIES` to the API.
 - Anthropic models call tools natively. The adapter refused any request with
   tools; it now offers them under provider-safe names, sends assistant tool
   calls as `tool_use` blocks and tool results as `tool_result` blocks (merging
