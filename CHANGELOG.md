@@ -288,6 +288,13 @@ record for operators.
 
 ### Fixed
 
+- A workflow version's `spec.limits` are enforced: `timeout_ms` bounds the
+  run's wall clock and cancels the node in flight, `max_steps` caps the nodes
+  started, `budget` stops the run once its recorded cost in
+  `budget_currency` reaches the budget, and `max_tool_calls` caps tool calls.
+  The limits were compiled into the plan but never read. A stopped run fails
+  with the limit as its error code (`time_budget_exceeded`, `max_steps`,
+  `cost_budget_exceeded`, `tool_budget_exceeded`), matching the agent loop.
 - Concurrent credit deductions for one workspace book serially under a
   PostgreSQL advisory lock that grants share, so a threshold crossed by two
   overlapping deductions publishes exactly one low or exhausted alert instead

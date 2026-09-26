@@ -28,9 +28,16 @@ from app.kernel.runtime.runs.tool_calls import (
     summarize_tool_payload,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.workflow.runtime.limits import WorkflowLimitExceeded
 
 if TYPE_CHECKING:
     from app.modules.workflow.application.contracts import WorkflowKnowledgeQueryPort
+
+
+def _limit_error_code(exc: BaseException) -> str | None:
+    """A run stopped by a declared limit records the limit as its error code."""
+
+    return exc.reason if isinstance(exc, WorkflowLimitExceeded) else None
 
 
 class ExecutionEngine:
@@ -215,6 +222,7 @@ class ExecutionEngine:
                 run.id,
                 run.status,
                 output_summary=error_message[:8192],
+                error_code=_limit_error_code(exc),
             )
             raise
 
@@ -267,6 +275,7 @@ class ExecutionEngine:
                 run.id,
                 run.status,
                 output_summary=str(exc)[:8192],
+                error_code=_limit_error_code(exc),
             )
             raise
 
@@ -326,6 +335,7 @@ class ExecutionEngine:
                 run.id,
                 run.status,
                 output_summary=str(exc)[:8192],
+                error_code=_limit_error_code(exc),
             )
             raise
 

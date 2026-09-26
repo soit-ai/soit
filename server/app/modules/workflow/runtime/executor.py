@@ -23,6 +23,11 @@ from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executors import get_executor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
+from app.modules.workflow.runtime.limits import (
+    WorkflowLimitExceeded,
+    WorkflowLimitGuard,
+    WorkflowRunLimits,
+)
 from app.modules.workflow.runtime.resume import (
     RESUME_BLOCKED_OUTPUT_TRUNCATED,
     build_checkpoint_snapshot,
@@ -255,6 +260,17 @@ class WorkflowExecutor:
                 extra={"run_id": context.run_id, "requested": requested_concurrency},
             )
         semaphore = asyncio.Semaphore(concurrency)
+        run_limits = WorkflowRunLimits.from_plan_data(plan.plan_data)
+        limit_guard = (
+            WorkflowLimitGuard(
+                run_limits,
+                run_id=context.run_id,
+                ctx=context.ctx,
+                completed_steps=sum(1 for state in node_states.values() if state == "succeeded"),
+            )
+            if run_limits.any
+            else None
+        )
         compensation_requested = False
         compensation_error: CompensationRequested | None = None
         approval_required: WorkflowApprovalRequired | None = None
@@ -737,6 +753,15 @@ class WorkflowExecutor:
                         },
                     )
 
+        async def _cancel_all(pending_tasks: list[asyncio.Task[Any]]) -> None:
+            for pending_task in pending_tasks:
+                pending_task.cancel()
+            for pending_task in pending_tasks:
+                try:
+                    await pending_task
+                except (asyncio.CancelledError, Exception):  # draining cancelled nodes
+                    pass
+
         # Execute all nodes
         tasks = []
         while ready_queue or tasks:
@@ -744,12 +769,27 @@ class WorkflowExecutor:
             while ready_queue and len(tasks) < concurrency:
                 node_id = ready_queue.popleft()
                 queued_nodes.discard(node_id)
+                if limit_guard is not None and node_states.get(node_id) != "skipped":
+                    try:
+                        # The shared session is idle here: with one slot no
+                        # node is running, and concurrent nodes own sessions.
+                        await limit_guard.check_before_node(context.trace_writer.db, node_id)
+                    except WorkflowLimitExceeded:
+                        await _cancel_all(tasks)
+                        raise
+                    limit_guard.note_step_started()
                 tasks.append(asyncio.create_task(execute_node(node_id)))
 
             # Wait for at least one task to complete
             if tasks:
-                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                wait_timeout = limit_guard.remaining_seconds() if limit_guard is not None else None
+                done, pending = await asyncio.wait(
+                    tasks, timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
+                )
                 tasks = list(pending)
+                if not done and limit_guard is not None:
+                    await _cancel_all(tasks)
+                    limit_guard.check_time()
 
                 # Check for exceptions
                 for task in done:
