@@ -88,9 +88,10 @@ test('side panel draws the prototype glyph on every primary link', async ({ page
   await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
 
   const links = page.locator('.subnav a.sl')
-  await expect(links).toHaveCount(5)
-  // Each of the five carries its own 14px icon, as the prototype does.
-  await expect(page.locator('.subnav a.sl > svg')).toHaveCount(5)
+  // Approvals, policies, audit, access, secrets and budgets.
+  await expect(links).toHaveCount(6)
+  // Each carries its own 14px icon, as the prototype does.
+  await expect(page.locator('.subnav a.sl > svg')).toHaveCount(6)
 })
 
 test('side panel reports health and version from the diagnostics snapshot', async ({ page }) => {
