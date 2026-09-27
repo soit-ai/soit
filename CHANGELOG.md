@@ -27,6 +27,12 @@ record for operators.
   `usage_estimated`. An AG-UI interaction canceled mid-stream settles its
   model call the same way, and a whole chat answer refused by outbound
   inspection is charged the usage the provider reported.
+- A knowledge query now commits its run and the usage its model calls
+  recorded when the run settles, whether it succeeded, failed or was
+  canceled. The `knowledge_query` tool and agent RAG run queries on a
+  session they never commit, so their priced embedding and rerank costs
+  were rolled back and the query run stayed `running`; a query through the
+  API lost them the same way when it failed after the embedding call.
 - A function, MCP or plugin tool now receives an argument named `query`,
   `url`, `method`, `headers` or `body` when its input schema declares one.
   The tool router dropped those names as HTTP envelope keys for every tool,

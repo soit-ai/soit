@@ -3,13 +3,17 @@
 Internal knowledge runtime service.
 """
 
+import asyncio
 import hashlib
+import logging
 import re
 from datetime import datetime
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+import anyio
 from sqlalchemy import and_, desc, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ForbiddenError, KernelError, ValidationError
@@ -70,6 +74,12 @@ from app.modules.knowledge.runtime.pipeline import DocumentPipeline
 from app.modules.knowledge.runtime.retrieval import RetrievalService
 
 UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
+
+logger = logging.getLogger(__name__)
+
+# How long closing a canceled query's run may take; it runs shielded from
+# the cancellation that ended the query.
+_SETTLE_TIMEOUT_SECONDS = 30.0
 
 
 class KnowledgeRuntimeService:
@@ -2266,15 +2276,12 @@ class KnowledgeRuntimeService:
                 metrics["keyword_min_score"] = keyword_min_score
                 metrics["keyword_top_k"] = keyword_top_k
 
-            if step_id:
-                await self.trace_writer.update_step_status(
-                    step_id,
-                    "succeeded",
-                    output_summary=f"results={len(results)}",
-                    metrics=metrics,
-                )
-            if run_id:
-                await self.trace_writer.update_run_status(run_id, "succeeded")
+            await self._settle_query_run(
+                run_id,
+                step_id,
+                "succeeded",
+                step_fields={"output_summary": f"results={len(results)}", "metrics": metrics},
+            )
 
             return QueryResponse(
                 results=results,
@@ -2282,11 +2289,61 @@ class KnowledgeRuntimeService:
                 citations=citations,
             )
         except Exception as exc:
-            if step_id:
-                await self.trace_writer.update_step_status(step_id, "failed", output_summary=str(exc))
-            if run_id:
-                await self.trace_writer.update_run_status(run_id, "failed", output_summary=str(exc))
+            try:
+                await self._settle_query_run(
+                    run_id,
+                    step_id,
+                    "failed",
+                    step_fields={"output_summary": str(exc)},
+                    run_fields={"output_summary": str(exc)},
+                )
+            except Exception:
+                logger.warning("Could not close a failed knowledge query run", exc_info=True, extra={"run_id": run_id})
             raise
+        except asyncio.CancelledError:
+            # A tool timeout or a canceled caller: the run still closes, and
+            # the usage its model calls recorded is kept.
+            with anyio.move_on_after(_SETTLE_TIMEOUT_SECONDS, shield=True):
+                try:
+                    await self._settle_query_run(run_id, step_id, "canceled")
+                except Exception:
+                    logger.warning(
+                        "Could not close a canceled knowledge query run", exc_info=True, extra={"run_id": run_id}
+                    )
+            raise
+
+    async def _settle_query_run(
+        self,
+        run_id: str | None,
+        step_id: str | None,
+        status: str,
+        *,
+        step_fields: dict[str, Any] | None = None,
+        run_fields: dict[str, Any] | None = None,
+    ) -> None:
+        """Close a query's run and commit it with the usage it recorded.
+
+        The run, its step and the cost rows of its model calls share the
+        caller's session, and some callers (the knowledge_query tool, agent
+        RAG) never commit it. Committing when the run settles keeps them. If
+        an earlier write failed and left the session unusable, what it held
+        is lost, but the run still closes after a rollback.
+        """
+        if not run_id or not self.trace_writer:
+            return
+
+        async def close() -> None:
+            assert self.trace_writer is not None
+            if step_id:
+                await self.trace_writer.update_step_status(step_id, status, **(step_fields or {}))
+            await self.trace_writer.update_run_status(run_id, status, **(run_fields or {}))
+            await self.db.commit()
+
+        try:
+            await close()
+        except SQLAlchemyError:
+            await self.db.rollback()
+            await close()
 
     @workspace_guard("read")
     async def list_knowledge(

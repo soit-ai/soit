@@ -328,3 +328,18 @@ async def test_knowledge_query_runs_under_the_callers_own_roles(async_client, as
     # knowledge base has nothing indexed yet.
     assert own.status_code == 200, own.text
     assert "no index" in (own.json()["data"]["error"] or ""), own.json()["data"]["error"]
+
+
+@pytest.mark.usefixtures("_tool_sessions_share_the_test_database")
+async def test_a_failed_knowledge_query_keeps_its_run(async_client, async_db) -> None:
+    knowledge_id = await _create_knowledge(async_client, "no-index-yet", "workspace")
+
+    response = await async_client.post(
+        KNOWLEDGE_QUERY, json={"arguments": {"knowledge_id": knowledge_id, "query": "x"}}
+    )
+
+    assert response.json()["data"]["status"] == "failed"
+    async_db.expire_all()
+    runs = await _knowledge_query_runs(async_db, knowledge_id)
+    # The tool's own session is never committed by its caller; the run is.
+    assert [run.status for run in runs] == ["failed"]
