@@ -32,8 +32,9 @@ class HttpNodeExecutor(NodeExecutor):
         body = inputs.get("body", {})
 
         registry_only = bool(context.workflow_policy.get("registry_only_tools"))
-        # Attempt-stable identity: a retry or crash-resume must replay a
-        # completed request from the ledger instead of reissuing it.
+        # Attempt-stable identity: a retry or crash-resume must never reissue a
+        # completed request; it replays it from the ledger, or is refused when
+        # a content-free workspace kept no result to replay.
         tool_call_id = (
             f"workflow:{context.workflow_run_id or context.run_id}:"
             f"{node.get('id') or 'http'}:0"

@@ -29,9 +29,11 @@ def stable_workflow_tool_call_id(
     """Identity of one logical tool invocation, stable across attempts.
 
     Attempt-scoped step ids must never leak into this identity: the durable
-    tool-call ledger dedupes on it, so a retry or crash-resume replays a
-    completed call instead of reissuing the side effect. invocation_seq is
-    reserved for future loop iterations and stays 0 today.
+    tool-call ledger dedupes on it, so a retry or crash-resume never reissues
+    a completed call's side effect. It replays the recorded result, or, in a
+    content-free workspace where no result was kept, is refused with
+    TOOL_RESULT_WITHHELD. invocation_seq is reserved for future loop
+    iterations and stays 0 today.
     """
 
     return f"workflow:{scope_id}:{node_id}:{invocation_seq}"
@@ -370,7 +372,8 @@ class ToolNodeExecutor(NodeExecutor):
                     resume_approval=resuming_approval,
                     # The identity is attempt-stable, so a node retry lands on
                     # the previous attempt's record: replay it when it
-                    # succeeded, re-execute it when it failed.
+                    # succeeded (refused when its result was withheld),
+                    # re-execute it when it failed.
                     retry_failed=True,
                 )
             )

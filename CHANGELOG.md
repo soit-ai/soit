@@ -68,12 +68,14 @@ record for operators.
   metrics, audit, tool calls, trace spans), and so every `/v1`,
   `/api/v1/tools` and `/mcp` call. They also list what keeps content so the
   product works (conversations and their messages, responses and their event
-  streams, task results, approval requests, workflow inputs for retries,
-  image artifacts, and attachments, knowledge and memories people add), and
-  what the mode changes: a tool call replayed with the same `Idempotency-Key`
-  is refused with `TOOL_RESULT_WITHHELD`, and retries, replays, regression
-  cases and search built on a run's text find none. They had said prompts
-  and outputs stay out of storage.
+  streams, task results, approval requests, workflow inputs and the outputs
+  of a waiting or failed run's finished nodes, image artifacts, and
+  attachments, knowledge and memories people add), and what the mode
+  changes: a tool call that already ran is refused with
+  `TOOL_RESULT_WITHHELD` when sent again or reached by a workflow retry or
+  redrive, and retries, replays, regression cases and search built on a
+  run's text find none. They had said prompts and outputs stay out of
+  storage.
 
 - Every unpriced cost row now says why in `pricing_snapshot.reason`:
   `no_price_source` unless its port names the cause, such as
@@ -267,9 +269,12 @@ record for operators.
   into the step's metrics, where an MCP tool's output sat; a failed tool
   call's trace span kept the exception text. The record now keeps the
   argument names, whether a result came back and the ids a child run is
-  found by, and the span names the failure only. A tool call replayed with
-  the same `Idempotency-Key` in such a workspace has no result to hand
-  back, and is refused with `409` `TOOL_RESULT_WITHHELD` instead.
+  found by, and the span names the failure only. A tool call that already
+  ran in such a workspace has no result or error text to hand back: sent
+  again with the same `Idempotency-Key` it is refused with `409`
+  `TOOL_RESULT_WITHHELD`, and a workflow node retried, resumed or
+  redriven, or an agent's tool call recovered after a crash, fails at that
+  call instead of replaying it.
 - Under content-free capture a failed model call's trace span ends as an
   error named by its code or type, without the provider's message, which
   can echo the prompt.

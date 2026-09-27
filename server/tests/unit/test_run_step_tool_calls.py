@@ -469,3 +469,40 @@ async def test_runtime_tool_execution_rejects_terminal_write_after_lease_is_lost
             claim.record.id,
             ToolResponse(result={"ok": True}, success=True),
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        ToolResponse(result={"answer": "the launch code"}),
+        ToolResponse(result=None, success=False, error="refused: the launch code"),
+    ],
+    ids=["succeeded", "failed"],
+)
+async def test_a_content_free_call_is_refused_on_replay_whatever_its_outcome(async_db, ctx, response):
+    # Neither a result nor an error text was kept to hand back.
+    from dataclasses import replace
+
+    scoped = replace(ctx, content_capture="metadata_only")
+    writer = TraceWriter(async_db, scoped)
+    run = await writer.create_run(mode="tool", kind="tool")
+    service = _service(async_db, scoped, writer, lease_owner="worker-1")
+    command = ToolExecutionCommand(
+        run_id=run.id,
+        tool_call_id="call-1",
+        tool_ref="tool:test:lookup",
+        arguments={"query": "the launch code"},
+        idempotency_key=f"tool:{run.id}:call-1",
+    )
+    claim = await service.claim(command)
+    await service.mark_running(claim.record.id)
+    record = await service.complete(claim.record.id, response)
+
+    with pytest.raises(KernelError) as refused:
+        await service.claim(command)
+
+    assert refused.value.code == "TOOL_RESULT_WITHHELD"
+    assert "launch code" not in json.dumps(record.result_json) + str(record.error_message)
+    assert "launch code" not in json.dumps(record.parameters_summary_json)
+    assert record.parameters_summary_json["argument_names"] == ["query"]

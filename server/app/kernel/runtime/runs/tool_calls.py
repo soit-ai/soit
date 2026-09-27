@@ -288,7 +288,7 @@ class RuntimeToolExecutionService:
             return ToolExecutionClaim(record=existing, run_step=step)
         if existing.status in {"succeeded", "failed"}:
             payload = existing.result_json or {}
-            if is_withheld_object(payload.get("result")):
+            if payload.get("content_withheld") or is_withheld_object(payload.get("result")):
                 # Nothing to hand back: better a plain refusal than a replay
                 # that reads as a call that returned nothing.
                 raise KernelError(
@@ -593,6 +593,10 @@ class RuntimeToolExecutionService:
             result = None if result is None else withheld_object(result)
             metadata = capture.identifiers(metadata) if isinstance(metadata, dict) else {}
         result_payload = {"result": result, "metadata": metadata}
+        if not capture.keeps_content:
+            # A replay of this record, succeeded or failed, has nothing to
+            # hand back: neither the result nor the error text was kept.
+            result_payload["content_withheld"] = True
         encoded_result = json.dumps(
             result_payload,
             ensure_ascii=False,
