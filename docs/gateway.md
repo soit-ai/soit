@@ -92,6 +92,24 @@ again, and the same key with another tool or other arguments is `409`. Keys
 belong to the caller, so two API keys never share one. Without a key, SOIT
 assigns one and returns it in the `Idempotency-Key` response header.
 
+**Pricing.** A tool that bills (a search API, a scraper, a paid data source)
+declares what one call costs in its ToolSpec policy, and every completed call
+is charged it, against budgets and credits, like a model call:
+
+```json
+"policy": {"audit_level": "basic", "pricing": {"currency": "USD", "call": "0.002"}}
+```
+
+The price is a decimal string with at most six decimal places. A tool that
+declares none is recorded unpriced, its cost row saying
+`tool_pricing_not_declared`; `"call": "0"` is an explicit free price. A price
+SOIT cannot read is never taken as zero: the call still runs, and its row is
+unpriced with `unsupported_pricing_config`. Calls through MCP `tools/call`
+are priced the same way, and so are an agent's or a workflow's calls to
+built-in, registered and plugin tools. An agent or a workflow calling a tool
+of an enabled MCP server records the call unpriced for now; the same tool
+called here or through MCP is priced from its server's declared policy.
+
 **Approval.** A tool whose policy requires approval answers `202` with
 `status: waiting_approval` and an `approval_id`, and the request appears in
 **Govern › Approvals**. Once someone decides, send the same call with the same

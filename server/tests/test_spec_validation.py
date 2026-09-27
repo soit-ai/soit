@@ -115,6 +115,41 @@ def test_tool_spec_validation_supports_explicit_approval_policy():
         )
 
 
+def _priced_tool(pricing):
+    return {
+        "name": "web_search",
+        "adapter": "function",
+        "input_schema": {"type": "object"},
+        "output_schema": {"type": "object"},
+        "policy": {"audit_level": "basic", "pricing": pricing},
+        "function": {"entrypoint": "search:run"},
+    }
+
+
+@pytest.mark.parametrize(
+    "pricing",
+    [{"currency": "USD", "call": "0.002"}, {"currency": "USD", "call": "0"}, None],
+)
+def test_tool_spec_accepts_a_declared_per_call_price(pricing):
+    assert validate_spec(_priced_tool(pricing), "tool_spec") is True
+
+
+@pytest.mark.parametrize(
+    "pricing",
+    [
+        {"currency": "USD", "call": 0.002},
+        {"currency": "usd", "call": "1"},
+        {"currency": "USD", "call": "1.1234567"},
+        {"currency": "USD", "call": "1234567890123"},
+        {"currency": "USD"},
+        {"currency": "USD", "call": "1", "per": "month"},
+    ],
+)
+def test_tool_spec_refuses_a_price_the_ledger_cannot_hold(pricing):
+    with pytest.raises(ValidationError):
+        validate_spec(_priced_tool(pricing), "tool_spec")
+
+
 def test_run_step_tool_call_spec_exposes_safe_execution_control_fields_only():
     document = {
         "id": "rstc_01JEXAMPLE",

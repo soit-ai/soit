@@ -383,3 +383,41 @@ async def test_the_stateless_revision_has_no_handshake_ping_or_session(async_cli
     assert initialize.json()["error"]["code"] == -32601
     assert with_session.status_code == 200
     assert "mcp-session-id" not in with_session.headers
+
+
+async def test_a_priced_tool_called_over_mcp_is_charged_its_price(async_client, async_db, ctx) -> None:
+    from decimal import Decimal
+
+    from sqlmodel import select
+
+    from app.kernel.runtime.db.models.runs import RunCostEntry
+
+    get_registry().register(
+        kind="tool",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name="tool:function:priced_random",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "name": "priced_random",
+                "adapter": "function",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"min": {"type": "integer"}, "max": {"type": "integer"}},
+                    "required": ["min", "max"],
+                },
+                "output_schema": {"type": "object"},
+                "policy": {"audit_level": "basic", "pricing": {"currency": "USD", "call": "0.002"}},
+                "function": {"entrypoint": "app.utils.builtin_tools:random_int"},
+            }
+        },
+    )
+
+    response = await _rpc(
+        async_client, "tools/call", {"name": "function_priced_random", "arguments": {"min": 2, "max": 2}}
+    )
+
+    run_id = response.json()["result"]["_meta"]["ai.soit/run_id"]
+    [cost] = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id))).all()
+    assert (cost.amount, cost.currency) == (Decimal("0.002"), "USD")

@@ -486,6 +486,8 @@ class ToolInvocationService:
                 tool_ref=tool.ref,
                 parameters=arguments,
                 ctx=self.ctx,
+                # The catalog's policy, MCP tools' included, prices the call.
+                tool_policy=dict(tool.policy or {}),
                 run_id=run_id,
                 tool_call_id=tool_call_id,
                 idempotency_key=stored_key,

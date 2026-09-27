@@ -30,6 +30,7 @@ from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
+from app.kernel.ports.tools.pricing import declared_call_pricing
 from app.kernel.runtime.runs.tool_calls import (
     RuntimeToolExecutionService,
     ToolExecutionCommand,
@@ -114,6 +115,17 @@ class ToolPolicyGateway(ToolPort):
         if get_policy is None:
             return {}
         return dict(get_policy(tool_ref, ctx) or {})
+
+    def _declared_policy(self, tool_ref: str, declared: Any) -> dict[str, Any]:
+        """The policy a tool's price is read from: the caller's, else its ToolSpec's."""
+
+        if isinstance(declared, dict):
+            return declared
+        try:
+            return self.get_tool_policy(tool_ref, self.ctx)
+        except Exception:
+            # Pricing never fails a call that has already run.
+            return {}
 
     def _contains_secret_id(self, value: Any) -> bool:
         if isinstance(value, dict):
@@ -248,6 +260,9 @@ class ToolPolicyGateway(ToolPort):
         Returns:
             ToolResponse instance.
         """
+        # The ToolSpec policy a caller already resolved (the invocation
+        # service has it from the catalog); prices the call without a lookup.
+        declared_policy = kwargs.pop("tool_policy", None)
         if not self.ctx.may_invoke_tool(tool_ref):
             # Checked before anything is claimed or recorded: a key limited to
             # other tools reaches none of this one, from any entry.
@@ -439,11 +454,17 @@ class ToolPolicyGateway(ToolPort):
                     error_message=response.error,
                     error_details=tool_error_details,
                 )
+                pricing = declared_call_pricing(
+                    self._declared_policy(tool_ref, declared_policy), tool_ref=tool_ref
+                )
                 await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,
                     billing_basis="requests",
                     billed_quantity=1,
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
                     provider=_provider_from_tool_ref(tool_ref),
                     tool_ref=tool_ref,
                     source_port="tools",

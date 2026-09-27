@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from decimal import Decimal
 
 import pytest
 from sqlmodel import select
@@ -343,3 +344,46 @@ async def test_a_failed_knowledge_query_keeps_its_run(async_client, async_db) ->
     runs = await _knowledge_query_runs(async_db, knowledge_id)
     # The tool's own session is never committed by its caller; the run is.
     assert [run.status for run in runs] == ["failed"]
+
+
+PRICED = "tool:function:priced_random"
+
+
+async def test_a_tool_that_declares_a_price_is_charged_it(async_client, async_db, ctx) -> None:
+    get_registry().register(
+        kind="tool",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name=PRICED,
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "name": "priced_random",
+                "adapter": "function",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"min": {"type": "integer"}, "max": {"type": "integer"}},
+                    "required": ["min", "max"],
+                },
+                "output_schema": {"type": "object"},
+                "policy": {"audit_level": "basic", "pricing": {"currency": "USD", "call": "0.002"}},
+                "function": {"entrypoint": "app.utils.builtin_tools:random_int"},
+            }
+        },
+    )
+    priced = await async_client.post(f"/api/v1/tools/{PRICED}/invoke", json={"arguments": {"min": 1, "max": 1}})
+    unpriced = await async_client.post(
+        "/api/v1/tools/tool:function:random_int/invoke", json={"arguments": {"min": 1, "max": 1}}
+    )
+
+    assert priced.status_code == unpriced.status_code == 200, priced.text
+    [priced_cost] = (
+        await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == priced.json()["data"]["run_id"]))
+    ).all()
+    assert (priced_cost.amount, priced_cost.currency) == (Decimal("0.002"), "USD")
+    assert priced_cost.pricing_snapshot_json["source"] == "tool_spec"
+    [unpriced_cost] = (
+        await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == unpriced.json()["data"]["run_id"]))
+    ).all()
+    assert unpriced_cost.amount is None
+    assert unpriced_cost.pricing_snapshot_json["reason"] == "tool_pricing_not_declared"
