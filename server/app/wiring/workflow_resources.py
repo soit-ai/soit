@@ -34,7 +34,6 @@ class KnowledgeRuntimeWorkflowQueryAdapter:
         run_id: str,
     ) -> dict[str, Any]:
         """Resolve a knowledge ref and return the retrieve-node result shape."""
-        del run_id
         if (
             ctx.tenant_id != self._ctx.tenant_id
             or ctx.workspace_id != self._ctx.workspace_id
@@ -57,6 +56,8 @@ class KnowledgeRuntimeWorkflowQueryAdapter:
                 use_rerank=rerank_model is not None,
                 reranker_ref=rerank_model,
             ),
+            # The workflow run the node belongs to.
+            parent_run_id=run_id,
         )
         payload = response.model_dump()
         documents = list(payload.get("results") or [])

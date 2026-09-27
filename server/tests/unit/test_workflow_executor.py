@@ -190,9 +190,11 @@ class FakeKnowledgeRuntimeService:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any]] = []
+        self.parent_run_ids: list[str | None] = []
 
-    async def query(self, knowledge_id: str, request: Any) -> Any:
+    async def query(self, knowledge_id: str, request: Any, *, parent_run_id: str | None = None) -> Any:
         self.calls.append((knowledge_id, request))
+        self.parent_run_ids.append(parent_run_id)
         return type(
             "KnowledgeQueryResponse",
             (),
@@ -527,6 +529,8 @@ async def test_scoped_workflow_knowledge_adapter_delegates_to_runtime_service(
     assert request.filter == {"locale": "en-US"}
     assert request.use_rerank is True
     assert request.reranker_ref == "model:test:reranker"
+    # The retrieval's run hangs under the workflow run the node belongs to.
+    assert runtime_service.parent_run_ids == ["run-1"]
 
 
 @pytest.mark.asyncio

@@ -1165,3 +1165,42 @@ async def test_an_agents_call_to_a_priced_mcp_tool_is_charged(async_db, ctx):
     costs = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.tool_ref == MCP_TOOL))).all()
     costs = [cost if hasattr(cost, "id") else cost[0] for cost in costs]
     assert [(cost.amount, cost.currency) for cost in costs] == [(Decimal("0.01"), "USD")]
+
+
+@pytest.mark.asyncio
+async def test_an_agent_runs_cost_includes_the_retrieval_it_started(async_db, ctx):
+    from app.kernel.runtime.db.models.runs import Run
+
+    service = AgentService(
+        db=async_db,
+        ctx=ctx,
+        llm_port=QueueLLMPort([]),
+        tool_port=StubToolPort(ToolResponse(result="done")),
+        tool_resolver=_make_stub_resolver(),
+    )
+    for run_id, parent in (("run_agent", None), ("run_rag", "run_agent"), ("run_other", None)):
+        async_db.add(
+            Run(
+                id=run_id,
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                mode="agent",
+                parent_run_id=parent,
+                status="running",
+            )
+        )
+    for run_id, amount in (("run_agent", "0.5"), ("run_rag", "0.25"), ("run_other", "9")):
+        async_db.add(
+            RunCostEntry(
+                run_id=run_id,
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                billing_basis="tokens",
+                billed_quantity=Decimal(1),
+                currency="USD",
+                amount=Decimal(amount),
+            )
+        )
+    await async_db.commit()
+
+    assert await service._get_cost_total("run_agent", "USD") == 0.75

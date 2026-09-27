@@ -1409,14 +1409,21 @@ class AgentService:
         }
 
     async def _get_cost_total(self, run_id: str, currency: str) -> float:
-        """Get total cost for a run."""
-        from sqlalchemy import func
+        """Get total cost for a run, the runs it started (its retrieval) included."""
+        from sqlalchemy import func, or_
 
-        from app.kernel.runtime.db.models.runs import RunCostEntry
+        from app.kernel.runtime.db.models.runs import Run, RunCostEntry
 
+        runs = select(Run.id).where(
+            and_(
+                Run.tenant_id == self.ctx.tenant_id,
+                Run.workspace_id == self.ctx.workspace_id,
+                or_(Run.id == run_id, Run.parent_run_id == run_id),
+            )
+        )
         query = select(func.coalesce(func.sum(RunCostEntry.amount), 0)).where(
             and_(
-                RunCostEntry.run_id == run_id,
+                RunCostEntry.run_id.in_(runs),
                 RunCostEntry.tenant_id == self.ctx.tenant_id,
                 RunCostEntry.workspace_id == self.ctx.workspace_id,
                 RunCostEntry.currency == currency,
