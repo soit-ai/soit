@@ -112,7 +112,7 @@ Enterprise platforms live and die by what they refuse to do. SOIT treats governa
 - Cost attribution by run, model, tool, workflow, and workspace, with daily usage aggregates per entry, key, principal, provider and model
 - Budgets for a workspace, key, member or agent that refuse calls at a hard limit and alert owners, admins and team channels at thresholds
 - Per-key limits (rate, daily calls and tokens, allowed addresses and models) and service principals, so pipelines do not borrow a person's key
-- Content-free runs: a workspace or key can keep prompts and outputs out of storage while tokens, costs and outcomes are still recorded
+- Content-free runs: a workspace or key can keep prompts, outputs, tool arguments and results out of its run records (runs, steps, audit, tool calls, traces) while tokens, costs and outcomes are still recorded; conversations keep their messages so they can continue ([what is kept](./docs/gateway.md#content-free-runs))
 - Trace timeline and replay for agent, workflow, response, and tool-call execution
 - Separation of duties: changing egress policy, secrets, or installed plugins requires workspace Owner/Admin, not the Dev role that builds and runs agents
 - Scoped, expiring API keys: a key carries an explicit read/write/admin ceiling and never inherits its owner's full role

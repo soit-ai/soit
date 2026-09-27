@@ -189,12 +189,39 @@ remainder, percentage and forecast for the current period.
 
 When prompts and outputs must not be stored, set the workspace's
 `content_capture` to `metadata_only` (**Settings › Security**), or ask for it
-on one key. Run and step summaries, output previews and error text are then
-stored as a length and a SHA-256 prefix; statuses, error codes, tokens,
-costs and timings are recorded as before, and callers still get their
-answers. A key can tighten its workspace's mode but not loosen it. A
+on one key. A key can tighten its workspace's mode but not loosen it. A
 workspace admin may switch a workspace to `metadata_only`; only a tenant
 admin may switch it back.
+
+**Withheld.** The run records keep no content. Run and step summaries,
+output previews and error text are stored as a length and a SHA-256 prefix.
+The tool call in a step's metrics and gateway audit payloads keep their
+structure and identifiers (runs, tool calls, child runs, secret references)
+with every other value withheld the same way; the tool call ledger keeps the
+argument names and whether a result came back; a URL keeps its origin. A
+failed model or tool call's trace span names the failure without its text,
+and a failed workflow node's event carries no error text. Statuses, error
+codes, tokens, costs and timings are recorded as before, and callers still
+get their answers, so `/v1`, `/api/v1/tools` and `/mcp` calls leave no
+content behind.
+
+**Still kept.** Some records hold content because the product needs it to
+work: conversation threads, their messages and titles, responses and their
+event streams, and task results, so a conversation can continue and an
+asynchronous result can be fetched; approval requests, pending or decided,
+so a reviewer sees what they approve; a workflow run's inputs, so it can be
+retried; a task's checkpoint while it waits for approval; images an
+`/api/v1/images` job returns as run artifacts; and what people write or
+upload themselves: attachments, knowledge bases and memories.
+
+**Effects.** Switching the mode does not rewrite what is already stored,
+though an evidence bundle withholds it. A tool call sent again with the same
+`Idempotency-Key` has no result to hand back and is refused with `409`
+`TOOL_RESULT_WITHHELD`. Retrying or replaying a run from its recorded input,
+building a regression case from a run and searching runs by their text find
+no text to work with. Logs and third-party instrumentation, such as HTTP
+client spans that record outbound URLs, are outside this setting: keep them
+under the same controls as the data.
 
 ## Virtual models
 

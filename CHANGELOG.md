@@ -63,6 +63,18 @@ record for operators.
 
 ### Changed
 
+- The content-free runs documentation, README and settings copy now say
+  what `metadata_only` capture covers: the run records (runs, steps, step
+  metrics, audit, tool calls, trace spans), and so every `/v1`,
+  `/api/v1/tools` and `/mcp` call. They also list what keeps content so the
+  product works (conversations and their messages, responses and their event
+  streams, task results, approval requests, workflow inputs for retries,
+  image artifacts, and attachments, knowledge and memories people add), and
+  what the mode changes: a tool call replayed with the same `Idempotency-Key`
+  is refused with `TOOL_RESULT_WITHHELD`, and retries, replays, regression
+  cases and search built on a run's text find none. They had said prompts
+  and outputs stay out of storage.
+
 - Every unpriced cost row now says why in `pricing_snapshot.reason`:
   `no_price_source` unless its port names the cause, such as
   `pricing_not_configured` for a model with no configured price. And

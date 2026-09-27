@@ -73,9 +73,11 @@ One run's evidence as a zip a reviewer can take away and check without SOIT:
 | `SHA256SUMS` | every file's digest, for `sha256sum -c` |
 
 The bundle keeps no more content than the workspace records: under
-`metadata_only` capture, tool arguments and results, approval details and
-citation text are replaced by a length and a hash. A context that cannot
-tell the workspace's mode withholds content.
+`metadata_only` capture, run and step summaries and error text, step
+metrics, audit payloads, tool arguments, results and metadata, approval
+details, citation text and the URLs in governance evidence are withheld,
+rows recorded before the workspace went content-free included. A context
+that cannot tell the workspace's mode withholds content.
 
 The archive is deterministic: an unchanged run always gives the same bytes,
 so the digest in `X-SOIT-Evidence-SHA256` identifies the evidence. Each

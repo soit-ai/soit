@@ -266,7 +266,7 @@ const translation = {
         content: 'Run content',
         contentHint: 'What the runs this key starts record.',
         contentWorkspace: 'follow the workspace',
-        contentMetadataOnly: 'metadata only — no prompts or outputs',
+        contentMetadataOnly: 'metadata only — runs keep no prompts, outputs or tool data',
         perMinute: '{{value}}/min',
         callsPerDay: '{{value}} calls/day',
         tokensPerDay: '{{value}} tokens/day',
@@ -319,7 +319,7 @@ const translation = {
       twoFactorRequired: 'required for everyone',
       contentCapture: 'Run content',
       contentCaptureHint:
-        'Metadata only stores prompts, outputs and errors as a length and a hash. Only a tenant admin can switch back.',
+        'Metadata only keeps prompts, outputs, tool data and errors out of run records, as a length and a hash. Conversations still keep their messages. Only a tenant admin can switch back.',
       contentCaptureFull: 'record content',
       contentCaptureMetadataOnly: 'metadata only',
       contentCaptureOff: 'Runs in this workspace no longer record content',
