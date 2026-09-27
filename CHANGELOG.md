@@ -221,6 +221,8 @@ record for operators.
 
 ### Security
 
+- Under content-free capture a failed workflow node's `workflow.node.failed`
+  event, which the ledger export carries, no longer holds the error text.
 - Under content-free capture the tool call ledger keeps no values either. A
   call's record kept its arguments and result (a large result was written
   to object storage), its error text, and a tool's own metadata was spread

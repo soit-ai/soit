@@ -18,6 +18,7 @@ from app.kernel.commons.errors import ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.kernel.runtime.db.models.runs import Run, RunStep
+from app.kernel.runtime.runs.content_capture import writer_capture
 from app.modules.workflow.application.variable_resolver import VariableResolver
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
@@ -131,6 +132,9 @@ async def _emit_workflow_node_failed_outbox(
     wid = context.workflow_run_id
     assert wid is not None
     db = context.trace_writer.db
+    # The event outlives the step and is exported with the ledger: it carries
+    # the error text only where the run keeps content.
+    capture = await writer_capture(context.trace_writer, context.ctx)
     enqueue_workflow_node_failed(
         db,
         context.ctx,
@@ -139,7 +143,7 @@ async def _emit_workflow_node_failed_outbox(
         node_id=node_id,
         step_pk=run_step.id,
         error_code=error_code,
-        error_message=error_message,
+        error_message=capture.text(error_message),
     )
     await _stage_workflow_checkpoint(context, checkpoint)
     await db.commit()
