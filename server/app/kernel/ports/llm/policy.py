@@ -20,11 +20,11 @@ from opentelemetry.trace import Status, StatusCode, Tracer
 from app.kernel.commons.errors import (
     ForbiddenError,
     KernelError,
-    RateLimitExceededError,
 )
 from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.common.api_key_admission import ApiKeyAdmission
 from app.kernel.ports.common.credit import CreditGuard, check_spend
 from app.kernel.ports.common.policy import (
     error_details,
@@ -33,7 +33,6 @@ from app.kernel.ports.common.policy import (
 from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.common.usage_counter import (
     DailyUsageCounter,
-    seconds_until_next_utc_day,
 )
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -1023,48 +1022,20 @@ class LLMPolicyGateway(LLMPort):
                 {"param": "model", "model": model, "reason": "model_not_allowed"},
             )
 
-    def _api_key_token_counter(self) -> str | None:
-        if self.ctx.api_key_id is None or not self.ctx.api_key_daily_token_quota:
-            return None
-        return f"tokens:api_key:{self.ctx.api_key_id}"
+    def _key_admission(self) -> ApiKeyAdmission:
+        return ApiKeyAdmission(
+            self.ctx, rate_limiter=self.rate_limiter, usage_counter=self.usage_counter
+        )
 
     async def _check_api_key_limits(self) -> None:
-        key_id = self.ctx.api_key_id
-        if key_id is None:
-            return
-        if self.ctx.api_key_rate_limit_per_minute:
-            await self.rate_limiter.check_rate_limit(
-                key=f"llm:api_key:{key_id}",
-                limit=self.ctx.api_key_rate_limit_per_minute,
-                window_seconds=60,
-            )
-        if self.ctx.api_key_daily_request_quota:
-            await self.rate_limiter.check_rate_limit(
-                key=f"quota:llm:api_key:{key_id}",
-                limit=self.ctx.api_key_daily_request_quota,
-                window_seconds=86400,
-            )
-        counter = self._api_key_token_counter()
-        quota = self.ctx.api_key_daily_token_quota
-        if counter is not None and quota:
-            now = utc_now()
-            used = await self.usage_counter.total(counter, now=now)
-            if used >= quota:
-                raise RateLimitExceededError(
-                    "API key daily token quota exhausted",
-                    {
-                        "limit": quota,
-                        "used": used,
-                        "quota": "daily_tokens",
-                        "retry_after": seconds_until_next_utc_day(now),
-                    },
-                )
+        # The same counters a direct tool call spends: one key, one budget.
+        admission = self._key_admission()
+        await admission.admit_request()
+        await admission.check_tokens()
 
     async def _count_api_key_tokens(self, tokens: int) -> None:
         """Add what a finished call used to its key's daily token total."""
-        counter = self._api_key_token_counter()
-        if counter is not None and tokens > 0:
-            await self.usage_counter.add(counter, tokens)
+        await self._key_admission().count_tokens(tokens)
 
     async def chat(
         self,
