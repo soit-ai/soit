@@ -44,6 +44,16 @@ record for operators.
 
 ### Fixed
 
+- An asynchronous image job (`async: true` on `/api/v1/images/generations`
+  or `/edits`) no longer loses its images. Without a `response_format`, or
+  with `b64_json` or `url`, the job billed the images and closed its run as
+  succeeded while keeping them nowhere the caller could fetch them. An async
+  job now returns its images as run artifacts: without a `response_format` it
+  means `artifact`, and `b64_json` or `url` with `async` is refused with
+  `VALIDATION_ERROR` before a run opens or anything is billed. An artifact
+  job that cannot keep every image it was billed for now fails with
+  `IMAGE_UNDELIVERABLE` (`502`), its cost kept, instead of succeeding with
+  fewer images than it charged.
 - A streamed chat call that reached the provider is now always charged.
   Before, a `/v1/chat/completions` client that disconnected before the final
   chunk left the model step `running` with no cost, so the call escaped

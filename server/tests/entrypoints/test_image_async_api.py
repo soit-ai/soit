@@ -164,6 +164,9 @@ class TestAsynchronousJobs:
 
         run = await _settle(async_client, body["run_id"], async_db)
         assert run.status == "succeeded"
+        # Without a response_format an async job returns as run artifacts:
+        # every image it made is there to fetch.
+        assert len(await _artifacts(async_db, body["run_id"])) == 2
 
     @pytest.mark.asyncio
     async def test_async_results_land_as_artifacts(self, async_client, async_db):
@@ -199,6 +202,8 @@ class TestAsynchronousJobs:
         assert len(costs) == 1
         assert costs[0].billed_quantity == 3
         assert costs[0].operation == "generate_image"
+        # As many images to fetch as were billed.
+        assert len(await _artifacts(async_db, body["run_id"])) == 3
 
     @pytest.mark.asyncio
     async def test_a_failing_async_job_fails_its_run(self, async_client, async_db):
@@ -281,3 +286,135 @@ def test_detached_worker_survives_a_cancelled_event_loop_reference():
         return held
 
     assert asyncio.run(_check()) == 1
+
+
+
+class TestAsyncDelivery:
+    """An async job's images reach the caller only as run artifacts."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("kind", ["generate", "edit"])
+    @pytest.mark.parametrize("response_format", ["b64_json", "url"])
+    async def test_an_inline_format_is_refused_before_anything_is_billed(
+        self, async_client, async_db, kind, response_format
+    ):
+        submit = _generate if kind == "generate" else _edit
+        response = await submit(async_client, response_format=response_format, **{"async": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
+        assert response.json()["code"] == "VALIDATION_ERROR"
+        assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
+        assert (await async_db.exec(select(RunCostEntry))).all() == []
+
+    @pytest.mark.asyncio
+    async def test_an_async_edit_without_a_format_returns_a_downloadable_artifact(
+        self, async_client, async_db
+    ):
+        body = (await _edit(async_client, **{"async": True})).json()["data"]
+
+        run = await _settle(async_client, body["run_id"], async_db)
+        [artifact] = await _artifacts(async_db, body["run_id"])
+        content = await async_client.get(f"/api/v1/runs/{body['run_id']}/artifacts/{artifact.id}/content")
+
+        assert run.status == "succeeded"
+        assert content.status_code == 200
+        assert content.headers["content-type"].startswith("image/png")
+
+    @pytest.mark.asyncio
+    async def test_polling_the_run_lists_every_billed_image(self, async_client, async_db):
+        body = (await _generate(async_client, n=2, **{"async": True})).json()["data"]
+        await _settle(async_client, body["run_id"], async_db)
+
+        polled = (await async_client.get(f"/api/v1/runs/{body['run_id']}")).json()["data"]
+        [cost] = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == body["run_id"]))).all()
+
+        assert len(polled["artifacts"]) == cost.billed_quantity == 2
+        assert all(artifact["meta_json"]["kind"] == "image" for artifact in polled["artifacts"])
+
+    @pytest.mark.asyncio
+    async def test_an_image_that_cannot_be_kept_fails_the_job_and_keeps_its_cost(
+        self, async_client, async_db
+    ):
+        from app.kernel.ports.llm.interface import (
+            GeneratedImage,
+            ImageGenerationResponse,
+        )
+        from app.wiring import get_container
+
+        container = get_container()
+        original = container.get("llm_port")
+
+        class _Empty:
+            async def generate_image(self, **kwargs: Any):
+                return ImageGenerationResponse(images=[GeneratedImage()], model="m")
+
+        container.register_singleton("llm_port", _Empty())
+        try:
+            response = await _generate(async_client, response_format="artifact")
+        finally:
+            container.register_singleton("llm_port", original)
+
+        assert response.status_code == 502
+        assert response.json()["code"] == "IMAGE_UNDELIVERABLE"
+        [run] = (await async_db.exec(select(Run).where(Run.mode == "image"))).all()
+        await async_db.refresh(run)
+        assert run.status == "failed"
+        # The provider was paid; the ledger says so.
+        assert len((await async_db.exec(select(RunCostEntry))).all()) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_worker_refuses_a_job_it_could_not_deliver(self, async_client, async_db, ctx):
+        from app.kernel.runtime.runs.writer import TraceWriter
+        from app.wiring import get_container
+        from app.wiring.image_job import run_image_job_detached
+
+        container = get_container()
+        original = container.get("llm_port")
+        calls: list[dict[str, Any]] = []
+
+        class _Recording:
+            async def generate_image(self, **kwargs: Any):
+                calls.append(kwargs)
+                raise AssertionError("an undeliverable job never reaches the provider")
+
+        run = await TraceWriter(async_db, ctx).create_run("image")
+        await async_db.commit()
+        container.register_singleton("llm_port", _Recording())
+        try:
+            await run_image_job_detached(
+                bind=async_db.bind,
+                ctx=ctx,
+                request=ImageJobRequest(kind="generate", model="model:test:m", prompt="hi"),
+                run_id=run.id,
+            )
+        finally:
+            container.register_singleton("llm_port", original)
+
+        await async_db.refresh(run)
+        assert run.status == "failed"
+        assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("requested", "detached", "resolved"),
+    [
+        (None, False, "b64_json"),
+        ("url", False, "url"),
+        ("artifact", False, "artifact"),
+        (None, True, "artifact"),
+        ("artifact", True, "artifact"),
+    ],
+)
+def test_a_response_format_resolves_to_what_can_be_delivered(requested, detached, resolved):
+    from app.kernel.runtime.images.service import resolve_response_format
+
+    assert resolve_response_format(requested, detached=detached) == resolved
+
+
+@pytest.mark.parametrize("requested", ["b64_json", "url", "gif"])
+def test_a_detached_job_refuses_anything_but_artifacts(requested):
+    from app.kernel.commons.errors import ValidationError
+    from app.kernel.runtime.images.service import resolve_response_format
+
+    with pytest.raises(ValidationError):
+        resolve_response_format(requested, detached=True)

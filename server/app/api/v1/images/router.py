@@ -5,7 +5,9 @@ Thin northbound wrapper over the LLM gateway's ``generate_image`` and
 (``billing_basis="images"``) attach to a run external billing consumers can
 pull. Inline results keep storage with the caller by design; ``artifact`` and
 ``async`` requests write into governed run storage instead, because a batch of
-large images does not survive a synchronous response.
+large images does not survive a synchronous response. An ``async`` job
+returns only as run artifacts: without a ``response_format`` it means
+``artifact``, and ``b64_json`` or ``url`` with it is refused up front.
 
 Editing covers three shapes through one endpoint, because they are one provider
 call: inpainting (image + mask), outpainting (a pre-expanded canvas whose new
@@ -23,7 +25,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.api.v1.attachments.dependencies import get_attachment_service
 from app.api.v1.permissions import require_workspace_write_ctx
 from app.infra.db.session import get_async_db
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.image_mask import MASK_CONVENTION, assert_mask_matches_image
 from app.kernel.runtime.attachments.service import AttachmentService
@@ -31,6 +33,7 @@ from app.kernel.runtime.images.service import (
     ImageJobRequest,
     ImageResult,
     execute_image_job,
+    resolve_response_format,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.wiring import get_container
@@ -57,6 +60,14 @@ def _validate_dimensions(value: str | None) -> str | None:
     return value
 
 
+def _resolved_response_format(requested: str | None, run_async: bool) -> str:
+    try:
+        return resolve_response_format(requested, detached=run_async)
+    except KernelError as exc:
+        # Refused as request validation, before a run opens or anything bills.
+        raise ValueError(exc.message) from exc
+
+
 class ImageGenerationCreate(BaseModel):
     """Image generation request (OpenAI-compatible shape, reduced)."""
 
@@ -66,8 +77,8 @@ class ImageGenerationCreate(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     n: int = Field(default=1, ge=1, le=4)
     size: str | None = Field(default=None, pattern=r"^\d{2,4}x\d{2,4}$")
-    response_format: str = Field(
-        default="b64_json", pattern="^(b64_json|url|artifact)$"
+    response_format: str | None = Field(
+        default=None, pattern="^(b64_json|url|artifact)$"
     )
     run_async: bool = Field(default=False, alias="async")
 
@@ -75,6 +86,11 @@ class ImageGenerationCreate(BaseModel):
     @classmethod
     def _supported_dimensions(cls, value: str | None) -> str | None:
         return _validate_dimensions(value)
+
+    @model_validator(mode="after")
+    def _deliverable_response_format(self) -> "ImageGenerationCreate":
+        self.response_format = _resolved_response_format(self.response_format, self.run_async)
+        return self
 
 
 class ImageDatum(BaseModel):
@@ -113,8 +129,8 @@ class ImageEditCreate(BaseModel):
     negative_prompt: str | None = Field(default=None, max_length=4000)
     background: str | None = Field(default=None, pattern="^(transparent|opaque)$")
     output_format: str = Field(default="png", pattern="^(png|webp)$")
-    response_format: str = Field(
-        default="b64_json", pattern="^(b64_json|url|artifact)$"
+    response_format: str | None = Field(
+        default=None, pattern="^(b64_json|url|artifact)$"
     )
     run_async: bool = Field(default=False, alias="async")
 
@@ -134,6 +150,7 @@ class ImageEditCreate(BaseModel):
             raise ValueError(
                 "Provide the mask as at most one of mask_attachment_id or mask_b64"
             )
+        self.response_format = _resolved_response_format(self.response_format, self.run_async)
         return self
 
 
@@ -213,6 +230,9 @@ async def _submit(
 
     Returns the run id, its status, the model, and whatever results exist yet.
     """
+    # Before the run opens: a detached job's results reach the caller only
+    # as run artifacts, whoever built the request.
+    resolve_response_format(request.response_format, detached=run_async)
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
 
@@ -282,7 +302,7 @@ async def create_image_generation(
             prompt=payload.prompt,
             n=payload.n,
             size=payload.size,
-            response_format=payload.response_format,
+            response_format=payload.response_format or "b64_json",
         ),
         ctx=ctx,
         db=db,
@@ -343,7 +363,7 @@ async def create_image_edit(
             prompt=payload.prompt,
             n=payload.n,
             size=payload.size,
-            response_format=payload.response_format,
+            response_format=payload.response_format or "b64_json",
             output_format=payload.output_format,
             image=image,
             mask=mask,

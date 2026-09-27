@@ -23,7 +23,7 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.kernel.commons.errors import ForbiddenError, ValidationError
+from app.kernel.commons.errors import ForbiddenError, KernelError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.interface import ImageGenerationResponse, LLMPort
 from app.kernel.ports.safety.interface import (
@@ -35,6 +35,29 @@ from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.runtime.runs.writer import TraceWriter
 
 RESPONSE_FORMATS = ("b64_json", "url", "artifact")
+
+
+def resolve_response_format(requested: str | None, *, detached: bool) -> str:
+    """The shape an image job returns its images in.
+
+    A job run detached has no response to carry inline images: its results
+    reach the caller only as run artifacts, fetched by polling the run. So
+    ``artifact`` is what an asynchronous request without a format means, and
+    one that asks for ``b64_json`` or ``url`` is refused before a run opens or
+    anything is billed, rather than billed and then left with nothing to
+    retrieve.
+    """
+    if requested is not None and requested not in RESPONSE_FORMATS:
+        raise ValidationError(f"Unsupported image response_format: {requested}", {"param": "response_format"})
+    if not detached:
+        return requested or "b64_json"
+    if requested in (None, "artifact"):
+        return "artifact"
+    raise ValidationError(
+        "An asynchronous image job returns its images as run artifacts; "
+        "omit response_format or set it to artifact",
+        {"param": "response_format"},
+    )
 
 _OUTPUT_MIME = {
     "png": "image/png",
@@ -280,6 +303,15 @@ async def execute_image_job(
             run_id=run_id,
             request=request,
         )
+        if any(result.attachment_id is None for result in results):
+            # Every billed image of an artifact job is retrievable from the
+            # run, or the job fails (its cost stays recorded): it never ends
+            # succeeded with less to fetch than it was charged for.
+            raise KernelError(
+                "IMAGE_UNDELIVERABLE",
+                "The provider returned an image that could not be kept as a run artifact",
+                {"images": len(results), "stored": sum(1 for r in results if r.attachment_id)},
+            )
     else:
         results = [
             ImageResult(b64_json=image.b64_json, url=image.url)

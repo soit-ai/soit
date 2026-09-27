@@ -24,7 +24,11 @@ from typing import Any
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.images.service import ImageJobRequest, execute_image_job
+from app.kernel.runtime.images.service import (
+    ImageJobRequest,
+    execute_image_job,
+    resolve_response_format,
+)
 from app.kernel.runtime.runs.writer import TraceWriter
 
 logger = logging.getLogger(__name__)
@@ -49,6 +53,8 @@ async def run_image_job_detached(
         container = get_container()
         trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
         try:
+            # Its results reach the caller only through the run.
+            resolve_response_format(request.response_format, detached=True)
             await trace_writer.update_run_status(run_id, "running")
             await db.commit()
 
