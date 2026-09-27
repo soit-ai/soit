@@ -24,3 +24,15 @@ def test_openapi_sse_schema_is_not_json_enveloped(client) -> None:
 
     assert "text/event-stream" in content
     assert "application/json" not in content
+
+
+def test_openapi_file_downloads_are_not_json_enveloped(client) -> None:
+    # A download is left as the file, so its schema must not promise an envelope.
+    schema = client.get("/api/v1/openapi.json").json()
+    for path in (
+        "/api/v1/knowledge/{knowledge_id}/documents/{document_id}/download",
+        "/api/v1/runs/{run_id}/artifacts/{artifact_id}/content",
+        "/api/v1/attachments/{attachment_id}/content",
+    ):
+        content = schema["paths"][path]["get"]["responses"]["200"].get("content", {})
+        assert "application/json" not in content, path

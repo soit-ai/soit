@@ -396,7 +396,7 @@ async def get_knowledge_document_content(
     return Response(content=content, media_type=media_type)
 
 
-@router.get("/{knowledge_id}/documents/{document_id}/download")
+@router.get("/{knowledge_id}/documents/{document_id}/download", response_class=Response)
 async def download_knowledge_document(
     knowledge_id: str,
     document_id: str,
