@@ -476,6 +476,7 @@ def build_workflow_service(*, db: AsyncSession, ctx: RequestContext) -> Workflow
 
 def build_agent_service(*, db: AsyncSession, ctx: RequestContext) -> AgentApplicationService:
     from app.adapters.plugins.skill_runtime import DatabaseSkillRuntimePort
+    from app.adapters.tools.catalog import WorkspaceToolCatalog
     from app.kernel.ports.plugins.policy import PluginRuntimePolicyGateway
     from app.modules.agent.infra.capability_catalog import SqlAgentCapabilityCatalog
 
@@ -508,6 +509,9 @@ def build_agent_service(*, db: AsyncSession, ctx: RequestContext) -> AgentApplic
         workflow_knowledge_query_port=KnowledgeRuntimeWorkflowQueryAdapter(
             runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
             ctx=ctx,
+        ),
+        tool_catalog=WorkspaceToolCatalog(
+            db, tool_port if isinstance(tool_port, BuiltinToolRegistrationPort) else None
         ),
     )
 

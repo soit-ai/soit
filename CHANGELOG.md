@@ -28,6 +28,11 @@ record for operators.
   with `pricing`, and their plugin loader skips such a tool, so once a
   plugin declares a price, do not roll back past this release.
 
+- An agent's call to a tool of an enabled MCP server now follows the tool's
+  policy from the workspace catalog, as a direct call does: its approval
+  rule (a tool that requires approval now waits for it when an agent calls
+  it) and its declared price. Agents resolved such tools with no policy.
+
 ### Changed
 
 - Every unpriced cost row now says why in `pricing_snapshot.reason`:

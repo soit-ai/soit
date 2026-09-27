@@ -26,8 +26,9 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.pagination import PageToken
 from app.kernel.identity.guard import rbac_guard, workspace_guard
 from app.kernel.identity.permissions import RESOURCE_AGENT
-from app.kernel.ports.llm.interface import LLMPort
+from app.kernel.ports.llm.interface import LLMPort, ToolDefinition
 from app.kernel.ports.plugins.interface import PluginRuntimePort
+from app.kernel.ports.tools.catalog import ToolCatalogPort
 from app.kernel.ports.tools.interface import ToolPort
 from app.kernel.ports.tools.sandbox import SandboxToolPort
 from app.kernel.registry.deps import get_registry
@@ -184,6 +185,7 @@ class AgentApplicationService:
         plugin_runtime_port: PluginRuntimePort | None = None,
         capability_catalog: AgentCapabilityCatalogPort | None = None,
         workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
+        tool_catalog: ToolCatalogPort | None = None,
     ) -> None:
         self.db = db
         self.ctx = ctx
@@ -191,9 +193,15 @@ class AgentApplicationService:
         self.tool_port = tool_port
         self.memory_service = memory_service
         self.workflow_knowledge_query_port = workflow_knowledge_query_port
-        # Create ToolResolver if tool_port is a RegistryToolRouterPort
+        self.tool_catalog = tool_catalog
+        # Create ToolResolver if tool_port is a RegistryToolRouterPort. An
+        # MCP server's tools are not in the registry: they resolve from the
+        # workspace catalog, policy (approval, price) included.
         self.tool_resolver = (
-            ToolResolver(tool_port=tool_port)
+            ToolResolver(
+                tool_port=tool_port,
+                mcp_tool_resolver=self._resolve_mcp_tool if tool_catalog is not None else None,
+            )
             if isinstance(tool_port, BuiltinToolRegistrationPort)
             else None
         )
@@ -531,6 +539,18 @@ class AgentApplicationService:
             "system_prompt": system_prompt,
         }
         return AgentRuntimeRequest.model_validate(payload)
+
+    async def _resolve_mcp_tool(self, ref: str, ctx: RequestContext) -> ToolDefinition | None:
+        assert self.tool_catalog is not None
+        tool = await self.tool_catalog.get_tool(ctx, ref)
+        if tool is None:
+            return None
+        return ToolDefinition(
+            name=ref,
+            description=tool.description or tool.name,
+            parameters=tool.input_schema or {"type": "object"},
+            policy=dict(tool.policy or {}),
+        )
 
     async def _resolve_skill_context(self, skill_refs: list[str]) -> str | None:
         if self.plugin_runtime_port:

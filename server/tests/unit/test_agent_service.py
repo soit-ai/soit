@@ -3,6 +3,7 @@
 Unit tests for AgentService with native function calling.
 """
 
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -1079,3 +1080,88 @@ async def test_tokens_a_model_port_left_unpriced_are_kept_unpriced(async_db, ctx
     # Nothing priced the call: its row says so rather than reading as free.
     assert (entries[0].amount, entries[0].currency) == (None, None)
     assert entries[0].pricing_snapshot_json["reason"] == "llm_port_recorded_no_cost"
+
+
+MCP_TOOL = "mcp_tool:search:web"
+PRICED_MCP_POLICY = {"audit_level": "basic", "pricing": {"currency": "USD", "call": "0.01"}}
+
+
+class _PricedMcpCatalog:
+    """A workspace catalog with one MCP server tool that declares a price."""
+
+    async def get_tool(self, ctx, tool_ref):
+        from app.kernel.ports.tools.catalog import CatalogTool
+
+        if tool_ref != MCP_TOOL:
+            return None
+        return CatalogTool(
+            ref=tool_ref,
+            name="web",
+            description="Search the web",
+            input_schema={"type": "object", "properties": {"q": {"type": "string"}}},
+            source_kind="mcp",
+            policy=PRICED_MCP_POLICY,
+        )
+
+    async def list_tools(self, ctx):
+        return []
+
+
+@pytest.mark.asyncio
+async def test_an_agent_resolves_an_mcp_tool_with_its_catalog_policy(async_db, ctx):
+    service = AgentApplicationService(
+        db=async_db,
+        ctx=ctx,
+        llm_port=QueueLLMPort([]),
+        tool_port=RegistryToolRouterPort(),
+        tool_catalog=_PricedMcpCatalog(),
+    )
+
+    [definition] = await service.tool_resolver.resolve([MCP_TOOL], ctx)
+
+    assert (definition.name, definition.description) == (MCP_TOOL, "Search the web")
+    assert definition.policy == PRICED_MCP_POLICY
+
+
+@pytest.mark.asyncio
+async def test_an_agents_call_to_a_priced_mcp_tool_is_charged(async_db, ctx):
+    class _McpServer:
+        def get_tool_policy(self, tool_ref, ctx):
+            return {}  # MCP server tools are not in the registry
+
+        async def invoke(self, tool_ref, parameters, **kwargs):
+            return ToolResponse(result={"hits": 1})
+
+    application = AgentApplicationService(
+        db=async_db,
+        ctx=ctx,
+        llm_port=QueueLLMPort([]),
+        tool_port=RegistryToolRouterPort(),
+        tool_catalog=_PricedMcpCatalog(),
+    )
+    writer = TraceWriter(async_db, ctx)
+    llm_port = QueueLLMPort([
+        ChatResponse(
+            text=None,
+            tokens_prompt=1,
+            tokens_completion=1,
+            finish_reason="tool_calls",
+            tool_calls=[ToolCall(id="call_1", name=MCP_TOOL, arguments={"q": "refunds"})],
+        ),
+        ChatResponse(text="found it", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+    ])
+    service = AgentService(
+        db=async_db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=ToolPolicyGateway(gateway=_McpServer(), ctx=ctx, trace_writer=writer, enable_egress_check=False),
+        tool_resolver=application.tool_resolver,
+        trace_writer=writer,
+    )
+
+    result = await service.run(_runtime_request(tool_refs=[MCP_TOOL], verify=False))
+
+    assert result["output"] == "found it"
+    costs = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.tool_ref == MCP_TOOL))).all()
+    costs = [cost if hasattr(cost, "id") else cost[0] for cost in costs]
+    assert [(cost.amount, cost.currency) for cost in costs] == [(Decimal("0.01"), "USD")]

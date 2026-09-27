@@ -655,9 +655,12 @@ class AgentService:
         allowed_action_refs = frozenset(
             [*resolved_tool_refs, *(data.workflow_refs or [])]
         )
+        # Only policies that were resolved: a tool without one is priced and
+        # gated by the gateway's own lookup, not as if it declared nothing.
         tool_policies = {
-            definition.name: definition.policy or {}
+            definition.name: definition.policy
             for definition in tool_definitions or []
+            if definition.policy is not None
         }
 
         try:
