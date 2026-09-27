@@ -189,7 +189,20 @@ run step, and cost is attributed to the provider that answered.
 The response starts when the model's first chunk arrives, so a refusal before
 the stream (a limit, a budget, a policy) answers with its own status code.
 A failure part way through ends the stream with an OpenAI error event. A
-stream the client abandons fails its run with `CLIENT_DISCONNECTED`.
+stream the client abandons fails its run with `CLIENT_DISCONNECTED`, and SOIT
+closes the provider stream and ends the model step as `canceled`
+(`STREAM_ABANDONED`).
+
+Every stream that reached the provider is charged, however it ends. Providers
+report usage only at the end of a stream, so a stream that ends without it
+(the client left, the stream failed part way, or the backend never sends
+usage) is charged an estimate from the prompt and from the text the model
+generated. The estimate is flagged `usage_estimated` on the step and in the
+cost row's pricing snapshot, and it counts toward credits, budgets and the
+key's daily token quota like any other call. It is close for text and a lower
+bound for large images and for reasoning a model does not stream. The `usage`
+a response reports is always the provider's own count; only the ledger
+carries the estimate.
 
 ## Errors
 

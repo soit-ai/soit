@@ -14,6 +14,19 @@ record for operators.
 
 ### Fixed
 
+- A streamed chat call that reached the provider is now always charged.
+  Before, a `/v1/chat/completions` client that disconnected before the final
+  chunk left the model step `running` with no cost, so the call escaped
+  credits, budgets and the key's daily token quota; a stream that failed part
+  way (an idle timeout, a provider error, an outbound content-safety block)
+  recorded no cost either; and a backend that never sends usage was booked
+  at zero tokens. SOIT now closes the provider stream, ends the step
+  (`canceled` with `STREAM_ABANDONED` when the consumer left first) and
+  records a cost from the provider's usage or, when it never came, an
+  estimate from the prompt and the text generated, flagged
+  `usage_estimated`. An AG-UI interaction canceled mid-stream settles its
+  model call the same way, and a whole chat answer refused by outbound
+  inspection is charged the usage the provider reported.
 - Errors that describe a caller's mistake, or a state the caller can change,
   answer 4xx instead of 500, so their messages reach callers outside
   development too:

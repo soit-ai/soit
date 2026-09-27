@@ -12,15 +12,18 @@ from __future__ import annotations
 
 import array
 import base64
+import contextlib
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from functools import partial
 from typing import Annotated, Any, Literal
 
 import anyio
 import orjson
 from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.openai.convert import (
@@ -73,6 +76,10 @@ RUN_ID_HEADER = "x-soit-run-id"
 GATEWAY_MODE = "gateway"
 _DONE = b"data: [DONE]\n\n"
 _SUMMARY_LIMIT = 8192
+# How long closing a streamed call may take once its body stops; it runs
+# shielded from the cancellation that ends the response, and covers closing
+# the model call (which writes the ledger) and the run.
+_CLEANUP_TIMEOUT_SECONDS = 90.0
 MAX_UPLOAD_IMAGE_BYTES = AttachmentService.MAX_FILE_SIZE
 
 
@@ -98,6 +105,28 @@ async def _open_run(
     return run.id
 
 
+async def _close_run(
+    trace_writer: TraceWriter,
+    db: AsyncSession,
+    run_id: str,
+    status: str,
+    **fields: Any,
+) -> None:
+    """Write the run's final status and commit it.
+
+    A database write that failed earlier in the request (the model call
+    recording its usage, say) leaves the transaction unusable; what it held
+    is lost, but the run still closes after a rollback.
+    """
+    try:
+        await trace_writer.update_run_status(run_id, status, **fields)
+        await db.commit()
+    except SQLAlchemyError:
+        await db.rollback()
+        await trace_writer.update_run_status(run_id, status, **fields)
+        await db.commit()
+
+
 async def _fail_run(
     trace_writer: TraceWriter,
     db: AsyncSession,
@@ -106,13 +135,14 @@ async def _fail_run(
     *,
     fallback_code: str,
 ) -> None:
-    await trace_writer.update_run_status(
+    await _close_run(
+        trace_writer,
+        db,
         run_id,
         "failed",
         error_code=getattr(exc, "code", None) or fallback_code,
         error_message=str(exc)[:2000],
     )
-    await db.commit()
 
 
 def _chat_kwargs(payload: ChatCompletionRequest, run_id: str) -> dict[str, Any]:
@@ -182,6 +212,51 @@ async def create_chat_completion(
     )
 
 
+class _StreamState:
+    """Whether the body of a streamed call ran to its end."""
+
+    finished = False
+
+
+class _GatewayStreamingResponse(StreamingResponse):
+    """Streams a gateway call and closes it however streaming stops.
+
+    A disconnect can cancel the response before its body starts or while it
+    waits on ``send``. The body generator would then only be closed whenever
+    it is collected, from another task, and one that never started runs no
+    cleanup at all. So the response closes the body itself and, unless the
+    body finished, closes the model stream (which records the call's usage)
+    and fails the run, in the task that owns the request's session.
+    """
+
+    def __init__(
+        self,
+        content: AsyncIterator[bytes],
+        *,
+        state: _StreamState,
+        abandon: Callable[[], Awaitable[None]],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(content, **kwargs)
+        self._state = state
+        self._abandon = abandon
+
+    async def stream_response(self, send: Any) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            # The body task is being cancelled when the client has gone; an
+            # unshielded await would be cancelled again before the run closes.
+            with anyio.move_on_after(_CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
+                aclose = getattr(self.body_iterator, "aclose", None)
+                if aclose is not None:
+                    await aclose()
+                if not self._state.finished:
+                    await self._abandon()
+            if scope.cancelled_caught:
+                logger.warning("Closing an abandoned gateway stream timed out")
+
+
 def _sse(body: dict[str, Any]) -> bytes:
     return b"data: " + orjson.dumps(body) + b"\n\n"
 
@@ -224,9 +299,23 @@ async def _start_stream(
     except Exception as exc:
         await _fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
         raise
-    return StreamingResponse(
+    return _streaming_response(db, trace_writer, run_id, payload, stream, first)
+
+
+def _streaming_response(
+    db: AsyncSession,
+    trace_writer: TraceWriter,
+    run_id: str,
+    payload: ChatCompletionRequest,
+    stream: AsyncIterator[ChatStreamChunk],
+    first: ChatStreamChunk | None,
+) -> _GatewayStreamingResponse:
+    state = _StreamState()
+    return _GatewayStreamingResponse(
         # The request's session stays open until the body has been sent.
-        _stream_events(db, trace_writer, run_id, payload, stream, first),
+        _stream_events(db, trace_writer, run_id, payload, stream, first, state),
+        state=state,
+        abandon=partial(_close_abandoned, stream, trace_writer, db, run_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -243,6 +332,7 @@ async def _stream_events(
     payload: ChatCompletionRequest,
     stream: AsyncIterator[ChatStreamChunk],
     first: ChatStreamChunk | None,
+    state: _StreamState,
 ) -> AsyncIterator[bytes]:
     completion_id = f"chatcmpl-{run_id}"
     created = int(time.time())
@@ -251,7 +341,6 @@ async def _stream_events(
     raw_finish: str | None = None
     saw_tool_calls = False
     text_parts: list[str] = []
-    finished = False
 
     def chunk(delta: dict[str, Any] | None, **extra: Any) -> bytes:
         return _sse(
@@ -271,64 +360,79 @@ async def _stream_events(
         async for part in stream:
             yield part
 
+    yield chunk({"role": "assistant", "content": ""})
     try:
-        yield chunk({"role": "assistant", "content": ""})
-        try:
-            async for part in parts():
-                prompt_tokens = part.tokens_prompt or prompt_tokens
-                completion_tokens = part.tokens_completion or completion_tokens
-                raw_finish = part.finish_reason or raw_finish
-                if part.delta:
-                    text_parts.append(part.delta)
-                    yield chunk({"content": part.delta})
-                if part.tool_call_deltas:
-                    saw_tool_calls = True
-                    yield chunk({"tool_calls": tool_call_deltas_out(part.tool_call_deltas)})
-                elif part.tool_calls and not saw_tool_calls:
-                    # A provider that reports calls only once, whole, still
-                    # streams them in delta form.
-                    saw_tool_calls = True
-                    yield chunk(
-                        {
-                            "tool_calls": [
-                                {
-                                    "index": index,
-                                    "id": call.id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": call.name,
-                                        "arguments": orjson.dumps(call.arguments).decode(),
-                                    },
-                                }
-                                for index, call in enumerate(part.tool_calls)
-                            ]
-                        }
-                    )
-        except Exception as exc:
-            finished = True
+        async for part in parts():
+            prompt_tokens = part.tokens_prompt or prompt_tokens
+            completion_tokens = part.tokens_completion or completion_tokens
+            raw_finish = part.finish_reason or raw_finish
+            if part.delta:
+                text_parts.append(part.delta)
+                yield chunk({"content": part.delta})
+            if part.tool_call_deltas:
+                saw_tool_calls = True
+                yield chunk({"tool_calls": tool_call_deltas_out(part.tool_call_deltas)})
+            elif part.tool_calls and not saw_tool_calls:
+                # A provider that reports calls only once, whole, still
+                # streams them in delta form.
+                saw_tool_calls = True
+                yield chunk(
+                    {
+                        "tool_calls": [
+                            {
+                                "index": index,
+                                "id": call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": call.name,
+                                    "arguments": orjson.dumps(call.arguments).decode(),
+                                },
+                            }
+                            for index, call in enumerate(part.tool_calls)
+                        ]
+                    }
+                )
+    except Exception as exc:
+        state.finished = True
+        # A disconnect landing mid-write must not leave the run open.
+        with anyio.move_on_after(_CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
+            # The failure may be the gateway's own, with the model still
+            # generating; closing its stream settles the call either way.
+            await _close_model_stream(stream, run_id)
             await _fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
-            yield _sse(_stream_error(exc))
-            yield _DONE
-            return
+        if scope.cancelled_caught:
+            logger.warning("Closing a failed gateway run timed out", extra={"run_id": run_id})
+        yield _sse(_stream_error(exc))
+        yield _DONE
+        return
 
-        finished = True
-        await trace_writer.update_run_status(
+    state.finished = True
+    with anyio.move_on_after(_CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
+        await _close_run(
+            trace_writer,
+            db,
             run_id,
             "succeeded",
             output_summary="".join(text_parts)[:_SUMMARY_LIMIT] or None,
         )
-        await db.commit()
-        yield chunk({}, finish=finish_reason(raw_finish, has_tool_calls=saw_tool_calls))
-        if include_usage:
-            yield chunk(None, usage_block=usage(prompt_tokens, completion_tokens))
-        yield _DONE
-    finally:
-        if not finished:
-            # The client went away mid-stream. Cleanup runs shielded: the body
-            # task is being cancelled, and an unshielded await would be
-            # cancelled again before the run is closed.
-            with anyio.CancelScope(shield=True):
-                await _close_abandoned(stream, trace_writer, db, run_id)
+    if scope.cancelled_caught:
+        logger.warning("Closing a finished gateway run timed out", extra={"run_id": run_id})
+    yield chunk({}, finish=finish_reason(raw_finish, has_tool_calls=saw_tool_calls))
+    if include_usage:
+        yield chunk(None, usage_block=usage(prompt_tokens, completion_tokens))
+    yield _DONE
+
+
+async def _close_model_stream(stream: AsyncIterator[ChatStreamChunk], run_id: str) -> None:
+    """Close a model stream; the model call records its usage as it closes."""
+
+    aclose = getattr(stream, "aclose", None)
+    if aclose is None:
+        return
+    try:
+        await aclose()
+    except Exception:
+        logger.warning("Could not close a gateway model stream", extra={"run_id": run_id})
 
 
 async def _close_abandoned(
@@ -337,19 +441,22 @@ async def _close_abandoned(
     db: AsyncSession,
     run_id: str,
 ) -> None:
-    aclose = getattr(stream, "aclose", None)
+    """Close the model stream of a call whose client went away, then its run."""
+
+    await _close_model_stream(stream, run_id)
     try:
-        if aclose is not None:
-            await aclose()
-        await trace_writer.update_run_status(
+        await _close_run(
+            trace_writer,
+            db,
             run_id,
             "failed",
             error_code="CLIENT_DISCONNECTED",
             error_message="The client closed the stream before it finished",
         )
-        await db.commit()
     except Exception:
-        logger.warning("Could not close an abandoned gateway stream", extra={"run_id": run_id})
+        logger.warning("Could not close an abandoned gateway run", extra={"run_id": run_id})
+        with contextlib.suppress(Exception):
+            await db.rollback()
 
 
 @router.get("/models")

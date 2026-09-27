@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import array
+import asyncio
 import base64
 import dataclasses
 import io
 import json
 from collections.abc import AsyncIterator
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -22,8 +24,10 @@ from app.kernel.ports.llm.interface import (
     ImageGenerationResponse,
     ToolCallDelta,
 )
-from app.kernel.runtime.db.models.runs import Run, RunStep
+from app.kernel.ports.llm.usage_estimate import estimate_text_tokens
+from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
 from app.kernel.runtime.runs.exporter import to_runtrace_spec
+from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.specs import validate_spec
 from app.main import app
 from app.middleware.auth import get_current_context
@@ -346,6 +350,151 @@ async def test_a_failure_mid_stream_ends_with_an_error_event(async_client, async
     assert error["type"] == "api_error"
     assert "secret detail" not in error["message"]
 
+    run, _ = await _run(async_db, response.headers["x-soit-run-id"])
+    assert (run.status, run.error_code) == ("failed", "GATEWAY_CHAT_ERROR")
+
+
+PARTIAL_ANSWER = "Partial answer.\n"
+
+
+class _StillGeneratingPort:
+    """A model that sends one chunk and keeps generating until it is closed."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def stream_chat(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatStreamChunk]:
+        del args, kwargs
+        try:
+            # A finished sentence, so outbound inspection releases it at once.
+            yield ChatStreamChunk(delta=PARTIAL_ANSWER)
+            await asyncio.Event().wait()
+            yield ChatStreamChunk(delta="never sent", done=True, tokens_prompt=1, tokens_completion=1)
+        finally:
+            self.closed = True
+
+
+async def _stream_then_disconnect(port: Any) -> str:
+    """Stream a chat call at the ASGI level and disconnect after the first answer.
+
+    At this level a disconnect is a message, as a server sends it; the
+    response's own cleanup runs in the task that owns the request.
+    """
+    body = json.dumps(
+        {"model": MODEL, "messages": [{"role": "user", "content": "hello"}], "stream": True}
+    ).encode()
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/chat/completions",
+        "raw_path": b"/v1/chat/completions",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"testserver"),
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
+    }
+    first_chunk_sent = asyncio.Event()
+    request_read = False
+    sent: list[dict[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        nonlocal request_read
+        if not request_read:
+            request_read = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        await first_chunk_sent.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+        if message["type"] == "http.response.body" and b"Partial answer." in message.get("body", b""):
+            first_chunk_sent.set()
+
+    with _SwapLLMPort(port):
+        await asyncio.wait_for(app(scope, receive, send), timeout=30)
+    start = next(message for message in sent if message["type"] == "http.response.start")
+    return dict(start["headers"])[b"x-soit-run-id"].decode()
+
+
+@pytest.mark.asyncio
+async def test_a_client_that_disconnects_mid_stream_is_still_charged(async_client, async_db) -> None:
+    del async_client  # Only for the dependency overrides it installs.
+    port = _StillGeneratingPort()
+
+    run_id = await _stream_then_disconnect(port)
+
+    assert port.closed
+    run, [step] = await _run(async_db, run_id)
+    assert (run.status, run.error_code) == ("failed", "CLIENT_DISCONNECTED")
+    await async_db.refresh(step)
+    assert (step.status, step.error_code) == ("canceled", "STREAM_ABANDONED")
+    assert step.metrics_json["usage_estimated"] is True
+    [cost] = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id))).all()
+    assert cost.step_id == step.id
+    assert cost.completion_tokens == estimate_text_tokens(PARTIAL_ANSWER)
+    assert cost.prompt_tokens and cost.prompt_tokens > 0
+    assert cost.pricing_snapshot_json["usage_estimated"] is True
+
+
+def _fail_ledger_flushes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every cost write fail at flush, leaving the transaction unusable."""
+
+    async def record_cost(self: TraceWriter, **kwargs: Any) -> None:
+        self.db.add(
+            RunCostEntry(
+                run_id=kwargs["run_id"],
+                step_id=kwargs["step_id"],
+                tenant_id=self.ctx.tenant_id,
+                workspace_id=self.ctx.workspace_id,
+                billing_basis="tokens",
+                billed_quantity=Decimal(1),
+                # A priced row without a currency breaks a CHECK constraint.
+                amount=Decimal(1),
+                currency=None,
+            )
+        )
+        await self.db.flush()
+
+    monkeypatch.setattr(TraceWriter, "record_cost", record_cost)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_ledger_write_still_closes_an_abandoned_run(
+    async_client, async_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    del async_client
+    _fail_ledger_flushes(monkeypatch)
+
+    run_id = await _stream_then_disconnect(_StillGeneratingPort())
+
+    run, _ = await _run(async_db, run_id)
+    assert (run.status, run.error_code) == ("failed", "CLIENT_DISCONNECTED")
+
+
+@pytest.mark.asyncio
+async def test_a_failed_ledger_write_still_closes_a_failed_run(
+    async_client, async_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fail_ledger_flushes(monkeypatch)
+    port = _ScriptedStreamPort(
+        [ChatStreamChunk(delta=PARTIAL_ANSWER)],
+        error=RuntimeError("upstream dropped the stream"),
+    )
+    with _SwapLLMPort(port):
+        response = await async_client.post(
+            "/v1/chat/completions",
+            json={"model": MODEL, "messages": [{"role": "user", "content": "x"}], "stream": True},
+        )
+
+    assert _events(response.text)[-1] == "[DONE]"
     run, _ = await _run(async_db, response.headers["x-soit-run-id"])
     assert (run.status, run.error_code) == ("failed", "GATEWAY_CHAT_ERROR")
 
