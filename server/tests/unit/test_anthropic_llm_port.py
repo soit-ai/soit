@@ -289,17 +289,62 @@ async def test_anthropic_stream_reports_prompt_tokens_including_cache(monkeypatc
     assert final.tokens_completion == 7
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("timeout", "read"), [(None, None), (300.0, 300.0)])
-def test_a_provider_timeout_or_none_bounds_the_http_calls(timeout, read):
+async def test_a_provider_timeout_or_none_bounds_the_http_calls(monkeypatch, timeout, read):
     # A flat 60s here capped every native Anthropic call, whatever the
     # provider's timeout_ms or the gateway's deadline for the call type.
     from app.adapters.llm.router import RuntimeProviderConfig, _default_native_factory
 
+    opened = []
+
+    class _Response:
+        headers: dict = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "model": "claude-sonnet-4-6",
+                "content": [{"type": "text", "text": "hi"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def aiter_lines(self):
+            yield 'data: {"type":"message_stop"}'
+
+    class _Client:
+        def __init__(self, *args, timeout=None, **kwargs):
+            opened.append(timeout)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            return _Response()
+
+        def stream(self, method, url, headers=None, json=None):
+            return _Response()
+
+    monkeypatch.setattr("app.adapters.llm.anthropic.httpx.AsyncClient", _Client)
     port = _default_native_factory(
         RuntimeProviderConfig(slug="claude", kind="anthropic", adapter_backend="native", status="active", timeout=timeout),
         {"api_key": "anthropic-key"},
     )
-    http_timeout = port._http_timeout()
 
-    assert http_timeout.read == read
-    assert http_timeout.connect == 10.0
+    await port.chat([ChatMessage(role="user", content="hi")], model="claude-sonnet-4-6")
+    async for _chunk in port.stream_chat([ChatMessage(role="user", content="hi")], model="claude-sonnet-4-6"):
+        pass
+
+    assert len(opened) == 2
+    assert all(opened_timeout.read == read and opened_timeout.connect == 10.0 for opened_timeout in opened)
