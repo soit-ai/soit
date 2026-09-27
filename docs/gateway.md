@@ -209,19 +209,20 @@ content behind.
 work: conversation threads, their messages and titles, responses and their
 event streams, and task results, so a conversation can continue and an
 asynchronous result can be fetched; approval requests, pending or decided,
-so a reviewer sees what they approve; a workflow run's inputs, and the
-outputs of its finished nodes while it waits for approval or can be
-redriven after failing, so it can resume; a task's checkpoint while it
-waits for approval; images an `/api/v1/images` job returns as run
-artifacts; and what people write or upload themselves: attachments,
-knowledge bases and memories.
+so a reviewer sees what they approve; a workflow run's inputs, and until
+it succeeds the outputs of its finished nodes, so it can resume or be
+redriven; a task's checkpoint while it waits for approval; images an
+`/api/v1/images` job returns as run artifacts; and what people write or
+upload themselves: attachments, knowledge bases and memories.
 
 **Effects.** Switching the mode does not rewrite what is already stored,
-though an evidence bundle withholds it. A tool call that already ran has
-no result or error text to hand back: sent again with the same
-`Idempotency-Key` it is refused with `409` `TOOL_RESULT_WITHHELD`, and a
-workflow node retried, resumed or redriven, or an agent's tool call
-recovered after a crash, fails at that call instead of replaying it.
+though an evidence bundle withholds it. A tool call whose tool answered,
+with a result or an error of its own, has neither kept to hand back: sent
+again with the same `Idempotency-Key` it is refused with `409`
+`TOOL_RESULT_WITHHELD`, and a workflow node retried, resumed or redriven,
+or an agent's tool call recovered after a crash, fails at that call
+instead of replaying it. A call that failed before its tool answered
+replays that failure, as it does when content is kept.
 Retrying or replaying a run from its recorded input,
 building a regression case from a run and searching runs by their text find
 no text to work with. Logs and third-party instrumentation, such as HTTP
