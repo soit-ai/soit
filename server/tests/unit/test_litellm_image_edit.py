@@ -117,9 +117,10 @@ class TestRequestShape:
         assert recorder.params["response_format"] == "b64_json"
 
     @pytest.mark.asyncio
-    async def test_non_standard_parameters_travel_in_extra_body(self):
-        # Where providers whose LiteLLM config reads extra_body find them.
-        # OpenAI-style edits do not: test_litellm_image_wire records that.
+    async def test_non_standard_parameters_are_plain_arguments(self):
+        # LiteLLM sends no edit's extra_body; its Bedrock, Stability and BFL
+        # edits read plain arguments. OpenAI-style edits drop them, which
+        # test_litellm_image_wire records.
         recorder = _Recorder()
         await _port("openai", recorder).edit_image(
             image=b"image-bytes",
@@ -129,10 +130,10 @@ class TestRequestShape:
             strength=0.5,
             negative_prompt="blurry",
         )
-        extra = recorder.params["extra_body"]
-        assert extra["seed"] == 42
-        assert extra["strength"] == 0.5
-        assert extra["negative_prompt"] == "blurry"
+        assert recorder.params["seed"] == 42
+        assert recorder.params["strength"] == 0.5
+        assert recorder.params["negative_prompt"] == "blurry"
+        assert "extra_body" not in recorder.params
 
     @pytest.mark.asyncio
     async def test_background_is_a_plain_argument(self):
@@ -225,6 +226,28 @@ class TestGenerationOptions:
             prompt="a red dot",
             model="model:openai:dall-e-3",
         )
+        assert "extra_body" not in recorder.params
+
+    @pytest.mark.asyncio
+    async def test_other_providers_take_them_as_plain_arguments(self):
+        # Elsewhere LiteLLM forwards extra_body as a field of that name.
+        recorder = _Recorder()
+        port = LiteLLMPort(
+            provider_kind="dashscope",
+            api_key="test-key",
+            completion_fn=_Recorder(),
+            embedding_fn=_Recorder(),
+            image_generation_fn=recorder,
+            image_edit_fn=_Recorder(),
+            load_sdk_defaults=False,
+        )
+        await port.generate_image(
+            prompt="a red dot",
+            model="model:dashscope:qwen-image",
+            background="transparent",
+            output_format="webp",
+        )
+        assert (recorder.params["background"], recorder.params["output_format"]) == ("transparent", "webp")
         assert "extra_body" not in recorder.params
 
 

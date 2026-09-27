@@ -380,7 +380,12 @@ class LiteLLMPort(LLMPort):
         # Prefer inline bytes so callers own storage; providers without
         # b64 support ignore the hint and return URLs instead.
         self._apply_response_format(params, kwargs.get("response_format"), operation="generate")
-        self._forward_image_options(params, kwargs, extra_body=("background", "output_format"))
+        self._forward_image_options(
+            params,
+            kwargs,
+            ("background", "output_format"),
+            in_extra_body=params["model"].split("/", 1)[0] in self._EXTRA_BODY_PROVIDERS,
+        )
         response = await self._image_generation(**params)
         images: list[GeneratedImage] = []
         for item in _value(response, "data", []) or []:
@@ -395,32 +400,39 @@ class LiteLLMPort(LLMPort):
             model=_value(response, "model", params["model"]),
         )
 
+    # LiteLLM prefixes whose image generation merges extra_body into the
+    # request body. Other providers are sent it as a literal field named
+    # extra_body, which none of them reads.
+    _EXTRA_BODY_PROVIDERS = ("openai", "azure")
+
     @staticmethod
     def _forward_image_options(
         params: dict[str, Any],
         kwargs: dict[str, Any],
+        names: tuple[str, ...],
         *,
-        top_level: tuple[str, ...] = (),
-        extra_body: tuple[str, ...] = (),
+        in_extra_body: bool,
     ) -> None:
-        """Place each image option where LiteLLM carries it to the provider.
+        """Place image options where LiteLLM carries them to the provider.
 
-        LiteLLM drops what it does not map without a word, and the two image
-        calls map differently. A generation keeps only a handful of OpenAI
-        keys, so a background passed as a plain argument to gpt-image never
-        reaches the wire, while extra_body is sent as given. An edit keeps its
-        own fixed list, background among them, and discards extra_body on
-        OpenAI-style providers.
+        LiteLLM drops what it does not map without a word. An OpenAI or Azure
+        generation keeps only a handful of OpenAI keys, so a background passed
+        to gpt-image as a plain argument never reaches the wire, while
+        extra_body is merged into the body; other providers take the options
+        as plain arguments. An edit never sends extra_body: its OpenAI-style
+        request keeps a fixed field list, background among them, and its
+        Bedrock, Stability and Black Forest Labs requests take plain
+        arguments, so an edit's options go as plain arguments.
         """
-        for name in top_level:
-            value = kwargs.get(name)
-            if value is not None:
-                params[name] = value
         body = dict(kwargs.get("extra_body") or {})
-        for name in extra_body:
+        for name in names:
             value = kwargs.get(name)
-            if value is not None:
+            if value is None:
+                continue
+            if in_extra_body:
                 body[name] = value
+            else:
+                params[name] = value
         if body:
             params["extra_body"] = body
 
@@ -487,14 +499,13 @@ class LiteLLMPort(LLMPort):
         if size is not None:
             params["size"] = size
         self._apply_response_format(params, kwargs.get("response_format"), operation="edit")
-        # The remaining options have no place in LiteLLM's edit request: they
-        # reach providers whose LiteLLM config reads extra_body, and OpenAI-style
-        # providers do not receive them.
+        # OpenAI-style providers receive only background of these: LiteLLM's
+        # edit request there has no field for the rest.
         self._forward_image_options(
             params,
             kwargs,
-            top_level=("background",),
-            extra_body=("seed", "strength", "negative_prompt", "output_format"),
+            ("background", "seed", "strength", "negative_prompt", "output_format"),
+            in_extra_body=False,
         )
 
         response = await self._image_edit(**params)

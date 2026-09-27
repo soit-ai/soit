@@ -7,6 +7,7 @@ transport, so a LiteLLM upgrade that changes the mapping fails here rather
 than in a caller's opaque image.
 """
 
+import contextlib
 import functools
 import io
 import json
@@ -50,7 +51,7 @@ def _png() -> bytes:
     return buffer.getvalue()
 
 
-def _port(wire: _Wire, **litellm_params: Any) -> LiteLLMPort:
+def _port(wire: _Wire, litellm_provider: str | None = None, **litellm_params: Any) -> LiteLLMPort:
     import litellm
     from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
@@ -64,6 +65,7 @@ def _port(wire: _Wire, **litellm_params: Any) -> LiteLLMPort:
     edit_client.client = httpx.AsyncClient(transport=httpx.MockTransport(wire))
     return LiteLLMPort(
         provider_kind="openai",
+        litellm_provider=litellm_provider,
         api_key="test-key",
         api_base=_API_BASE,
         litellm_params=litellm_params,
@@ -119,7 +121,7 @@ async def test_an_edit_sends_background():
 @pytest.mark.asyncio
 @pytest.mark.xfail(
     strict=True,
-    reason="LiteLLM's edit request discards extra_body on OpenAI-style providers",
+    reason="LiteLLM's OpenAI-style edit request has no field for a seed",
 )
 async def test_an_edit_sends_its_seed():
     wire = _Wire()
@@ -131,3 +133,25 @@ async def test_an_edit_sends_its_seed():
     )
 
     assert wire.form["seed"] == "42"
+
+
+@pytest.mark.asyncio
+async def test_an_edit_sends_its_seed_where_litellm_reads_it():
+    # LiteLLM's Stability edit takes the options as plain arguments; an edit
+    # never sends extra_body.
+    wire = _Wire()
+    with contextlib.suppress(Exception):
+        # The mock answers in OpenAI's shape, which Stability's parser refuses
+        # after the request has been captured.
+        await _port(wire, litellm_provider="stability").edit_image(
+            image=_png(),
+            prompt="a red dot",
+            model="model:stability:sd3-large",
+            seed=42,
+            negative_prompt="blurry",
+        )
+
+    assert wire.requests, "the edit reached the wire"
+    body = wire.requests[-1].content
+    assert b'name="seed"' in body and b"42" in body
+    assert b'name="negative_prompt"' in body
