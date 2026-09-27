@@ -192,6 +192,11 @@ All API errors MUST be:
 }
 ```
 
+A code needs an entry in `ERROR_CODE_TO_STATUS` (`app/middleware/error_handler.py`)
+for its message to reach callers. A code without one answers `500`, and unless
+`ENVIRONMENT` is `development` its message and details are replaced with a
+generic message; the server log keeps them under the request id.
+
 ### 4.3 Pagination
 Cursor-based:
 - request: `page_size`, `page_token`

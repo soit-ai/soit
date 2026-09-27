@@ -51,6 +51,7 @@ from app.kernel.observe.sentry import setup_sentry  # noqa: E402
 from app.middleware.error_handler import (  # noqa: E402
     ERROR_CODE_TO_STATUS,
     ErrorHandlerMiddleware,
+    in_development,
 )
 from app.middleware.openai_errors import (  # noqa: E402
     error_response,
@@ -417,10 +418,24 @@ async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONRe
     error_code = exc.code
     status_code = ERROR_CODE_TO_STATUS.get(error_code, 500)
     request_id, run_id = _resolve_trace_ids(request)
+    message, details = exc.message, exc.details
+    if error_code not in ERROR_CODE_TO_STATUS and not in_development():
+        # A code without a status of its own answers 500, and some of those
+        # codes carry the text of the exception they wrap (a secret store,
+        # storage or vector database failure). Outside development the client
+        # gets the code and the request id; the message stays in this log line.
+        logger.error(
+            "KernelError %s: %s",
+            error_code,
+            exc.message,
+            exc_info=exc,
+            extra={"error_code": error_code, "request_id": request_id},
+        )
+        message, details = "Internal server error", {}
     envelope = error_envelope(
         code=error_code,
-        message=exc.message,
-        details=exc.details,
+        message=message,
+        details=details,
         request_id=request_id,
         run_id=run_id,
     )

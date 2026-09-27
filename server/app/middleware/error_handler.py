@@ -4,6 +4,7 @@ Global error handler middleware.
 """
 
 import logging
+import os
 import re
 from collections.abc import Callable
 from typing import Any
@@ -64,6 +65,11 @@ SENSITIVE_FIELDS = {
     "private_key",
     "privatekey",
 }
+
+
+def in_development() -> bool:
+    """Whether server error responses may carry the error's own message."""
+    return os.getenv("ENVIRONMENT", "production").lower() == "development"
 
 
 def filter_sensitive_data(data: Any) -> Any:
@@ -140,10 +146,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             # Get status code from mapping
             status_code = ERROR_CODE_TO_STATUS.get(e.code, 500)
 
-            import os
-            is_dev = os.getenv("ENVIRONMENT", "production").lower() == "development"
-
-            if status_code >= 500 and not is_dev:
+            if status_code >= 500 and not in_development():
                 # Server errors can wrap internal exceptions (e.g. a vector-store
                 # MilvusException). Do not expose that to clients; the full detail is
                 # already logged above with the request_id for correlation.

@@ -17,6 +17,13 @@ record for operators.
 - An unexpected server error no longer puts the exception's text or type in
   the response when `ENVIRONMENT=development`; the traceback stays in the
   server log under the request id, as it already did in production.
+- Unless `ENVIRONMENT` is `development`, a server error whose code has no
+  HTTP status of its own (it answers 500) no longer carries its message or
+  details: some carried the text of the exception they wrapped, from the
+  secret store, file storage or a vector database. This includes the lite
+  profile, whose default is `local`. The response keeps the error code and
+  the request id, and the server log keeps the message and traceback. Errors
+  with a status of their own keep their messages.
 
 ## [1.3.0] - 2026-09-27
 
