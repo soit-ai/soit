@@ -11,7 +11,7 @@ from app.kernel.ports.llm.interface import (
     LLMPort,
 )
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.kernel.runtime.db.models.runs import RunStep
+from app.kernel.runtime.db.models.runs import Run, RunStep
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.tools.resolver import ToolResolver
 from app.modules.agent.application.schemas import AgentRuntimeRequest, ChatMessageInput
@@ -307,6 +307,10 @@ async def test_a_spend_refusal_in_retrieval_ends_the_run_with_it(async_db, ctx):
         select(RunStep).where(RunStep.step_type == "retrieval", RunStep.step_id == "rag:kb_support")
     )).scalars().one()
     assert (retrieval_step.status, retrieval_step.error_code) == ("failed", "BUDGET_EXHAUSTED")
+    # The run itself is closed with the refusal, not left running.
+    run = await async_db.get(Run, retrieval_step.run_id)
+    await async_db.refresh(run)
+    assert (run.status, run.error_code) == ("failed", "BUDGET_EXHAUSTED")
 
 
 @pytest.mark.asyncio

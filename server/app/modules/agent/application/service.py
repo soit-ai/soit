@@ -519,12 +519,23 @@ class AgentService:
         rag_citations: list[dict[str, Any]] = list(checkpoint.get("citations") or [])
         if not checkpoint and data.knowledge_refs:
             query_text = data.messages[-1].content
-            rag_context, rag_citations = await self._retrieve_rag_context(
-                knowledge_refs=data.knowledge_refs,
-                query=query_text,
-                top_k=data.rag_top_k,
-                run_id=run_id,
-            )
+            try:
+                rag_context, rag_citations = await self._retrieve_rag_context(
+                    knowledge_refs=data.knowledge_refs,
+                    query=query_text,
+                    top_k=data.rag_top_k,
+                    run_id=run_id,
+                )
+            except _SPEND_REFUSALS as refusal:
+                # Before the run's own error handling starts: close it here.
+                if self.trace_writer:
+                    await self.trace_writer.update_run_status(
+                        run_id,
+                        "failed",
+                        error_code=refusal.code,
+                        error_message=refusal.message,
+                    )
+                raise
 
         if not checkpoint and rag_context and data.rag_strategy == "system_message":
             messages = [ChatMessage(role="system", content=f"Retrieved context:\n{rag_context}")] + messages
