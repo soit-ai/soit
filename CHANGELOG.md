@@ -15,17 +15,18 @@ record for operators.
 ### Added
 
 - A tool can declare what one call costs in its ToolSpec policy, as
-  `"pricing": {"currency": "USD", "call": "0.002"}`. Every completed call of
-  it, through `POST /api/v1/tools/{ref}/invoke`, MCP `tools/call`, an agent
-  or a workflow, then writes a priced cost row that counts against budgets
-  and deducts credits like a model call; an agent or a workflow calling a
-  tool of an enabled MCP server still records it unpriced. A tool without a
-  price stays unpriced, its row saying `tool_pricing_not_declared`;
-  `"call": "0"` is an explicit free price, and a price SOIT cannot read
-  leaves the row unpriced with `unsupported_pricing_config` rather than
-  free. Earlier versions refuse a ToolSpec with `pricing`, and their plugin
-  loader skips such a tool, so once a plugin declares a price, do not roll
-  back past this release.
+  `"pricing": {"currency": "USD", "call": "0.002"}`. Every successful call
+  of it, through `POST /api/v1/tools/{ref}/invoke`, MCP `tools/call`, an
+  agent or a workflow, then writes a priced cost row that counts against
+  budgets and deducts credits like a model call. Calls that are not charged
+  keep an unpriced row whose `pricing_snapshot.reason` says why:
+  `tool_pricing_not_declared`, `tool_call_failed` (a failed call is not
+  charged), `unsupported_pricing_config` (an MCP server's price SOIT cannot
+  read; a plugin ToolSpec with one is refused at install), or
+  `tool_pricing_not_resolved` (a workflow calling a tool of an MCP server).
+  `"call": "0"` is an explicit free price. Earlier versions refuse a ToolSpec
+  with `pricing`, and their plugin loader skips such a tool, so once a
+  plugin declares a price, do not roll back past this release.
 
 ### Changed
 

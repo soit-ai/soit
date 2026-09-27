@@ -26,8 +26,14 @@ class AgentExecutor:
         run_step_id: str | None = None,
         resume_approval: bool = False,
         lease_owner: str | None = None,
+        tool_policy: dict[str, Any] | None = None,
     ) -> ToolResponse:
-        """Execute tool call."""
+        """Execute tool call.
+
+        ``tool_policy`` is the policy the agent resolved for the tool from the
+        workspace catalog; the tool gateway prices the call from it.
+        """
+        extra: dict[str, Any] = {"tool_policy": tool_policy} if tool_policy is not None else {}
         return await self.tool_port.invoke(
             tool_ref=tool_ref,
             parameters=parameters,
@@ -39,4 +45,5 @@ class AgentExecutor:
             lease_owner=lease_owner,
             ctx=ctx,
             strict_registry=True,
+            **extra,
         )

@@ -5,8 +5,8 @@ what one call costs::
 
     "policy": {"pricing": {"currency": "USD", "call": "0.002"}}
 
-Each completed call then writes a priced cost row that counts against
-budgets and credits like a model call. A tool that declares no price stays
+Each successful call then writes a priced cost row that counts against
+budgets and credits like a model call; a failed call is recorded unpriced. A tool that declares no price stays
 unpriced, and its row says so; ``"call": "0"`` is an explicit free price.
 A price that cannot be read is never taken as zero: the row stays unpriced
 and names the problem, and the call it prices has already run, so pricing
@@ -21,9 +21,9 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
-# What the ledger's amount column holds: 12 integer and 6 fractional digits.
-_MAX_PRICE = Decimal("999999999999.999999")
-_MAX_FRACTION_DIGITS = 6
+# The ToolSpec schema's own pattern: what the ledger's amount column holds,
+# 12 integer and 6 fractional ASCII digits, written as a string.
+_PRICE = re.compile(r"^(0|[1-9][0-9]{0,11})(\.[0-9]{1,6})?$", re.ASCII)
 
 
 @dataclass(frozen=True)
@@ -36,19 +36,20 @@ class ToolCallPricing:
 
 
 def _price(value: Any) -> Decimal | None:
-    # Money is written as a decimal string (or a whole number), never a float.
-    if isinstance(value, bool) or not isinstance(value, str | int):
+    # Held to the schema's pattern: an MCP server's policy is not validated
+    # against the ToolSpec schema, so its prices are read no more loosely.
+    if not isinstance(value, str) or not _PRICE.fullmatch(value):
         return None
     try:
-        price = Decimal(str(value).strip())
+        return Decimal(value)
     except InvalidOperation:
         return None
-    if not price.is_finite() or price < 0 or price > _MAX_PRICE:
-        return None
-    exponent = price.as_tuple().exponent
-    if isinstance(exponent, int) and -exponent > _MAX_FRACTION_DIGITS:
-        return None
-    return price
+
+
+def unpriced_call(reason: str, *, tool_ref: str, configured: Any = None) -> ToolCallPricing:
+    """An unpriced call, with the reason no price applies."""
+
+    return _unpriced(reason, tool_ref=tool_ref, configured=configured)
 
 
 def _unpriced(reason: str, *, tool_ref: str, configured: Any) -> ToolCallPricing:

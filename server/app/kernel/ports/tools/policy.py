@@ -30,7 +30,11 @@ from app.kernel.ports.common.rate_limiter import RateLimiter
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
-from app.kernel.ports.tools.pricing import declared_call_pricing
+from app.kernel.ports.tools.pricing import (
+    ToolCallPricing,
+    declared_call_pricing,
+    unpriced_call,
+)
 from app.kernel.runtime.runs.tool_calls import (
     RuntimeToolExecutionService,
     ToolExecutionCommand,
@@ -116,16 +120,26 @@ class ToolPolicyGateway(ToolPort):
             return {}
         return dict(get_policy(tool_ref, ctx) or {})
 
-    def _declared_policy(self, tool_ref: str, declared: Any) -> dict[str, Any]:
-        """The policy a tool's price is read from: the caller's, else its ToolSpec's."""
+    def _call_pricing(self, tool_ref: str, declared: Any, response: ToolResponse) -> ToolCallPricing:
+        """What one completed call is charged, from the tool's declared price."""
 
+        if not response.success:
+            # Not charged: most failures (an unreachable server, a refused
+            # address, a tool that raised) never reached what the price bills.
+            return unpriced_call("tool_call_failed", tool_ref=tool_ref)
         if isinstance(declared, dict):
-            return declared
+            # The policy the caller resolved from the catalog.
+            return declared_call_pricing(declared, tool_ref=tool_ref)
         try:
-            return self.get_tool_policy(tool_ref, self.ctx)
+            policy = self.get_tool_policy(tool_ref, self.ctx)
         except Exception:
             # Pricing never fails a call that has already run.
-            return {}
+            policy = {}
+        if not policy and tool_ref.startswith("mcp_tool:"):
+            # An MCP server's tools are priced from the workspace catalog,
+            # which this caller did not pass; not the same as no price.
+            return unpriced_call("tool_pricing_not_resolved", tool_ref=tool_ref)
+        return declared_call_pricing(policy, tool_ref=tool_ref)
 
     def _contains_secret_id(self, value: Any) -> bool:
         if isinstance(value, dict):
@@ -454,9 +468,7 @@ class ToolPolicyGateway(ToolPort):
                     error_message=response.error,
                     error_details=tool_error_details,
                 )
-                pricing = declared_call_pricing(
-                    self._declared_policy(tool_ref, declared_policy), tool_ref=tool_ref
-                )
+                pricing = self._call_pricing(tool_ref, declared_policy, response)
                 await self.trace_writer.record_cost(
                     run_id=resolve_run_id(kwargs, self.ctx),
                     step_id=step.id,

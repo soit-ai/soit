@@ -1026,6 +1026,7 @@ class AgentService:
                                         approval is not None and approval.get("approved")
                                     ),
                                     lease_owner=tool_lease_owner,
+                                    tool_policy=tool_policies.get(tc.name),
                                 )
                             if direct_tool_claim is not None and not direct_tool_claim.replayed:
                                 await runtime_tool_execution.complete(
