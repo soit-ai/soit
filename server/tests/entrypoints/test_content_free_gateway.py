@@ -147,3 +147,24 @@ async def test_a_metadata_only_key_calls_tools_without_storing_their_values(
     # A replay has nothing to hand back, and says so rather than returning nothing.
     assert replay.status_code == 409, replay.text
     assert replay.json()["code"] == "TOOL_RESULT_WITHHELD"
+
+
+@pytest.mark.asyncio
+async def test_a_metadata_only_key_embeds_and_draws_without_storing_the_text(
+    async_client, async_db, ctx: RequestContext
+) -> None:
+    keyed = dataclasses.replace(ctx, api_key_id="key_private", content_capture="metadata_only")
+    app.dependency_overrides[get_current_context] = lambda: keyed
+    try:
+        embedded = await async_client.post(
+            "/v1/embeddings", json={"model": "model:test:embedding", "input": [SECRET]}
+        )
+        drawn = await async_client.post(
+            "/v1/images/generations", json={"model": "model:test:painter", "prompt": SECRET}
+        )
+    finally:
+        app.dependency_overrides[get_current_context] = lambda: ctx
+
+    assert embedded.status_code == 200, embedded.text
+    assert drawn.status_code == 200, drawn.text
+    assert SECRET not in await _everything_stored(async_db)
