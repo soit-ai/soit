@@ -221,6 +221,15 @@ record for operators.
 
 ### Security
 
+- Content-free runs (`metadata_only`) keep tool content out of the run
+  ledger too. A step's tool call metrics (arguments, results, metadata,
+  error text) and gateway audit payloads were stored as they came, and an
+  audit too large to keep inline was written whole to object storage; tool
+  calls through `/api/v1/tools` and `/mcp` left their arguments and results
+  there. They now keep their structure, identifiers (run, tool call, child
+  workflow run, secret references) and a URL's origin, with every other
+  value replaced by its length and a hash; nothing spills to storage.
+  Content-safety findings keep their category, not text a classifier echoed.
 - An API key's calls-per-minute and 24-hour request limits now count the
   tool calls made with it through `POST /api/v1/tools/{ref}/invoke` and
   `/mcp` `tools/call`, which spent neither, lifting a limitation v1.3.0

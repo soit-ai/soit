@@ -76,9 +76,11 @@ async def log_gateway_request(
     if not trace_writer:
         return
 
-    # Filter sensitive data
-    filtered_request = filter_sensitive_data(request_data)
-    filtered_response = filter_sensitive_data(response_data) if response_data else None
+    # Filter sensitive data, then, for a content-free run, the content: before
+    # the payload is measured, so nothing spills to storage either.
+    capture = await trace_writer.content_capture()
+    filtered_request = capture.audit_payload(filter_sensitive_data(request_data))
+    filtered_response = capture.audit_payload(filter_sensitive_data(response_data)) if response_data else None
 
     # Prepare audit log
     audit_log = {

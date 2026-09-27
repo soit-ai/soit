@@ -17,7 +17,9 @@ from app.kernel.runtime.runs.content_capture import (
     register_workspace_capture_lookup,
     reset_workspace_capture_lookup,
     stricter_capture,
+    url_origin,
     withheld,
+    withheld_object,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.identity.domain.models import Workspace
@@ -136,3 +138,120 @@ async def test_without_a_setting_content_is_kept(async_db, ctx: RequestContext) 
     run = await TraceWriter(async_db, ctx).create_run("agent", input_summary=SECRET)
 
     assert run.input_summary == SECRET
+
+
+
+def test_withholding_again_changes_nothing() -> None:
+    # Records are written, read back and written again; a marker must not
+    # become a marker of itself.
+    capture = ContentCapture(CAPTURE_METADATA_ONLY)
+    metrics = {"tool_call": {"arguments": {"q": SECRET, "n": 7}, "error_message": SECRET}}
+
+    once = capture.metrics(metrics)
+
+    assert capture.metrics(once) == once
+    assert withheld(withheld(SECRET)) == withheld(SECRET)
+    assert withheld_object(withheld_object({"q": SECRET})) == withheld_object({"q": SECRET})
+
+
+def test_tool_call_metrics_keep_their_shape_and_identifiers_only() -> None:
+    capture = ContentCapture(CAPTURE_METADATA_ONLY)
+
+    kept = capture.metrics(
+        {
+            "latency_ms": 12,
+            "tool_call": {
+                "tool_ref": "tool:http:request",
+                "tool_type": "http",
+                "status": "completed",
+                "arguments": {"url": f"https://api.example.com/search?q={SECRET}", "limit": 77310413},
+                "result": {"result": {"answer": SECRET}},
+                "metadata": {"workflow_run_id": "wfr_1", "headers": {"x-auth": {"secret_id": "sec_abc"}}},
+                "error_code": None,
+                "error_message": SECRET,
+            },
+            "egress": {"decision": "allow", "url": f"https://api.example.com/search?q={SECRET}"},
+            "content": [{"type": "text", "text": SECRET}],
+            "content_safety": [{"provider": "http", "findings": [{"category": "pii", "detail": SECRET}]}],
+        }
+    )
+
+    assert SECRET not in str(kept) and "77310413" not in str(kept)
+    call = kept["tool_call"]
+    assert (call["tool_ref"], call["status"]) == ("tool:http:request", "completed")
+    assert set(call["arguments"]) == {"url", "limit"}
+    assert call["arguments"]["url"] == "https://api.example.com"
+    # Identifiers stay: child runs and secret references are still found.
+    assert call["metadata"]["workflow_run_id"] == "wfr_1"
+    assert call["metadata"]["headers"]["x-auth"] == {"secret_id": "sec_abc"}
+    assert kept["egress"] == {"decision": "allow", "url": "https://api.example.com"}
+    assert kept["latency_ms"] == 12
+    assert kept["content_safety"][0]["findings"][0]["category"] == "pii"
+    assert ContentCapture(CAPTURE_FULL).metrics({"tool_call": {"arguments": {"q": SECRET}}}) == {
+        "tool_call": {"arguments": {"q": SECRET}}
+    }
+
+
+def test_a_url_keeps_only_where_it_went() -> None:
+    assert url_origin("https://user:pw@api.example.com:8443/p?q=1#f") == "https://api.example.com:8443"
+    assert url_origin("not a url") == withheld("not a url")
+
+
+@pytest.mark.asyncio
+async def test_a_metadata_only_writer_stores_no_tool_content(async_db, ctx: RequestContext) -> None:
+    from sqlmodel import select
+
+    from app.kernel.runtime.db.models.audit import AuditEvent
+
+    writer = TraceWriter(async_db, replace(ctx, content_capture=CAPTURE_METADATA_ONLY))
+    run = await writer.create_run("tool")
+    step = await writer.create_step(run.id, "tool", status="running")
+    tool_call = {"tool_ref": "tool:function:echo", "arguments": {"text": SECRET}, "result": {"result": SECRET}}
+
+    await writer.update_step_metrics(step.id, {"tool_call": tool_call})
+    await writer.update_step_status(step.id, "succeeded", metrics={"tool_call": tool_call, "latency_ms": 3})
+    await writer.record_audit(
+        run_id=run.id,
+        step_id=step.id,
+        gateway_type="tool",
+        outcome="succeeded",
+        payload={"gateway_type": "tool", "request": {"parameters": {"text": SECRET}}, "tool_ref": "tool:function:echo"},
+    )
+    await async_db.commit()
+
+    stored = await async_db.get(RunStep, step.id)
+    audits = (await async_db.exec(select(AuditEvent).where(AuditEvent.run_id == run.id))).all()
+    assert SECRET not in str(stored.metrics_json)
+    assert stored.metrics_json["tool_call"]["tool_ref"] == "tool:function:echo"
+    assert stored.metrics_json["latency_ms"] == 3
+    assert SECRET not in str([audit.payload_json for audit in audits])
+    assert audits[0].payload_json["tool_ref"] == "tool:function:echo"
+
+
+@pytest.mark.asyncio
+async def test_a_metadata_only_audit_does_not_spill_content_to_storage(async_db, ctx: RequestContext) -> None:
+    from app.kernel.ports.common.audit import log_gateway_request
+
+    class _Storage:
+        def __init__(self) -> None:
+            self.puts: list[bytes] = []
+
+        async def put(self, key, data, **kwargs):
+            self.puts.append(data)
+
+    writer = TraceWriter(async_db, replace(ctx, content_capture=CAPTURE_METADATA_ONLY))
+    run = await writer.create_run("tool")
+    step = await writer.create_step(run.id, "tool", status="running")
+    storage = _Storage()
+
+    await log_gateway_request(
+        writer,
+        run.id,
+        step.id,
+        "tool",
+        {"parameters": {"text": SECRET * 1000}},
+        {"success": True, "result": SECRET * 1000},
+        storage_port=storage,
+    )
+
+    assert all(SECRET.encode() not in data for data in storage.puts)

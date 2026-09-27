@@ -46,7 +46,7 @@ from app.kernel.runtime.runs.content_capture import (
     CAPTURE_METADATA_ONLY,
     CAPTURE_MODES,
     ContentCapture,
-    get_workspace_capture_lookup,
+    lookup_workspace_capture,
 )
 from app.kernel.runtime.runs.events import RunEventType
 from app.kernel.runtime.status import (
@@ -199,15 +199,8 @@ class TraceWriter:
         return self._capture
 
     async def _lookup_capture_mode(self) -> str:
-        lookup = get_workspace_capture_lookup()
-        if lookup is None or not isinstance(self.db, AsyncSession):
-            return CAPTURE_FULL
-        try:
-            mode = await lookup(self.db, self.ctx.tenant_id, self.ctx.workspace_id)
-        except Exception:
-            logger.warning("Content capture lookup failed; withholding content", exc_info=True)
-            return CAPTURE_METADATA_ONLY
-        return _capture_mode(mode)
+        session = self.db if isinstance(self.db, AsyncSession) else None
+        return await lookup_workspace_capture(session, self.ctx.tenant_id, self.ctx.workspace_id)
 
     async def release_before_wait(self) -> None:
         """Commit what is staged before a long wait on an external provider.
@@ -638,6 +631,7 @@ class TraceWriter:
         output_summary = capture.text(output_summary)
         error_message = capture.text(error_message)
         error_details = capture.details(error_details)
+        metrics = capture.metrics(metrics)
         step = await self.db.get(RunStep, step_id)
         if not step:
             raise ValueError(f"Step not found: {step_id}")
@@ -746,6 +740,7 @@ class TraceWriter:
         metrics: dict[str, Any],
     ) -> RunStep:
         """Merge metrics into an existing step without changing status."""
+        metrics = (await self.content_capture()).metrics(metrics) or {}
         step = await self.db.get(RunStep, step_id)
         if not step:
             raise ValueError(f"Step not found: {step_id}")
@@ -1010,6 +1005,7 @@ class TraceWriter:
     ) -> AuditEvent:
         """Persist an authoritative scoped gateway audit event."""
 
+        payload = (await self.content_capture()).audit_payload(payload)
         await self._require_scoped_run(run_id)
         if step_id:
             await self._require_scoped_step(run_id, step_id)
