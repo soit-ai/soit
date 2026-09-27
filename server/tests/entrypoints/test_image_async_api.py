@@ -395,6 +395,97 @@ class TestAsyncDelivery:
         assert calls == []
 
 
+
+_HOSTED = "https://provider.example/images/0.png?signature=abc"
+
+
+class _HostedPort:
+    """A provider that keeps the bytes and answers with where they are."""
+
+    def __init__(self, images):
+        self.images = images
+
+    async def generate_image(self, **kwargs: Any):
+        from app.kernel.ports.llm.interface import ImageGenerationResponse
+
+        return ImageGenerationResponse(images=list(self.images), model="m")
+
+
+async def _with_port(port, call):
+    from app.wiring import get_container
+
+    container = get_container()
+    original = container.get("llm_port")
+    container.register_singleton("llm_port", port)
+    try:
+        return await call()
+    finally:
+        container.register_singleton("llm_port", original)
+
+
+class TestProviderHostedResults:
+    """A provider that answers with a URL still leaves the run something to fetch."""
+
+    @pytest.mark.asyncio
+    async def test_an_async_url_only_result_becomes_a_link_artifact(self, async_client, async_db):
+        from app.kernel.ports.llm.interface import GeneratedImage
+
+        port = _HostedPort([GeneratedImage(url=_HOSTED)])
+
+        async def submit_and_settle():
+            body = (await _generate(async_client, **{"async": True})).json()["data"]
+            return body, await _settle(async_client, body["run_id"], async_db)
+
+        body, run = await _with_port(port, submit_and_settle)
+
+        assert run.status == "succeeded"
+        [artifact] = await _artifacts(async_db, body["run_id"])
+        assert artifact.type == "json"
+        assert artifact.mime == "application/json"
+        assert artifact.meta_json["kind"] == "image_url"
+        assert artifact.meta_json["inspected"] is False
+        # The link may be signed: it lives in the object, not in what listings show.
+        assert _HOSTED not in str(artifact.meta_json)
+        content = await async_client.get(
+            f"/api/v1/runs/{body['run_id']}/artifacts/{artifact.id}/content"
+        )
+        assert content.status_code == 200
+        # JSON content comes back in the API envelope, as every JSON body does.
+        assert content.json()["data"] == {"index": 0, "url": _HOSTED}
+
+    @pytest.mark.asyncio
+    async def test_a_synchronous_artifact_answer_carries_the_url_and_the_link(
+        self, async_client, async_db
+    ):
+        from app.kernel.ports.llm.interface import GeneratedImage
+
+        port = _HostedPort([GeneratedImage(url=_HOSTED)])
+        response = await _with_port(
+            port, lambda: _generate(async_client, response_format="artifact")
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.text
+        [datum] = response.json()["data"]["data"]
+        [artifact] = await _artifacts(async_db, response.json()["data"]["run_id"])
+        assert datum["url"] == _HOSTED
+        assert datum["attachment_id"] == artifact.id
+
+    @pytest.mark.asyncio
+    async def test_every_billed_image_of_a_mixed_answer_is_kept(self, async_client, async_db):
+        from app.adapters.llm.memory import _TINY_PNG_B64
+        from app.kernel.ports.llm.interface import GeneratedImage
+
+        port = _HostedPort([GeneratedImage(b64_json=_TINY_PNG_B64), GeneratedImage(url=_HOSTED)])
+        response = await _with_port(
+            port, lambda: _generate(async_client, n=2, response_format="artifact")
+        )
+
+        run_id = response.json()["data"]["run_id"]
+        [cost] = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id))).all()
+        artifacts = sorted(await _artifacts(async_db, run_id), key=lambda a: a.meta_json["index"])
+        assert [a.meta_json["kind"] for a in artifacts] == ["image", "image_url"]
+        assert len(artifacts) == cost.billed_quantity == 2
+
 @pytest.mark.parametrize(
     ("requested", "detached", "resolved"),
     [

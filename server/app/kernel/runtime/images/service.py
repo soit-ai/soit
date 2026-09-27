@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -58,6 +59,7 @@ def resolve_response_format(requested: str | None, *, detached: bool) -> str:
         "omit response_format or set it to artifact",
         {"param": "response_format"},
     )
+
 
 _OUTPUT_MIME = {
     "png": "image/png",
@@ -159,6 +161,59 @@ def _decode(b64_json: str) -> bytes:
         raise ValidationError("Provider returned an undecodable image") from exc
 
 
+def _images_prefix(ctx: RequestContext, run_id: str) -> str:
+    return f"tenants/{ctx.tenant_id}/workspaces/{ctx.workspace_id}/runs/{run_id}/images"
+
+
+def _operation(request: ImageJobRequest) -> str:
+    return "edit_image" if request.kind == "edit" else "generate_image"
+
+
+async def _store_provider_link(
+    url: str,
+    *,
+    index: int,
+    ctx: RequestContext,
+    trace_writer: TraceWriter,
+    storage_port: StoragePort,
+    run_id: str,
+    request: ImageJobRequest,
+) -> ImageResult:
+    """Keep a provider-hosted image as a link artifact on the run.
+
+    A provider that answers with a URL has kept the bytes itself, so the
+    address is all there is to keep. It goes in the stored object rather than
+    in the artifact metadata that run listings show, because such URLs are
+    often signed. The artifact says the image was never inspected, since its
+    bytes never passed the content check, and it is a pointer rather than a
+    copy: the provider decides how long the URL lives.
+    """
+    data = json.dumps({"index": index, "url": url}).encode("utf-8")
+    storage_key = f"{_images_prefix(ctx, run_id)}/{index}.url.json"
+    await storage_port.put(
+        storage_key,
+        data,
+        content_type="application/json",
+        metadata={"run_id": run_id, "index": str(index)},
+    )
+    artifact = await trace_writer.create_artifact(
+        run_id=run_id,
+        artifact_type="json",
+        storage_key=storage_key,
+        mime="application/json",
+        size_bytes=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+        meta={
+            "kind": "image_url",
+            "index": index,
+            "name": f"{index}.url.json",
+            "operation": _operation(request),
+            "inspected": False,
+        },
+    )
+    return ImageResult(url=url, attachment_id=artifact.id)
+
+
 async def _store_as_artifacts(
     response: ImageGenerationResponse,
     *,
@@ -172,16 +227,22 @@ async def _store_as_artifacts(
     results: list[ImageResult] = []
     for index, image in enumerate(response.images):
         if not image.b64_json:
-            # A provider that answered with a URL has kept the bytes; there is
-            # nothing to store, so the caller is handed the URL unchanged
-            # rather than a broken artifact reference.
-            results.append(ImageResult(url=image.url))
+            results.append(
+                await _store_provider_link(
+                    image.url,
+                    index=index,
+                    ctx=ctx,
+                    trace_writer=trace_writer,
+                    storage_port=storage_port,
+                    run_id=run_id,
+                    request=request,
+                )
+                if image.url
+                else ImageResult()
+            )
             continue
         data = _decode(image.b64_json)
-        storage_key = (
-            f"tenants/{ctx.tenant_id}/workspaces/{ctx.workspace_id}"
-            f"/runs/{run_id}/images/{index}.{request.output_format}"
-        )
+        storage_key = f"{_images_prefix(ctx, run_id)}/{index}.{request.output_format}"
         await storage_port.put(
             storage_key,
             data,
@@ -199,9 +260,7 @@ async def _store_as_artifacts(
                 "kind": "image",
                 "index": index,
                 "name": f"{index}.{request.output_format}",
-                "operation": (
-                    "edit_image" if request.kind == "edit" else "generate_image"
-                ),
+                "operation": _operation(request),
             },
         )
         results.append(ImageResult(attachment_id=artifact.id))

@@ -54,6 +54,12 @@ record for operators.
   job that cannot keep every image it was billed for now fails with
   `IMAGE_UNDELIVERABLE` (`502`), its cost kept, instead of succeeding with
   fewer images than it charged.
+- An image job that returns run artifacts no longer loses the images a
+  provider answers with a hosted URL instead of bytes. Each such image is now
+  kept on the run as a JSON link artifact (`meta_json.kind` `image_url`,
+  `inspected` `false`), with the URL in the stored object rather than in the
+  metadata run listings show, so every billed image has an artifact to
+  fetch. The link lives as long as the provider keeps it.
 - A streamed chat call that reached the provider is now always charged.
   Before, a `/v1/chat/completions` client that disconnected before the final
   chunk left the model step `running` with no cost, so the call escaped
