@@ -111,7 +111,9 @@ record for operators.
   (300), timeouts they could never reach: an image model needing more than
   a minute failed with `LLM image request timed out after 60.0 seconds`,
   while the provider may still have made, and billed, the image. A provider
-  that sets `timeout_ms` keeps it for every call type. A timed-out chat call
+  that sets `timeout_ms` keeps it for every call type. Native Anthropic
+  providers follow the same rules; their adapter held every call to 60
+  seconds of its own, whatever the provider or the call type allowed. A timed-out chat call
   is retried (`retry_policy.max_retries`, 3 by default), so a hung call on
   such a provider can now take four times 180 seconds before it fails or a
   virtual model moves on; set `timeout_ms` to keep the old bound. A

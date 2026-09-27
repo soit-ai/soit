@@ -113,7 +113,7 @@ def _default_native_factory(
                 "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
                 f"Provider credential is required: {config.slug}",
             )
-        return AnthropicLLMPort(api_key=api_key, base_url=config.base_url)
+        return AnthropicLLMPort(api_key=api_key, base_url=config.base_url, timeout=config.timeout)
     if config.kind == "ollama":
         # Ollama's OpenAI-compatible /v1 carries tools and embeddings natively.
         from app.adapters.llm.ollama import (

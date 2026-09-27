@@ -287,3 +287,19 @@ async def test_anthropic_stream_reports_prompt_tokens_including_cache(monkeypatc
     # output only.
     assert final.tokens_prompt == 145
     assert final.tokens_completion == 7
+
+
+@pytest.mark.parametrize(("timeout", "read"), [(None, None), (300.0, 300.0)])
+def test_a_provider_timeout_or_none_bounds_the_http_calls(timeout, read):
+    # A flat 60s here capped every native Anthropic call, whatever the
+    # provider's timeout_ms or the gateway's deadline for the call type.
+    from app.adapters.llm.router import RuntimeProviderConfig, _default_native_factory
+
+    port = _default_native_factory(
+        RuntimeProviderConfig(slug="claude", kind="anthropic", adapter_backend="native", status="active", timeout=timeout),
+        {"api_key": "anthropic-key"},
+    )
+    http_timeout = port._http_timeout()
+
+    assert http_timeout.read == read
+    assert http_timeout.connect == 10.0

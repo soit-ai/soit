@@ -245,7 +245,7 @@ def _timeout_ms_seconds(value: Any) -> float | None:
         return None
     try:
         milliseconds = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if not math.isfinite(milliseconds) or milliseconds <= 0:
         return None
@@ -274,7 +274,9 @@ def validate_provider_timeout_ms(value: Any) -> None:
     """Refuse a timeout_ms that is not a positive number of milliseconds."""
     if value is None:
         return
-    if isinstance(value, bool) or not isinstance(value, int | float) or _timeout_ms_seconds(value) is None:
+    # An integer beyond 64 bits cannot be stored in the provider's JSON.
+    too_large = isinstance(value, int) and abs(value) >= 2**63
+    if isinstance(value, bool) or not isinstance(value, int | float) or too_large or _timeout_ms_seconds(value) is None:
         raise ValidationError(
             "connection_config_json.timeout_ms must be a positive number of milliseconds",
             {"param": "connection_config_json.timeout_ms"},

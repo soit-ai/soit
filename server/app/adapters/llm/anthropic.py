@@ -27,6 +27,9 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 
 
+_CONNECT_TIMEOUT_SECONDS = 10.0
+
+
 def _prompt_tokens(usage: dict[str, Any]) -> int:
     """Every input token the call consumed.
 
@@ -73,10 +76,17 @@ def _text_blocks(content: Any) -> list[dict[str, Any]]:
 class AnthropicLLMPort(LLMPort):
     """Anthropic Messages API adapter."""
 
-    def __init__(self, api_key: str, base_url: str | None = None):
+    def __init__(self, api_key: str, base_url: str | None = None, timeout: float | None = None):
         self.api_key = api_key
         self.base_url = (base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
         self.egress_base_url = self.base_url
+        self.timeout = timeout
+        """The provider's own timeout in seconds; None leaves the gateway's
+        deadline for the call type to end a slow call."""
+
+    def _http_timeout(self) -> httpx.Timeout:
+        connect = min(self.timeout, _CONNECT_TIMEOUT_SECONDS) if self.timeout else _CONNECT_TIMEOUT_SECONDS
+        return httpx.Timeout(self.timeout, connect=connect)
 
     async def chat(
         self,
@@ -101,7 +111,7 @@ class AnthropicLLMPort(LLMPort):
             name_map=name_map,
             **kwargs,
         )
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
             response = await client.post(
                 f"{self.base_url}/v1/messages",
                 headers=self._headers(),
@@ -153,7 +163,7 @@ class AnthropicLLMPort(LLMPort):
         # calls are numbered in the order they start, as OpenAI numbers them.
         tool_positions: dict[int, int] = {}
         assembled: dict[int, dict[str, str]] = {}
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/v1/messages",

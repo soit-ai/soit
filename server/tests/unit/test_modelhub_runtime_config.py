@@ -165,14 +165,14 @@ def test_a_provider_timeout_is_read_in_seconds(timeout_ms, seconds):
     assert provider_timeout_seconds({"timeout_ms": timeout_ms}) == seconds
 
 
-@pytest.mark.parametrize("timeout_ms", [0, -1, "abc", True, float("nan"), float("inf"), [1]])
+@pytest.mark.parametrize("timeout_ms", [0, -1, "abc", True, float("nan"), float("inf"), [1], 10**400])
 def test_an_unusable_stored_timeout_counts_as_none(timeout_ms, caplog):
     # A provider saved before the value was checked keeps routing.
     assert provider_timeout_seconds({"timeout_ms": timeout_ms}) is None
     assert "timeout_ms" in caplog.text
 
 
-@pytest.mark.parametrize("timeout_ms", [0, -1, "30000", "abc", True, float("nan")])
+@pytest.mark.parametrize("timeout_ms", [0, -1, "30000", "abc", True, float("nan"), 2**63, 10**400])
 def test_a_timeout_that_is_not_a_positive_number_is_refused_on_save(timeout_ms):
     with pytest.raises(ValidationError):
         validate_provider_timeout_ms(timeout_ms)
