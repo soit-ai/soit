@@ -1029,8 +1029,11 @@ class LLMPolicyGateway(LLMPort):
 
     async def _check_api_key_limits(self) -> None:
         # The same counters a direct tool call spends: one key, one budget.
+        # A model call made for a tool call that already spent them does not
+        # spend them twice.
         admission = self._key_admission()
-        await admission.admit_request()
+        if not self.ctx.api_key_requests_spent:
+            await admission.admit_request()
         await admission.check_tokens()
 
     async def _count_api_key_tokens(self, tokens: int) -> None:

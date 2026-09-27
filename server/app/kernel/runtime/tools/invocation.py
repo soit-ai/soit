@@ -24,8 +24,14 @@ per-minute rate, a poll or a replay included, before anything is recorded, so
 a refused request changes nothing and an approved call still runs when sent
 again. A call spends one of its daily request quota when it starts, and a
 refusal then fails that call's run. The tool gateway spends none of the key's
-budget, so a call is not counted twice, and the tool calls an agent or a
-workflow makes inside a run do not spend it.
+budget, so a call is not counted twice; the model calls the tool makes on the
+call's behalf spend none of the key's request limits either, though their
+tokens count. The tool calls an agent or a workflow makes inside a run do not
+spend the key's budget.
+
+A request that names a call still running is refused as in flight: each
+request holds the call under a lease of its own, never one a caller could
+name, so a repeated request cannot run the tool a second time.
 """
 
 from __future__ import annotations
@@ -508,7 +514,10 @@ class ToolInvocationService:
             response: ToolResponse = await self.tool_port.invoke(
                 tool_ref=tool.ref,
                 parameters=arguments,
-                ctx=self.ctx,
+                ctx=replace(self.ctx, api_key_requests_spent=True),
+                # Not the request id a caller may choose: a repeated request
+                # must not find the call's lease to be its own.
+                lease_owner=f"tool-invoke:{generate_ulid()}",
                 # The catalog's policy, MCP tools' included, prices the call.
                 tool_policy=dict(tool.policy or {}),
                 run_id=run_id,

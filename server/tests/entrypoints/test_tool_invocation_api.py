@@ -601,3 +601,77 @@ async def test_a_tool_call_spends_the_budget_a_model_call_needs(async_client, ct
     assert chat.status_code == 429, chat.text
     assert chat.json()["error"]["code"] == "rate_limit_exceeded"
     assert chat.headers["retry-after"] == "30"
+
+
+@pytest.mark.usefixtures("_tool_sessions_share_the_test_database")
+async def test_a_tools_own_model_calls_spend_no_more_of_the_keys_limits(
+    async_client, async_db, ctx, key_counters
+) -> None:
+    # knowledge_query embeds the query through the model gateway under the
+    # caller's context; the direct call already spent the key's limits.
+    from app.kernel.commons.time import utc_now
+    from app.modules.knowledge.domain.models import KnowledgeIndex
+
+    knowledge_id = await _create_knowledge(async_client, "keyed-query", "workspace")
+    now = utc_now()
+    async_db.add(
+        KnowledgeIndex(
+            id="idx_keyed_query",
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            knowledge_id=knowledge_id,
+            name="Primary Index",
+            is_primary=True,
+            provider="pgvector",
+            embedding_model_ref="model:test:embedding",
+            dimension=3,
+            metric_type="cosine",
+            status="ready",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    await async_db.commit()
+    _as(_keyed(ctx, api_key_rate_limit_per_minute=1, api_key_daily_request_quota=1))
+    try:
+        response = await async_client.post(
+            KNOWLEDGE_QUERY, json={"arguments": {"knowledge_id": knowledge_id, "query": "refunds"}}
+        )
+    finally:
+        _as(ctx)
+
+    assert response.status_code == 200, response.text
+    assert "Rate limit" not in (response.json()["data"]["error"] or ""), response.json()["data"]["error"]
+    assert _key_spend(key_counters) == ["llm:api_key:key_1", "quota:llm:api_key:key_1"]
+
+
+async def test_a_request_for_a_call_still_running_does_not_run_it_again(async_client, async_db, ctx) -> None:
+    # The caller chooses X-Request-Id; a repeated request under the same one
+    # must not find the running call's lease to be its own.
+    from datetime import timedelta
+
+    from app.kernel.commons.time import utc_now
+
+    same_request = dataclasses.replace(ctx, request_id="req-chosen-by-caller")
+    headers = {"Idempotency-Key": "in-flight"}
+    _as(same_request)
+    try:
+        first = await async_client.post(RANDOM, json=ONE, headers=headers)
+        [record] = (
+            await async_db.exec(
+                select(RunStepToolCall).where(RunStepToolCall.run_id == first.json()["data"]["run_id"])
+            )
+        ).all()
+        # As if the first request were still running the tool under that id.
+        record.status = "running"
+        record.lease_owner = "req-chosen-by-caller"
+        record.lease_expires_at = utc_now() + timedelta(minutes=5)
+        async_db.add(record)
+        await async_db.commit()
+        again = await async_client.post(RANDOM, json=ONE, headers=headers)
+    finally:
+        _as(ctx)
+
+    assert again.status_code == 409, again.text
+    costs = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == record.run_id))).all()
+    assert len(costs) == 1

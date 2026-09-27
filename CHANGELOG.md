@@ -201,6 +201,11 @@ record for operators.
   a limit lowered below what the window holds, when enough have left. It
   gave the moment the last one would, so a key's 24-hour quota answered
   close to a day even when a slot freed within the hour.
+- A direct tool call sent again with the same `Idempotency-Key` while it
+  was still running, under the same `X-Request-Id`, ran the tool a second
+  time: the call's lease belonged to the request id the caller chose. Each
+  request now holds the call under a lease of its own, and such a repeat is
+  refused as in flight (`409`).
 
 ### Security
 
@@ -212,13 +217,15 @@ record for operators.
   `Idempotency-Key` included, before anything is recorded; a call spends the
   24-hour quota once, when it starts, and a refusal then fails its run.
   Running a call once approved spends no more of the quota, and a refusal
-  by the key's limits never voids an approval. A refusal is `429` with
-  `Retry-After`, and `details.quota` names the limit (`per_minute`,
-  `daily_requests`); over MCP it is a tool result whose `_meta` carries
-  `ai.soit/retry_after` and `ai.soit/quota` and whose text says when to
-  retry. A key that has these limits and also calls tools will reach them
-  sooner. Tool calls an agent or a workflow makes inside a run still do not
-  count.
+  by the key's limits never voids an approval. The model calls a tool makes
+  on the call's behalf, such as `knowledge_query` embedding its query, spend
+  none of the key's request limits again; their tokens count. A refusal is
+  `429` with `Retry-After`, and `details.quota` names the limit
+  (`per_minute`, `daily_requests`); over MCP it is a tool result whose
+  `_meta` carries `ai.soit/retry_after` and `ai.soit/quota` and whose text
+  says when to retry. A key that has these limits and also calls tools will
+  reach them sooner. Tool calls an agent or a workflow makes inside a run
+  still do not count.
 - A knowledge query searched whatever index it named. The query checked the
   caller's permission on the knowledge base it named, then searched the
   `index_id` (or, with `strategy: multi_index`, the `index_ids`) it was given

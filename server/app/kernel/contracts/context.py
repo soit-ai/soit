@@ -79,6 +79,14 @@ class RequestContext:
     api_key_daily_token_quota: int | None = None
     """Model tokens the authenticating key may consume per UTC day."""
 
+    api_key_requests_spent: bool = False
+    """The key's request limits were spent for the call this context serves.
+
+    Set for the tool a direct tool call runs: the model calls it makes on
+    that call's behalf, such as knowledge_query's embedding, do not spend
+    the key's per-minute rate or daily requests again. Their tokens count.
+    """
+
     allowed_models: frozenset[str] | None = None
     """Model refs the credential may call; None allows every model."""
 
