@@ -3,7 +3,10 @@
 Redis-based rate limiter using sliding window algorithm.
 """
 
+import math
+import secrets
 import time
+from typing import Any, cast
 
 import redis.asyncio as redis_async
 
@@ -61,7 +64,10 @@ class RateLimiter:
         now = time.time()
         window_start = now - window_seconds
 
-        # Lua script for atomic operation
+        # Each request is its own member: two requests in the same instant
+        # are two requests. A refusal returns when the oldest request in the
+        # window was made, which is when the next slot frees; the key's TTL
+        # says only when the last one leaves.
         lua_script = """
         local key = KEYS[1]
         local window_start = tonumber(ARGV[1])
@@ -69,21 +75,16 @@ class RateLimiter:
         local limit = tonumber(ARGV[3])
         local window_seconds = tonumber(ARGV[4])
 
-        -- Remove old entries
         redis.call('ZREMRANGEBYSCORE', key, 0, window_start)
-
-        -- Count current requests in window
         local count = redis.call('ZCARD', key)
 
         if count < limit then
-            -- Add current request
-            redis.call('ZADD', key, now, now)
-            -- Set expiration
+            redis.call('ZADD', key, now, ARGV[5])
             redis.call('EXPIRE', key, window_seconds)
-            return 1
-        else
-            return 0
+            return {1, ARGV[2]}
         end
+        local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+        return {0, oldest[2] or ARGV[2]}
         """
 
         try:
@@ -95,18 +96,18 @@ class RateLimiter:
                 str(now),
                 str(limit),
                 str(window_seconds),
+                f"{now}:{secrets.token_hex(8)}",
             )
 
-            if result == 0:
-                # Rate limit exceeded
-                # Get remaining time
-                ttl = await redis.ttl(redis_key)
+            allowed, oldest = cast(list[Any], result)
+            if int(allowed) == 0:
+                retry_after = max(1, math.ceil(float(oldest) + window_seconds - now))
                 raise RateLimitExceededError(
                     f"Rate limit exceeded: {limit} requests per {window_seconds} seconds",
                     {
                         "limit": limit,
                         "window_seconds": window_seconds,
-                        "retry_after": ttl if ttl > 0 else window_seconds,
+                        "retry_after": min(retry_after, window_seconds),
                     }
                 )
 

@@ -194,6 +194,12 @@ record for operators.
     `MODEL_PROVIDER_EGRESS_TARGET_REQUIRED`
   - 422: `CRAWLER_INVALID_REDIRECT`, `CRAWLER_TOO_MANY_REDIRECTS`,
     `EGRESS_DNS_FAILED`, `NO_FILE`
+- The rate limiter counts every request. It recorded each under its
+  timestamp alone, so requests made in the same instant counted as one and a
+  burst could pass a limit. A refusal's `retry_after` (and `Retry-After`) now
+  says when the oldest request leaves the window, which is when a call can
+  next succeed; it gave the moment the last one would, so a key's 24-hour
+  quota answered close to a day even when a slot freed within the hour.
 
 ### Security
 
