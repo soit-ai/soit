@@ -746,3 +746,101 @@ async def test_the_gateway_is_left_out_of_the_enveloped_openapi(async_client) ->
     schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert "success" not in json.dumps(schema)
     assert operation["tags"] == ["openai-compatible"]
+
+
+class _CapturingGeneratePort(_CapturingEditPort):
+    def __init__(self) -> None:
+        super().__init__()
+        self.generate_kwargs: dict[str, Any] | None = None
+        self.edit_kwargs: dict[str, Any] | None = None
+
+    async def generate_image(
+        self, prompt: str, model: str, n: int = 1, size: str | None = None, **kwargs: Any
+    ):
+        self.generate_kwargs = kwargs
+        return ImageGenerationResponse(
+            images=[GeneratedImage(b64_json=base64.b64encode(_png()).decode()) for _ in range(n)],
+            model=model,
+        )
+
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        model: str,
+        mask: bytes | None = None,
+        n: int = 1,
+        size: str | None = None,
+        **kwargs: Any,
+    ):
+        self.edit_kwargs = kwargs
+        return await super().edit_image(image, prompt, model, mask=mask, n=n, size=size, **kwargs)
+
+
+async def _generate(async_client, **fields: Any):
+    body = {"model": "model:test:painter", "prompt": "a red dot", **fields}
+    return await async_client.post("/v1/images/generations", json=body)
+
+
+@pytest.mark.asyncio
+async def test_image_generation_forwards_background_and_output_format(async_client) -> None:
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        response = await _generate(async_client, background="transparent", output_format="webp")
+
+    assert response.status_code == 200, response.text
+    assert port.generate_kwargs["background"] == "transparent"
+    assert port.generate_kwargs["output_format"] == "webp"
+
+
+@pytest.mark.asyncio
+async def test_image_generation_sends_no_option_it_was_not_given(async_client) -> None:
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        response = await _generate(async_client)
+
+    assert response.status_code == 200, response.text
+    assert "background" not in port.generate_kwargs
+    assert "output_format" not in port.generate_kwargs
+
+
+@pytest.mark.asyncio
+async def test_an_auto_background_is_the_providers_default(async_client) -> None:
+    # OpenAI's SDK sends auto; it means what leaving the field out means.
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        generation = await _generate(async_client, background="auto", output_format="jpeg")
+        edit = await _edit(async_client, background="auto", output_format="jpeg")
+
+    assert generation.status_code == 200, generation.text
+    assert edit.status_code == 200, edit.text
+    assert "background" not in port.generate_kwargs
+    assert port.generate_kwargs["output_format"] == "jpeg"
+    assert "background" not in port.edit_kwargs
+    assert port.edit_kwargs["output_format"] == "jpeg"
+
+
+@pytest.mark.asyncio
+async def test_a_transparent_jpeg_is_refused_before_a_run_opens(async_client, async_db) -> None:
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        generation = await _generate(async_client, background="transparent", output_format="jpeg")
+        edit = await _edit(async_client, background="transparent", output_format="jpeg")
+
+    for response in (generation, edit):
+        assert response.status_code == 400
+        assert response.json()["error"]["param"] == "output_format"
+        assert "x-soit-run-id" not in response.headers
+    assert port.generate_kwargs is None
+    assert port.edit_kwargs is None
+    runs = (await async_db.exec(select(Run).where(Run.kind == "image"))).all()
+    assert runs == []
+
+
+@pytest.mark.asyncio
+async def test_image_formats_it_cannot_label_are_refused(async_client) -> None:
+    generation = await _generate(async_client, output_format="gif")
+    edit = await _edit(async_client, output_format="gif")
+
+    assert generation.status_code == 400
+    assert edit.status_code == 400

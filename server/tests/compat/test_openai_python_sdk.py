@@ -271,6 +271,22 @@ async def test_images_generate_and_edit_through_the_sdk(sdk: openai.AsyncOpenAI)
     assert edited.data is not None and edited.data[0].b64_json
 
 
+async def test_image_options_pass_through_the_sdk(sdk: openai.AsyncOpenAI) -> None:
+    generated = await sdk.images.generate(
+        model=PAINTER, prompt="a red dot", background="transparent", output_format="webp"
+    )
+    assert generated.data is not None and generated.data[0].b64_json
+
+    edited = await sdk.images.edit(
+        model=PAINTER,
+        image=("room.png", _png((200, 200, 200, 255)), "image/png"),
+        prompt="paint the wall blue",
+        background="auto",
+        output_format="jpeg",
+    )
+    assert edited.data is not None and edited.data[0].b64_json
+
+
 async def test_refusals_raise_the_sdk_error_classes(sdk: openai.AsyncOpenAI) -> None:
     with pytest.raises(openai.BadRequestError) as too_many:
         await sdk.chat.completions.create(

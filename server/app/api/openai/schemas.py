@@ -146,6 +146,8 @@ class ImageGenerationRequest(_Lenient):
     n: int = Field(default=1, ge=1, le=4)
     size: str | None = None
     response_format: Literal["b64_json", "url"] = "b64_json"
+    background: Literal["transparent", "opaque", "auto"] | None = None
+    output_format: Literal["png", "jpeg", "webp"] | None = None
     user: str | None = None
 
     @field_validator("size")

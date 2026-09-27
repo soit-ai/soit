@@ -35,8 +35,8 @@ or rotation.
 | `POST /v1/chat/completions` | Whole or streamed (`stream`, `stream_options.include_usage`). Tools and `tool_choice`, images in user messages, `response_format` (`json_object`, `json_schema`), `temperature`, `top_p`, `max_tokens` / `max_completion_tokens`, `stop`, `seed`. `n` must be 1. |
 | `GET /v1/models` | Active models and virtual models the key may call. |
 | `POST /v1/embeddings` | `encoding_format` `float` or `base64` (the SDKs' default). |
-| `POST /v1/images/generations` | `n`, `size` (64 to 4096 pixels a side, or `auto`), `response_format`. |
-| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. |
+| `POST /v1/images/generations` | `n`, `size` (64 to 4096 pixels a side, or `auto`), `response_format`, `background`, `output_format` (`png`, `jpeg`, `webp`). `background: auto` is the provider's default and is not sent; a transparent background with `jpeg` is refused. |
+| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. Takes the same `n`, `size`, `response_format`, `background` and `output_format` as generations; an edit's `output_format` does not yet reach OpenAI-compatible providers, which answer in their default format. |
 
 Fields SOIT does not know are ignored rather than refused, so clients that
 send newer OpenAI parameters keep working. The Responses API

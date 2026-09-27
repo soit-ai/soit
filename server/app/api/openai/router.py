@@ -598,6 +598,22 @@ async def _image_response(
     return {"created": int(time.time()), "data": data}
 
 
+def _image_options(background: str | None, output_format: str | None) -> dict[str, Any]:
+    """What an image job forwards of OpenAI's ``background`` value.
+
+    ``auto`` leaves the choice to the provider, as leaving it out does, so it
+    is not sent. A transparent background cannot be encoded as JPEG, so that
+    pair is refused here rather than billed for an image that cannot be what
+    was asked for.
+    """
+    if background == "transparent" and output_format == "jpeg":
+        raise ValidationError(
+            "A transparent background needs output_format png or webp",
+            {"param": "output_format"},
+        )
+    return {"background": background} if background in ("transparent", "opaque") else {}
+
+
 @router.post("/images/generations")
 async def create_image(
     payload: ImageGenerationRequest,
@@ -615,6 +631,8 @@ async def create_image(
             n=payload.n,
             size=payload.size,
             response_format=payload.response_format,
+            output_format=payload.output_format,
+            extra=_image_options(payload.background, payload.output_format),
         ),
         ctx=ctx,
         db=db,
@@ -647,8 +665,8 @@ async def edit_image(
     n: Annotated[int, Form(ge=1, le=4)] = 1,
     size: Annotated[str | None, Form()] = None,
     response_format: Annotated[Literal["b64_json", "url"], Form()] = "b64_json",
-    output_format: Annotated[Literal["png", "webp"], Form()] = "png",
-    background: Annotated[Literal["transparent", "opaque"] | None, Form()] = None,
+    output_format: Annotated[Literal["png", "jpeg", "webp"], Form()] = "png",
+    background: Annotated[Literal["transparent", "opaque", "auto"] | None, Form()] = None,
 ):
     """Image editing from OpenAI's multipart form.
 
@@ -661,6 +679,7 @@ async def edit_image(
         validate_image_size(size)
     except ValueError as exc:
         raise ValidationError(str(exc), {"param": "size"}) from exc
+    options = _image_options(background, output_format)
     source = await _read_upload(image, field="image")
     selection: bytes | None = None
     if mask is not None:
@@ -678,7 +697,7 @@ async def edit_image(
             output_format=output_format,
             image=source,
             mask=selection,
-            extra={"background": background} if background else {},
+            extra=options,
         ),
         ctx=ctx,
         db=db,

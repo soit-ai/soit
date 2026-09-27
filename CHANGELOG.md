@@ -40,6 +40,13 @@ record for operators.
   a transparent request before anything is billed; a model that declares
   nothing receives both and may still ignore them.
 
+- `POST /v1/images/generations` honours OpenAI's `background` and
+  `output_format` (`png`, `jpeg`, `webp`), which it ignored, and
+  `POST /v1/images/edits` accepts `background: auto` and `output_format:
+  jpeg`, which it refused although the OpenAI SDKs send them. `background:
+  auto` is the provider's default and is not sent; a transparent background
+  with `jpeg` output is refused before a run opens.
+
 ### Changed
 
 - Every unpriced cost row now says why in `pricing_snapshot.reason`:
