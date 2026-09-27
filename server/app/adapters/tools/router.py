@@ -28,6 +28,9 @@ from app.kernel.registry.deps import get_registry
 from app.kernel.security.egress import get_egress_policy
 from app.kernel.specs.validator import validate_spec
 
+# Arguments that would say who is calling; a tool learns that from its context.
+_CONTEXT_KEYS = frozenset({"ctx", "tenant_id", "workspace_id", "user_id", "tenant_role", "workspace_role"})
+
 
 class RegistryToolRouterPort(ToolPort):
     """ToolPort that resolves tool specs from the in-process registry."""
@@ -124,6 +127,9 @@ class RegistryToolRouterPort(ToolPort):
                         "strategy": {"type": ["string", "null"]},
                     },
                     "required": ["knowledge_id", "query"],
+                    # The call runs under the caller's own context; an
+                    # argument must never be able to name a role or a user.
+                    "additionalProperties": False,
                 },
                 "output_schema": {"type": "object"},
                 "policy": {"audit_level": "basic"},
@@ -399,13 +405,11 @@ class RegistryToolRouterPort(ToolPort):
 
         self._validate_inputs(tool_ref, tool_spec, tool_inputs)
         if adapter == "function" and tool_ref == "tool:function:knowledge_query":
+            # The caller's whole context (roles, scopes, API key, content
+            # capture), never identity or role values taken from arguments.
             tool_inputs = {
-                **tool_inputs,
-                "ctx": {
-                    "tenant_id": ctx.tenant_id,
-                    "workspace_id": ctx.workspace_id,
-                    "user_id": ctx.user_id,
-                },
+                **{key: value for key, value in tool_inputs.items() if key not in _CONTEXT_KEYS},
+                "ctx": ctx,
             }
         plugin_info = (payload or {}).get("plugin") or {}
         if plugin_info:

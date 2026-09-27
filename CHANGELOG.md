@@ -44,6 +44,16 @@ record for operators.
 
 ### Security
 
+- The builtin `knowledge_query` tool took the caller's roles from its own
+  arguments: the router handed it only the tenant, workspace and user, and
+  the tool filled in `workspace_role` and `tenant_role` from whatever the
+  call named. A member, an API key or a prompt-injected agent could name
+  `Owner` and query knowledge bases their own role could not, private ones
+  included. The tool now runs under the caller's whole request context
+  (roles, scopes, API key, content capture), and an argument that is not in
+  its input schema is refused. Retrieval by the tool and by agent RAG is now
+  also attributed to the calling API key, counts toward its limits, and
+  follows its content capture setting.
 - An unexpected server error no longer puts the exception's text or type in
   the response when `ENVIRONMENT=development`; the traceback stays in the
   server log under the request id, as it already did in production.

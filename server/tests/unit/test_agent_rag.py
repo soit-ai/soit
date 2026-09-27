@@ -111,6 +111,8 @@ async def test_rag_system_message_strategy(async_db, ctx):
     call_kwargs = mock_knowledge_query.call_args
     assert call_kwargs[1]["knowledge_id"] == "kb_support"
     assert call_kwargs[1]["top_k"] == 3
+    # Retrieval runs under the agent's own request context, roles and all.
+    assert call_kwargs[1]["ctx"] is service.ctx
     retrieval_step = (await async_db.execute(
         select(RunStep).where(RunStep.step_type == "retrieval", RunStep.step_id == "rag:kb_support")
     )).scalars().one()

@@ -1479,13 +1479,7 @@ class AgentService:
                     knowledge_id=kb_id,
                     query=query,
                     top_k=top_k,
-                    ctx={
-                        "tenant_id": self.ctx.tenant_id,
-                        "workspace_id": self.ctx.workspace_id,
-                        "user_id": self.ctx.user_id,
-                        "tenant_role": self.ctx.tenant_role,
-                        "workspace_role": self.ctx.workspace_role,
-                    },
+                    ctx=self.ctx,
                 )
                 results = response.get("results") or []
                 response_citations = response.get("citations") or []

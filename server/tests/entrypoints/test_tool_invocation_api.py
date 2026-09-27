@@ -260,3 +260,71 @@ async def test_a_viewer_cannot_invoke(async_client, ctx) -> None:
 
     assert listed.status_code == 200
     assert refused.status_code == 403
+
+
+KNOWLEDGE_QUERY = "/api/v1/tools/tool:function:knowledge_query/invoke"
+
+
+@pytest.fixture
+def _tool_sessions_share_the_test_database(async_db, monkeypatch) -> None:
+    # knowledge_query opens a session of its own; bind it to the test engine.
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.modules.knowledge.runtime import tool_entrypoint
+
+    monkeypatch.setattr(
+        tool_entrypoint,
+        "get_async_session_local",
+        lambda: lambda: AsyncSession(async_db.bind, expire_on_commit=False),
+    )
+
+
+async def _create_knowledge(async_client, name: str, visibility: str) -> str:
+    response = await async_client.post(
+        "/api/v1/knowledge", json={"name": name, "knowledge_type": "document", "visibility": visibility}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["data"]["id"]
+
+
+async def _knowledge_query_runs(async_db, knowledge_id: str) -> list[Run]:
+    runs = (await async_db.exec(select(Run).where(Run.mode == "knowledge_query"))).all()
+    return [run for run in runs if knowledge_id in (run.input_summary or "")]
+
+
+@pytest.mark.usefixtures("_tool_sessions_share_the_test_database")
+async def test_knowledge_query_runs_under_the_callers_own_roles(async_client, async_db, ctx) -> None:
+    alice = dataclasses.replace(ctx, user_id="dev-alice", workspace_role="Dev", tenant_role="Member")
+    bob = dataclasses.replace(ctx, user_id="dev-bob", workspace_role="Dev", tenant_role="Member")
+    try:
+        _as(alice)
+        private_id = await _create_knowledge(async_client, "alice-private", "private")
+
+        _as(bob)
+        forged = await async_client.post(
+            KNOWLEDGE_QUERY,
+            json={"arguments": {"knowledge_id": private_id, "query": "x", "workspace_role": "Owner"}},
+        )
+        plain = await async_client.post(
+            KNOWLEDGE_QUERY, json={"arguments": {"knowledge_id": private_id, "query": "x"}}
+        )
+        bob_runs = await _knowledge_query_runs(async_db, private_id)
+
+        _as(alice)
+        own = await async_client.post(
+            KNOWLEDGE_QUERY, json={"arguments": {"knowledge_id": private_id, "query": "x"}}
+        )
+    finally:
+        _as(ctx)
+
+    # A role named in the arguments is refused outright.
+    assert forged.status_code == 400, forged.text
+    # Bob's own role cannot reach Alice's private knowledge base.
+    assert plain.status_code == 200, plain.text
+    assert plain.json()["data"]["status"] == "failed"
+    assert "permission" in (plain.json()["data"]["error"] or "").lower(), plain.json()["data"]["error"]
+    assert bob_runs == []
+    # Alice's own roles let the call through to retrieval, where the new
+    # knowledge base has nothing indexed yet.
+    assert own.status_code == 200, own.text
+    assert "no index" in (own.json()["data"]["error"] or ""), own.json()["data"]["error"]

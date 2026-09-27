@@ -10,32 +10,6 @@ from app.modules.knowledge.application.runtime_schemas import QueryRequest
 from app.wiring.services import build_knowledge_runtime_service
 
 
-def _resolve_request_context(
-    *,
-    ctx: dict[str, Any] | None = None,
-    tenant_id: str | None = None,
-    workspace_id: str | None = None,
-    user_id: str | None = None,
-    tenant_role: str | None = None,
-    workspace_role: str | None = None,
-) -> RequestContext:
-    if ctx:
-        tenant_id = ctx.get("tenant_id") or tenant_id
-        workspace_id = ctx.get("workspace_id") or workspace_id
-        user_id = ctx.get("user_id") or user_id
-        tenant_role = ctx.get("tenant_role") or tenant_role
-        workspace_role = ctx.get("workspace_role") or workspace_role
-    if not tenant_id or not workspace_id or not user_id:
-        raise ValueError("knowledge_query requires tenant_id/workspace_id/user_id")
-    return RequestContext(
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-        user_id=user_id,
-        tenant_role=tenant_role,
-        workspace_role=workspace_role,
-    )
-
-
 async def knowledge_query(
     knowledge_id: str,
     query: str,
@@ -44,25 +18,21 @@ async def knowledge_query(
     filter: dict[str, Any] | None = None,
     include_snippets: bool = True,
     strategy: str | None = None,
-    ctx: dict[str, Any] | None = None,
-    tenant_id: str | None = None,
-    workspace_id: str | None = None,
-    user_id: str | None = None,
-    tenant_role: str | None = None,
-    workspace_role: str | None = None,
+    *,
+    ctx: RequestContext,
 ) -> dict[str, Any]:
-    """Build a scoped runtime service and return knowledge retrieval results."""
-    request_context = _resolve_request_context(
-        ctx=ctx,
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-        user_id=user_id,
-        tenant_role=tenant_role,
-        workspace_role=workspace_role,
-    )
+    """Build a scoped runtime service and return knowledge retrieval results.
+
+    ``ctx`` is the caller's own request context, handed over whole by the
+    tool router or the agent: its roles, scopes, API key and content capture
+    govern the retrieval. Nothing in the tool's arguments can name a tenant,
+    a workspace, a user or a role.
+    """
+    if not isinstance(ctx, RequestContext):
+        raise TypeError("knowledge_query runs under the caller's RequestContext")
     db = get_async_session_local()()
     try:
-        service = build_knowledge_runtime_service(db=db, ctx=request_context)
+        service = build_knowledge_runtime_service(db=db, ctx=ctx)
         request = QueryRequest(
             query=query,
             top_k=top_k,
