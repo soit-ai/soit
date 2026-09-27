@@ -253,8 +253,9 @@ record for operators.
   refusal now cites the secret's reference, `secret:<secret_id>`, in place
   of the URL and names no domain. The policy still decides on the URL's
   real host.
-- A content-free workspace's record of an outbound request refused by egress
-  policy keeps the URL's origin, not its path and query.
+- An outbound request refused by egress policy was recorded by its URL's
+  origin, except a URL with no host, which was recorded whole. A
+  content-free workspace now withholds such a URL as well.
 - A content-free workspace's evidence bundle no longer hands out content that
   its rows still hold from before the workspace went content-free, or from
   fields not covered until now: run and step summaries and error text, step
