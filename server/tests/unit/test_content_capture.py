@@ -166,7 +166,7 @@ def test_tool_call_metrics_keep_their_shape_and_identifiers_only() -> None:
                 "status": "completed",
                 "arguments": {"url": f"https://api.example.com/search?q={SECRET}", "limit": 77310413},
                 "result": {"result": {"answer": SECRET}},
-                "metadata": {"workflow_run_id": "wfr_1", "headers": {"x-auth": {"secret_id": "sec_abc"}}},
+                "metadata": {"workflow_run_id": "wfr_0123456789abcdef", "headers": {"x-auth": {"secret_id": "sec_abc"}}},
                 "error_code": None,
                 "error_message": SECRET,
             },
@@ -182,7 +182,7 @@ def test_tool_call_metrics_keep_their_shape_and_identifiers_only() -> None:
     assert set(call["arguments"]) == {"url", "limit"}
     assert call["arguments"]["url"] == "https://api.example.com"
     # Identifiers stay: child runs and secret references are still found.
-    assert call["metadata"]["workflow_run_id"] == "wfr_1"
+    assert call["metadata"]["workflow_run_id"] == "wfr_0123456789abcdef"
     assert call["metadata"]["headers"]["x-auth"] == {"secret_id": "sec_abc"}
     assert kept["egress"] == {"decision": "allow", "url": "https://api.example.com"}
     assert kept["latency_ms"] == 12
@@ -274,7 +274,7 @@ def test_what_a_call_handled_is_withheld_whatever_its_keys_are_called() -> None:
         "tool_ref": "tool:mcp:runner",
         "status": "completed",
         "arguments": {"code": SECRET, "source": SECRET, "id": SECRET},
-        "result": {"status": SECRET, "category": SECRET, "workflow_run_id": "wfr_1"},
+        "result": {"status": SECRET, "category": SECRET, "workflow_run_id": "wfr_0123456789abcdef"},
     }
 
     metrics = capture.metrics({"tool_call": call})
@@ -284,7 +284,7 @@ def test_what_a_call_handled_is_withheld_whatever_its_keys_are_called() -> None:
 
     assert SECRET not in str(metrics) and SECRET not in str(audit)
     assert metrics["tool_call"]["status"] == "completed"
-    assert metrics["tool_call"]["result"]["workflow_run_id"] == "wfr_1"
+    assert metrics["tool_call"]["result"]["workflow_run_id"] == "wfr_0123456789abcdef"
     assert audit["request"]["tool_ref"] == "tool:mcp:runner"
 
 
@@ -305,3 +305,34 @@ def test_a_url_that_cannot_be_read_is_withheld_not_raised(url) -> None:
     assert url_origin(url) == withheld(url)
     assert capture.metrics({"tool_call": {"arguments": {"url": url}}})["tool_call"]["arguments"]["url"] == withheld(url)
     assert capture.audit_payload({"request": {"egress": {"url": url}}})["request"]["egress"]["url"] == withheld(url)
+
+
+def test_a_url_given_by_reference_keeps_its_reference() -> None:
+    # A webhook kept as a secret is called with {"url": {"secret_id": ...}};
+    # the secret boundary evidence reads that reference.
+    capture = ContentCapture(CAPTURE_METADATA_ONLY)
+    arguments = {"url": {"secret_id": "sec_hook"}, "body": SECRET}
+
+    metrics = capture.metrics({"tool_call": {"arguments": arguments}})
+    audit = capture.audit_payload({"request": {"parameters": arguments}})
+
+    assert metrics["tool_call"]["arguments"]["url"] == {"secret_id": "sec_hook"}
+    assert audit["request"]["parameters"]["url"] == {"secret_id": "sec_hook"}
+    assert SECRET not in str(metrics) + str(audit)
+
+
+def test_a_reference_named_field_is_kept_only_when_it_holds_an_id() -> None:
+    capture = ContentCapture(CAPTURE_METADATA_ONLY)
+    payload = {
+        "task_id": "summarise the patient notes",
+        "prior_run_id": SECRET,
+        "workflow_run_id": "wfr_0123456789abcdef",
+        "run_id": "run_0123456789abcdef",
+    }
+
+    kept = capture.metrics({"tool_call": {"result": payload}})["tool_call"]["result"]
+
+    assert kept["workflow_run_id"] == "wfr_0123456789abcdef"
+    assert kept["run_id"] == "run_0123456789abcdef"
+    assert kept["task_id"] == withheld("summarise the patient notes")
+    assert kept["prior_run_id"] == withheld(SECRET)

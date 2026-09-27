@@ -149,10 +149,12 @@ _PAYLOAD_KEYS = frozenset(
     }
 )
 
-# Inside a payload, only these still say which record another one is.
+# Inside a payload, only these still say which record another one is, and
+# only when their value is shaped like an id rather than text.
 _REFERENCE_KEYS = frozenset(
     {"run_id", "tool_call_id", "workflow_run_id", "response_id", "task_id", "approval_id"}
 )
+_ID_SHAPE = re.compile(r"[A-Za-z][A-Za-z0-9]{0,15}_[A-Za-z0-9_-]{6,128}")
 
 def is_withheld(value: Any) -> bool:
     """Whether ``value`` is already a withheld marker."""
@@ -226,7 +228,18 @@ def _leaf(value: Any) -> Any:
 def _url(value: Any) -> Any:
     if isinstance(value, str) and not is_withheld(value) and "://" in value:
         return url_origin(value)
+    if isinstance(value, dict | list | tuple):
+        # A URL given by reference, {"secret_id": ...}, keeps its reference.
+        return withhold_payload(value)
     return _leaf(value)
+
+
+def _is_reference(key: str, value: Any) -> bool:
+    return (
+        (key in _REFERENCE_KEYS or key.endswith("_run_id"))
+        and isinstance(value, str)
+        and _ID_SHAPE.fullmatch(value) is not None
+    )
 
 
 def withhold_payload(value: Any) -> Any:
@@ -237,7 +250,7 @@ def withhold_payload(value: Any) -> Any:
             name = str(key)
             if _is_secret_reference(name, item):
                 kept[key] = item
-            elif (name in _REFERENCE_KEYS or name.endswith("_run_id")) and isinstance(item, str):
+            elif _is_reference(name, item):
                 kept[key] = item
             elif name == "url":
                 kept[key] = _url(item)
@@ -414,3 +427,5 @@ async def resolve_content_capture(db: Any, ctx: Any) -> ContentCapture:
     if mode is not None:
         return ContentCapture(capture_mode(mode))
     return ContentCapture(await lookup_workspace_capture(db, ctx.tenant_id, ctx.workspace_id))
+
+
