@@ -231,3 +231,73 @@ async def test_a_bundle_that_cannot_tell_the_workspace_mode_withholds_content(as
 
     assert bundle.manifest["content_capture"] == "metadata_only"
     assert SNIPPET.encode() not in bundle.content
+
+
+
+async def test_a_bundle_withholds_what_was_recorded_before_the_workspace_went_content_free(
+    async_client, async_db, ctx
+) -> None:
+    # Rows written while content was kept are exported as a content-free run
+    # would have written them.
+    from dataclasses import replace
+
+    secret = "patient-7731 reports chest pain"
+    url = f"https://records.example.com/lookup?q={secret.replace(' ', '+')}"
+    async_db.add(Tenant(id=ctx.tenant_id, name="tenant"))
+    workspace = Workspace(id=ctx.workspace_id, tenant_id=ctx.tenant_id, name="workspace", content_capture="full")
+    async_db.add(workspace)
+    await async_db.commit()
+    writer = TraceWriter(async_db, replace(ctx, content_capture="full"))
+    run = await writer.create_run(mode="tool", kind="tool", input_summary=secret)
+    step = await writer.create_step(run_id=run.id, step_type="tool", step_id="lookup", input_summary=secret)
+    await writer.update_step_status(step.id, "running")
+    await writer.update_step_status(
+        step.id,
+        "failed",
+        error_message=secret,
+        metrics={
+            "tool_call": {"tool_ref": "tool:http:request", "arguments": {"url": url}, "result": {"body": secret}},
+            "egress": {"decision": "allow", "url": url},
+        },
+    )
+    await writer.record_audit(
+        run_id=run.id,
+        step_id=step.id,
+        gateway_type="tool",
+        outcome="failed",
+        payload={"request": {"parameters": {"url": url, "note": secret}}},
+    )
+    from app.kernel.runtime.db.models.runs import RunStepToolCall
+
+    async_db.add(
+        RunStepToolCall(
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            run_id=run.id,
+            run_step_id=step.id,
+            tool_call_id="call_lookup",
+            idempotency_key="lookup-1",
+            request_hash="h" * 64,
+            tool_ref="tool:http:request",
+            status="failed",
+            attempt_count=1,
+            parameters_summary_json={"url": url},
+            result_json={"result": {"body": secret}, "metadata": {"server_id": "srv_1", "note": secret}},
+            error_message=secret,
+        )
+    )
+    await async_db.commit()
+    workspace.content_capture = "metadata_only"
+    async_db.add(workspace)
+    await async_db.commit()
+
+    download = await async_client.get(f"/api/v1/runs/{run.id}/evidence")
+    assert download.status_code == 200, download.text
+    files = _open(download.content, run.id)
+
+    assert json.loads(files["manifest.json"])["content_capture"] == "metadata_only"
+    for name, body in files.items():
+        assert secret.encode() not in body, name
+        assert b"chest+pain" not in body, name
+    step_row = _jsonl(files["steps.jsonl"])[0]
+    assert "https://records.example.com" in json.dumps(step_row)

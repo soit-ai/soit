@@ -36,7 +36,9 @@ from app.kernel.runtime.runs import ledger
 from app.kernel.runtime.runs.content_capture import (
     CAPTURE_FULL,
     CAPTURE_METADATA_ONLY,
+    ContentCapture,
     get_workspace_capture_lookup,
+    url_origin,
     withheld,
 )
 from app.kernel.runtime.runs.service import RunService
@@ -74,6 +76,37 @@ def _withheld_value(value: Any) -> str | None:
         return None
     text = value if isinstance(value, str) else json.dumps(value, sort_keys=True, default=str)
     return withheld(text)
+
+
+_RECORD_TEXT_KEYS = ("input_summary", "output_summary", "error_message")
+
+
+def _withheld_record(record: dict[str, Any], capture: ContentCapture) -> dict[str, Any]:
+    """A run or step record as a content-free run would have written it.
+
+    Rows written before the workspace went content-free, or before a field
+    was covered, still hold their text; the bundle holds none of it.
+    Withholding is idempotent, so rows already withheld are unchanged.
+    """
+    kept = dict(record)
+    for key in _RECORD_TEXT_KEYS:
+        if isinstance(kept.get(key), str):
+            kept[key] = capture.text(kept[key])
+    if isinstance(kept.get("error_details"), dict):
+        kept["error_details"] = capture.details(kept["error_details"])
+    if isinstance(kept.get("metrics"), dict):
+        kept["metrics"] = capture.metrics(kept["metrics"])
+    return kept
+
+
+def _origin_ref(ref: Any) -> Any:
+    """An evidence reference with any URL in it cut to where it went."""
+    if not isinstance(ref, str) or "://" not in ref:
+        return ref
+    if ref.startswith(("http://", "https://")) and not any(ch.isspace() for ch in ref):
+        return url_origin(ref)
+    # A record rendered as text, with an address somewhere inside.
+    return withheld(ref)
 
 
 def _policy_bundle_ids(value: Any, found: set[str]) -> None:
@@ -137,6 +170,7 @@ class RunEvidenceService:
             raise NotFoundError(f"Run not found: {run_id}")
         detail = await RunService(self.db, self.ctx).get_run(run_id)
         keeps_content = await self._capture_mode() == CAPTURE_FULL
+        capture = ContentCapture(CAPTURE_FULL if keeps_content else CAPTURE_METADATA_ONLY)
 
         steps = await self._rows(RunStep, run_id, RunStep.started_at)
         costs = await self._rows(RunCostEntry, run_id, RunCostEntry.created_at)
@@ -149,6 +183,8 @@ class RunEvidenceService:
             if not keeps_content:
                 for key in ("arguments_json", "result_json", "error_message"):
                     row[key] = _withheld_value(row.get(key))
+                if isinstance(row.get("metadata_json"), dict):
+                    row["metadata_json"] = capture.identifiers(row["metadata_json"])
             tool_calls.append(row)
 
         approval_rows = [
@@ -183,7 +219,7 @@ class RunEvidenceService:
         safety_findings = [
             {"step_record_id": step.id, "step_id": step.step_id, **finding}
             for step in steps
-            for finding in ((step.metrics_json or {}).get("content_safety") or [])
+            for finding in ((capture.metrics(step.metrics_json) or {}).get("content_safety") or [])
             if isinstance(finding, dict)
         ]
 
@@ -193,10 +229,22 @@ class RunEvidenceService:
         for audit in audits:
             _policy_bundle_ids(audit.payload_json, bundle_ids)
 
+        run_row = _withheld_record(ledger.run_record(run), capture)
+        step_rows = [_withheld_record(ledger.step_record(step), capture) for step in steps]
+        audit_rows = []
+        for event in audits:
+            row = ledger.audit_record(event)
+            row["payload"] = capture.audit_payload(row["payload"])
+            audit_rows.append(row)
+        governance = [item.model_dump(mode="json") for item in detail.governance_evidence]
+        if not keeps_content:
+            for item in governance:
+                item["evidence_refs"] = [_origin_ref(ref) for ref in item.get("evidence_refs") or []]
+
         files: dict[str, tuple[bytes, int]] = {
-            "run.json": (_json(ledger.envelope("run", ledger.run_record(run))), 1),
+            "run.json": (_json(ledger.envelope("run", run_row)), 1),
             "steps.jsonl": (
-                _jsonl([ledger.envelope("step", ledger.step_record(step)) for step in steps]),
+                _jsonl([ledger.envelope("step", row) for row in step_rows]),
                 len(steps),
             ),
             "costs.jsonl": (
@@ -204,7 +252,7 @@ class RunEvidenceService:
                 len(costs),
             ),
             "audit.jsonl": (
-                _jsonl([ledger.envelope("audit", ledger.audit_record(event)) for event in audits]),
+                _jsonl([ledger.envelope("audit", row) for row in audit_rows]),
                 len(audits),
             ),
             "tool_calls.jsonl": (_jsonl(tool_calls), len(tool_calls)),
@@ -212,10 +260,7 @@ class RunEvidenceService:
             "citations.jsonl": (_jsonl(citations), len(citations)),
             "content_safety.jsonl": (_jsonl(safety_findings), len(safety_findings)),
             "policy.json": (_json({"policy_bundle_ids": sorted(bundle_ids)}), len(bundle_ids)),
-            "governance.json": (
-                _json([item.model_dump(mode="json") for item in detail.governance_evidence]),
-                len(detail.governance_evidence),
-            ),
+            "governance.json": (_json(governance), len(governance)),
         }
         manifest = {
             "schema": EVIDENCE_SCHEMA,

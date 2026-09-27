@@ -221,6 +221,12 @@ record for operators.
 
 ### Security
 
+- A content-free workspace's evidence bundle no longer hands out content that
+  its rows still hold from before the workspace went content-free, or from
+  fields not covered until now: run and step summaries and error text, step
+  metrics, audit payloads, tool call metadata and the URLs in
+  `governance.json` are withheld in the bundle as a content-free run would
+  record them. The rows themselves are unchanged.
 - Under content-free capture a failed workflow node's `workflow.node.failed`
   event, which the ledger export carries, no longer holds the error text.
 - Under content-free capture the tool call ledger keeps no values either. A
