@@ -185,6 +185,8 @@ class AgentApplicationService:
         plugin_runtime_port: PluginRuntimePort | None = None,
         capability_catalog: AgentCapabilityCatalogPort | None = None,
         workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
+        node_knowledge_query_port_factory: Callable[[AsyncSession], WorkflowKnowledgeQueryPort]
+        | None = None,
         tool_catalog: ToolCatalogPort | None = None,
     ) -> None:
         self.db = db
@@ -193,6 +195,9 @@ class AgentApplicationService:
         self.tool_port = tool_port
         self.memory_service = memory_service
         self.workflow_knowledge_query_port = workflow_knowledge_query_port
+        # A bound workflow's concurrent nodes run on their own sessions; each
+        # needs a knowledge port built on that session, not on the agent's.
+        self.node_knowledge_query_port_factory = node_knowledge_query_port_factory
         self.tool_catalog = tool_catalog
         # Create ToolResolver if tool_port is a RegistryToolRouterPort. An
         # MCP server's tools are not in the registry: they resolve from the
@@ -570,6 +575,7 @@ class AgentApplicationService:
                 ctx=self.ctx,
                 response_service=self.response_service,
                 workflow_knowledge_query_port=self.workflow_knowledge_query_port,
+                node_knowledge_query_port_factory=self.node_knowledge_query_port_factory,
             )
             return await workflow_service.execute_workflow(workflow_id, parameters or {})
 

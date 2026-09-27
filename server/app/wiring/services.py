@@ -510,6 +510,13 @@ def build_agent_service(*, db: AsyncSession, ctx: RequestContext) -> AgentApplic
             runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
             ctx=ctx,
         ),
+        # The workflows an agent starts run concurrent nodes on their own
+        # sessions too, so their knowledge ports are built as in
+        # build_workflow_service.
+        node_knowledge_query_port_factory=lambda session: KnowledgeRuntimeWorkflowQueryAdapter(
+            runtime_service=build_knowledge_runtime_service(db=session, ctx=ctx),
+            ctx=ctx,
+        ),
         tool_catalog=WorkspaceToolCatalog(
             db, tool_port if isinstance(tool_port, BuiltinToolRegistrationPort) else None
         ),

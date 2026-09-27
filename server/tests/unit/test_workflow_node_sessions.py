@@ -5,6 +5,10 @@ factory the executor runs nodes one at a time on the shared session. With one,
 every node gets a context of its own and the executor commits and closes that
 context's session when the node is done. Real overlap needs row-level locking,
 so that half of the contract lives in ``tests/postgres``.
+
+A workflow an agent starts through its bindings is held to the same contract:
+its concurrent nodes query knowledge through ports built on their own node
+sessions, never through the agent's.
 """
 
 from __future__ import annotations
@@ -13,14 +17,29 @@ import asyncio
 from typing import Any
 
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.contracts.context import RequestContext
 from app.kernel.contracts.execution_plan import ExecutionPlan
+from app.kernel.ports.llm.interface import ChatResponse, LLMPort, ToolCall
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.agent.application.application_service import AgentApplicationService
+from app.modules.agent.application.schemas import (
+    AgentCreate,
+    AgentRunRequest,
+    AgentVersionCreate,
+)
+from app.modules.workflow.application.schemas import (
+    WorkflowCreate,
+    WorkflowVersionCreate,
+)
+from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executor import WorkflowExecutor
 from app.modules.workflow.runtime.executors.base import ExecutionContext
+from app.wiring.services import build_agent_service
+from app.wiring.workflow_resources import KnowledgeRuntimeWorkflowQueryAdapter
 
 
 class OverlapRecordingToolPort(ToolPort):
@@ -216,3 +235,143 @@ async def test_node_completion_is_staged_on_the_node_session(async_db, ctx: Requ
     assert len(node_sessions) == 3
     assert all(len(outbox_rows(session)) == 1 for session in node_sessions)
     assert outbox_rows(shared) == []
+
+
+class _QueueLLMPort(LLMPort):
+    def __init__(self, responses: list[ChatResponse]) -> None:
+        self._responses = list(responses)
+
+    async def chat(self, messages, model, temperature=None, max_tokens=None, *, tools=None, tool_choice=None, **kwargs):
+        return self._responses.pop(0)
+
+    async def embed(self, texts, model, **kwargs):
+        raise NotImplementedError
+
+    async def rerank(self, query, documents, model, top_n=None, **kwargs):
+        raise NotImplementedError
+
+
+class _KnowledgeQueries:
+    """The session each knowledge query's port was built on, and how many overlapped."""
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, object] = {}
+        self.active = 0
+        self.peak = 0
+
+
+class _RecordingKnowledgePort:
+    def __init__(self, queries: _KnowledgeQueries, session: object) -> None:
+        self._queries = queries
+        self._session = session
+
+    async def query(self, *, knowledge_ref: str, **kwargs: Any) -> dict[str, Any]:
+        self._queries.sessions[knowledge_ref] = self._session
+        self._queries.active += 1
+        self._queries.peak = max(self._queries.peak, self._queries.active)
+        try:
+            await asyncio.sleep(0.05)
+        finally:
+            self._queries.active -= 1
+        return {"context": knowledge_ref.removeprefix("knowledge:"), "citations": []}
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_an_agent_starts_queries_knowledge_on_each_node_session(
+    async_db, ctx: RequestContext
+) -> None:
+    """Two retrieve nodes of an agent-bound workflow run at once, each through
+    a knowledge port on its own node session. Handing both the agent's port
+    drove the agent's session from two tasks, and one query settling its run
+    could commit or roll back what the other node and the agent had staged."""
+    workflows = WorkflowService(db=async_db, ctx=ctx)
+    workflow = await workflows.create_workflow(WorkflowCreate(name="agent-fan-out-retrieval"))
+    retrieve = {"query": "{{ inputs.question }}", "top_k": 3}
+    version = await workflows.create_version(
+        workflow.id,
+        WorkflowVersionCreate(
+            graph_json={
+                "name": "agent-fan-out-retrieval",
+                "inputs_schema": {"type": "object", "properties": {"question": {"type": "string"}}},
+                "outputs_schema": {"type": "object", "properties": {"value": {}}},
+                "semantics": {"concurrency": 2},
+                "graph": {
+                    "nodes": [
+                        {"id": "policy", "type": "retrieve", "params": {**retrieve, "knowledge_ref": "knowledge:policy"}},
+                        {"id": "faq", "type": "retrieve", "params": {**retrieve, "knowledge_ref": "knowledge:faq"}},
+                        {
+                            "id": "output",
+                            "type": "output",
+                            "params": {"value": "{{ steps.policy.output.context }}+{{ steps.faq.output.context }}"},
+                        },
+                    ],
+                    "edges": [
+                        {"id": "edge-policy-output", "from": "policy", "to": "output"},
+                        {"id": "edge-faq-output", "from": "faq", "to": "output"},
+                    ],
+                },
+            }
+        ),
+    )
+    await workflows.publish_version(workflow.id, version.id)
+    workflow_ref = f"wf:{workflow.id}"
+
+    shared = _KnowledgeQueries()
+    per_node = _KnowledgeQueries()
+    agents = AgentApplicationService(
+        db=async_db,
+        ctx=ctx,
+        llm_port=_QueueLLMPort(
+            [
+                ChatResponse(
+                    text=None,
+                    finish_reason="tool_calls",
+                    tool_calls=[ToolCall(id="call_fan_out", name=workflow_ref, arguments={"question": "Refund?"})],
+                ),
+                ChatResponse(text="Both sources agree.", finish_reason="stop"),
+            ]
+        ),
+        tool_port=OverlapRecordingToolPort(),
+        workflow_knowledge_query_port=_RecordingKnowledgePort(shared, async_db),
+        node_knowledge_query_port_factory=lambda session: _RecordingKnowledgePort(per_node, session),
+    )
+    agent = await agents.create_agent(AgentCreate(name="fan-out-agent", visibility="private"))
+    agent_version = await agents.create_version(
+        agent.id,
+        AgentVersionCreate(
+            system_prompt="Answer from the bound workflow.",
+            bindings={"model_ref": "model:test:primary", "workflow_refs": [workflow_ref]},
+            verify=False,
+        ),
+    )
+    await agents.publish_version(agent.id, agent_version.id)
+
+    result = await agents.execute_agent(
+        agent.id, AgentRunRequest(input="Can I get a refund?").model_dump(exclude_none=True)
+    )
+
+    _, _, tool_calls = await agents.response_service.get_response_detail(result["response_id"])
+    workflow_call = next(call for call in tool_calls if call["tool_name"] == workflow_ref)
+    assert workflow_call["result_json"]["result"]["output"] == {"value": "policy+faq"}
+    assert result["output"] == "Both sources agree."
+    assert shared.sessions == {}, "a node queried through the agent's knowledge port"
+    assert set(per_node.sessions) == {"knowledge:policy", "knowledge:faq"}
+    assert per_node.sessions["knowledge:policy"] is not per_node.sessions["knowledge:faq"]
+    assert all(session is not async_db for session in per_node.sessions.values())
+    assert per_node.peak == 2, "the two retrieve nodes did not overlap"
+
+
+@pytest.mark.asyncio
+async def test_the_wired_agent_service_builds_a_knowledge_port_on_the_node_session(
+    async_db, ctx: RequestContext
+) -> None:
+    """The factory the test above injects by hand is the one production wires in."""
+    service = build_agent_service(db=async_db, ctx=ctx)
+    node_session = AsyncSession(bind=async_db.bind, expire_on_commit=False)
+    try:
+        assert service.node_knowledge_query_port_factory is not None
+        port = service.node_knowledge_query_port_factory(node_session)
+        assert isinstance(port, KnowledgeRuntimeWorkflowQueryAdapter)
+        assert port._runtime_service.db is node_session
+    finally:
+        await node_session.close()

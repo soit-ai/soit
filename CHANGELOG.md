@@ -101,6 +101,12 @@ record for operators.
   session they never commit, so their priced embedding and rerank costs
   were rolled back and the query run stayed `running`; a query through the
   API lost them the same way when it failed after the embedding call.
+- In a workflow an agent runs through its bindings, retrieve nodes that run
+  at once (`semantics.concurrency` above 1) now each query knowledge on
+  their own node session, as they already did in a workflow run directly.
+  They shared the agent's session, so two of them could fail with a
+  concurrent-operations error, and one query settling its run could commit
+  or roll back what the other node or the agent had staged.
 - A function or plugin tool now receives an argument named `query`, `url`,
   `method`, `headers` or `body` when its input schema declares one. The tool
   router treated those names as HTTP envelope keys for every tool that was
