@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+# No job writes to the repository, so the token can only read it.
+permissions:
+  contents: read
+
 jobs:
   backend-p0:
     name: backend-p0
