@@ -350,3 +350,29 @@ async def test_a_failed_call_span_keeps_error_text_only_where_content_is_kept(ca
         assert (secret in _span_text(span)) is (capture == "full")
     if capture == "metadata_only":
         assert spans["soit.llm.chat"].status.description == "RuntimeError"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capture", ["metadata_only", "full"])
+async def test_a_failed_tool_span_keeps_error_text_only_where_content_is_kept(capture) -> None:
+    from opentelemetry.trace import StatusCode
+
+    secret = "https://api.example.com/search?q=the-launch-code"
+    exporter = InMemorySpanExporter()
+    provider = build_tracer_provider(service_name="soit-test", exporter=exporter, batch=False)
+    ctx = RequestContext(tenant_id="t", workspace_id="w", user_id="u", content_capture=capture)
+    tool_port = AsyncMock()
+    tool_port.invoke.side_effect = RuntimeError(f"could not reach {secret}")
+
+    with pytest.raises(Exception):  # noqa: B017 - the gateway wraps it for retries
+        await ToolPolicyGateway(
+            tool_port,
+            ctx,
+            max_retries=0,
+            enable_egress_check=False,
+            otel_tracer=provider.get_tracer("soit.tools"),
+        ).invoke("tool:builtin:demo", {"url": secret})
+
+    [span] = [span for span in exporter.get_finished_spans() if span.name == "soit.tool.invoke"]
+    assert span.status.status_code == StatusCode.ERROR
+    assert (secret in _span_text(span)) is (capture == "full")

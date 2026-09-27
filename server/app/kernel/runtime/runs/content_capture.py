@@ -25,6 +25,7 @@ workspace setting up through a lookup the wiring registers.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import re
@@ -105,6 +106,8 @@ _IDENTIFIER_KEYS = frozenset(
         "direction",
         "category",
         "score",
+        "knowledge_id",
+        "index_id",
     }
 )
 
@@ -123,6 +126,11 @@ def withheld(value: str) -> str:
         return value
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
     return f"[withheld: {len(value)} chars, sha256:{digest}]"
+
+
+def is_withheld_object(value: Any) -> bool:
+    """Whether ``value`` is an object :func:`withheld_object` produced."""
+    return isinstance(value, dict) and set(value) == {"withheld"} and is_withheld(value["withheld"])
 
 
 def withheld_object(value: Any) -> dict[str, str]:
@@ -216,6 +224,12 @@ class ContentCapture:
             kept["content_safety"] = [_without_finding_details(item) for item in safety]
         return kept
 
+    def identifiers(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Only the identifying fields of a record spread into another."""
+        if self.keeps_content:
+            return value
+        return {key: item for key, item in value.items() if key in _IDENTIFIER_KEYS and _is_plain(item)}
+
     def audit_payload(self, value: dict[str, Any]) -> dict[str, Any]:
         """A gateway audit payload with its structure and identifiers only."""
         if self.keeps_content:
@@ -278,6 +292,18 @@ async def lookup_workspace_capture(db: Any, tenant_id: str, workspace_id: str) -
         logger.warning("Content capture lookup failed; withholding content", exc_info=True)
         return CAPTURE_METADATA_ONLY
     return capture_mode(found)
+
+
+async def writer_capture(writer: Any, ctx: Any) -> ContentCapture:
+    """The mode of ``writer`` when it is a trace writer, else of ``ctx``."""
+    method = getattr(writer, "content_capture", None)
+    if callable(method):
+        found = method()
+        if inspect.isawaitable(found):
+            found = await found
+        if isinstance(found, ContentCapture):
+            return found
+    return await resolve_content_capture(None, ctx)
 
 
 async def resolve_content_capture(db: Any, ctx: Any) -> ContentCapture:

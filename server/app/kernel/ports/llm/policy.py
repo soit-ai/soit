@@ -8,14 +8,14 @@ import contextlib
 import inspect
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypeVar
 
 import anyio
 from opentelemetry import trace
-from opentelemetry.trace import Span, Status, StatusCode, Tracer
+from opentelemetry.trace import Status, StatusCode, Tracer
 
 from app.kernel.commons.errors import (
     ForbiddenError,
@@ -31,6 +31,7 @@ from app.kernel.ports.common.policy import (
     resolve_run_id,
 )
 from app.kernel.ports.common.rate_limiter import RateLimiter
+from app.kernel.ports.common.spans import call_span, failure_label
 from app.kernel.ports.common.usage_counter import (
     DailyUsageCounter,
 )
@@ -56,7 +57,7 @@ from app.kernel.ports.safety.interface import (
     SafetyDecision,
     SafetyDirection,
 )
-from app.kernel.runtime.runs.content_capture import resolve_content_capture
+from app.kernel.runtime.runs.content_capture import writer_capture
 from app.kernel.runtime.runs.writer import TraceWriter
 
 logger = logging.getLogger(__name__)
@@ -140,44 +141,6 @@ _UNAVAILABLE_ROUTE_CODES = frozenset(
         "MODEL_CAPABILITY_UNAVAILABLE",
     }
 )
-
-
-@contextlib.contextmanager
-def _call_span(
-    tracer: Tracer,
-    name: str,
-    *,
-    attributes: dict[str, Any],
-    keeps_content: bool,
-) -> Iterator[Span]:
-    """A span for one gateway call.
-
-    Under content-free capture a failure is recorded by its label, never by
-    the exception's text, which may echo the input; the span still ends as an
-    error.
-    """
-    with tracer.start_as_current_span(
-        name,
-        attributes=attributes,
-        record_exception=keeps_content,
-        set_status_on_exception=keeps_content,
-    ) as span:
-        try:
-            yield span
-        except Exception as exc:
-            if not keeps_content:
-                span.set_status(Status(StatusCode.ERROR, _failure_label(exc)))
-            raise
-
-
-def _failure_label(exc: Exception) -> str:
-    """What went wrong, without the provider's message, which may echo input."""
-    if isinstance(exc, KernelError):
-        return exc.code
-    status_code = getattr(exc, "status_code", None)
-    if status_code is not None:
-        return f"status_{status_code}"
-    return type(exc).__name__
 
 
 @dataclass(frozen=True)
@@ -928,7 +891,7 @@ class LLMPolicyGateway(LLMPort):
             except Exception as exc:
                 if last or not self._fails_over(exc, route):
                     raise
-                attempts.append({"model_ref": target, "outcome": "failed", "reason": _failure_label(exc)})
+                attempts.append({"model_ref": target, "outcome": "failed", "reason": failure_label(exc)})
                 continue
             if len(targets) > 1:
                 attempts.append({"model_ref": target, "outcome": "succeeded"})
@@ -1053,9 +1016,7 @@ class LLMPolicyGateway(LLMPort):
 
     async def _keeps_content(self) -> bool:
         """Whether spans may carry exception text, which may echo input."""
-        if isinstance(self.trace_writer, TraceWriter):
-            return (await self.trace_writer.content_capture()).keeps_content
-        return (await resolve_content_capture(None, self.ctx)).keeps_content
+        return (await writer_capture(self.trace_writer, self.ctx)).keeps_content
 
     def _key_admission(self) -> ApiKeyAdmission:
         return ApiKeyAdmission(
@@ -1156,7 +1117,7 @@ class LLMPolicyGateway(LLMPort):
         try:
             messages = await self._inspect_messages(messages, safety_evidence)
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
-            with _call_span(
+            with call_span(
                 self.otel_tracer,
                 "soit.llm.chat",
                 keeps_content=await self._keeps_content(),
@@ -1561,7 +1522,7 @@ class LLMPolicyGateway(LLMPort):
                     if last or not self._fails_over(exc, candidate):
                         raise
                     attempts.append(
-                        {"model_ref": target, "outcome": "failed", "reason": _failure_label(exc)}
+                        {"model_ref": target, "outcome": "failed", "reason": failure_label(exc)}
                     )
                     continue
                 route = candidate
@@ -1629,7 +1590,7 @@ class LLMPolicyGateway(LLMPort):
                 span.record_exception(e)
                 span.set_status(Status(StatusCode.ERROR, str(e)))
             else:
-                span.set_status(Status(StatusCode.ERROR, _failure_label(e)))
+                span.set_status(Status(StatusCode.ERROR, failure_label(e)))
             try:
                 await finish(
                     status="failed",
@@ -1715,7 +1676,7 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            with _call_span(
+            with call_span(
                 self.otel_tracer,
                 "soit.llm.embed",
                 keeps_content=await self._keeps_content(),
@@ -1857,7 +1818,7 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
-            with _call_span(
+            with call_span(
                 self.otel_tracer,
                 "soit.llm.generate_image",
                 keeps_content=await self._keeps_content(),
@@ -2017,7 +1978,7 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
-            with _call_span(
+            with call_span(
                 self.otel_tracer,
                 "soit.llm.edit_image",
                 keeps_content=await self._keeps_content(),
@@ -2158,7 +2119,7 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            with _call_span(
+            with call_span(
                 self.otel_tracer,
                 "soit.llm.rerank",
                 keeps_content=await self._keeps_content(),

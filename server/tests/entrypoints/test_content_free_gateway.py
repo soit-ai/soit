@@ -99,3 +99,51 @@ async def test_a_metadata_only_workspace_applies_without_a_resolved_context(
     await _call(async_client)
 
     assert SECRET not in await _everything_stored(async_db)
+
+
+MARKER = 77310413
+
+
+@pytest.mark.asyncio
+async def test_a_metadata_only_key_calls_tools_without_storing_their_values(
+    async_client, async_db, ctx: RequestContext
+) -> None:
+    from app.api.mcp.router import mcp_caller
+    from app.wiring import get_container
+
+    get_container()
+    keyed = dataclasses.replace(ctx, api_key_id="key_private", content_capture="metadata_only")
+    app.dependency_overrides[get_current_context] = lambda: keyed
+    app.dependency_overrides[mcp_caller] = lambda: keyed
+    call = {"arguments": {"min": MARKER, "max": MARKER}}
+    headers = {"Idempotency-Key": "content-free-call"}
+    try:
+        direct = await async_client.post(
+            "/api/v1/tools/tool:function:random_int/invoke", json=call, headers=headers
+        )
+        replay = await async_client.post(
+            "/api/v1/tools/tool:function:random_int/invoke", json=call, headers=headers
+        )
+        over_mcp = await async_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "function_random_int", "arguments": call["arguments"]},
+            },
+        )
+    finally:
+        app.dependency_overrides[get_current_context] = lambda: ctx
+        app.dependency_overrides.pop(mcp_caller, None)
+
+    # The caller gets the result; the record keeps none of it.
+    assert direct.status_code == 200, direct.text
+    assert direct.json()["data"]["result"] == {"value": MARKER}
+    assert over_mcp.json()["result"]["structuredContent"] == {"value": MARKER}
+    stored = await _everything_stored(async_db)
+    assert "withheld" in stored
+    assert str(MARKER) not in stored
+    # A replay has nothing to hand back, and says so rather than returning nothing.
+    assert replay.status_code == 409, replay.text
+    assert replay.json()["code"] == "TOOL_RESULT_WITHHELD"

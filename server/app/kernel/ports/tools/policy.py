@@ -27,6 +27,7 @@ from app.kernel.ports.common.policy import (
     unwrap_retry_error,
 )
 from app.kernel.ports.common.rate_limiter import RateLimiter
+from app.kernel.ports.common.spans import call_span
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -35,6 +36,7 @@ from app.kernel.ports.tools.pricing import (
     declared_call_pricing,
     unpriced_call,
 )
+from app.kernel.runtime.runs.content_capture import writer_capture
 from app.kernel.runtime.runs.tool_calls import (
     RuntimeToolExecutionService,
     ToolExecutionCommand,
@@ -404,8 +406,11 @@ class ToolPolicyGateway(ToolPort):
                     **invoke_kwargs,
                 )
 
-            with self.otel_tracer.start_as_current_span(
+            capture = await writer_capture(self.trace_writer, self.ctx)
+            with call_span(
+                self.otel_tracer,
                 "soit.tool.invoke",
+                keeps_content=capture.keeps_content,
                 attributes={
                     "soit.tool.ref": tool_ref,
                     "soit.tool.provider": _provider_from_tool_ref(tool_ref) or "unknown",
@@ -468,7 +473,9 @@ class ToolPolicyGateway(ToolPort):
                         error_code=None if response.success else "TOOL_ERROR",
                         error_message=response.error,
                     ),
-                    **response.metadata,
+                    # A tool's own metadata can carry its output (an MCP
+                    # tool's content); a content-free step keeps its ids only.
+                    **capture.identifiers(response.metadata or {}),
                 }
                 tool_error_details = None
                 if not response.success:

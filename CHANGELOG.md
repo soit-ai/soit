@@ -221,6 +221,15 @@ record for operators.
 
 ### Security
 
+- Under content-free capture the tool call ledger keeps no values either. A
+  call's record kept its arguments and result (a large result was written
+  to object storage), its error text, and a tool's own metadata was spread
+  into the step's metrics, where an MCP tool's output sat; a failed tool
+  call's trace span kept the exception text. The record now keeps the
+  argument names, whether a result came back and the ids a child run is
+  found by, and the span names the failure only. A tool call replayed with
+  the same `Idempotency-Key` in such a workspace has no result to hand
+  back, and is refused with `409` `TOOL_RESULT_WITHHELD` instead.
 - Under content-free capture a failed model call's trace span ends as an
   error named by its code or type, without the provider's message, which
   can echo the prompt.

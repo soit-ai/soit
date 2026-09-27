@@ -33,6 +33,7 @@ from app.kernel.ports.llm.interface import (
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.content_capture import writer_capture
 from app.kernel.runtime.runs.tool_calls import (
     RuntimeToolExecutionService,
     ToolExecutionCommand,
@@ -1183,7 +1184,9 @@ class AgentService:
                                     default=str,
                                 )[:8192],
                                 metrics={
-                                    **response_metadata,
+                                    **(await writer_capture(self.trace_writer, self.ctx)).identifiers(
+                                        response_metadata
+                                    ),
                                     **build_tool_metrics(
                                         tool_ref=tc.name,
                                         parameters=tc.arguments,

@@ -13,12 +13,18 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.errors import ConflictError
+from app.kernel.commons.errors import ConflictError, KernelError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.tools.interface import ToolResponse
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunStep, RunStepToolCall
+from app.kernel.runtime.runs.content_capture import (
+    ContentCapture,
+    is_withheld_object,
+    withheld_object,
+    writer_capture,
+)
 from app.kernel.runtime.runs.writer import TraceWriter
 
 _SENSITIVE_KEYS = frozenset(
@@ -220,7 +226,7 @@ class RuntimeToolExecutionService:
         if existing.status == "waiting_approval" and command.resume_approval:
             now = utc_now()
             existing.request_hash = request_hash
-            existing.parameters_summary_json = summarize_parameters(command.arguments)
+            existing.parameters_summary_json = await self._parameters_summary(command.arguments)
             existing.status = "claimed"
             existing.attempt_count = max(existing.attempt_count, 0) + 1
             existing.lease_owner = self.lease_owner
@@ -269,6 +275,15 @@ class RuntimeToolExecutionService:
             return ToolExecutionClaim(record=existing, run_step=step)
         if existing.status in {"succeeded", "failed"}:
             payload = existing.result_json or {}
+            if is_withheld_object(payload.get("result")):
+                # Nothing to hand back: better a plain refusal than a replay
+                # that reads as a call that returned nothing.
+                raise KernelError(
+                    "TOOL_RESULT_WITHHELD",
+                    "This tool call already ran; its result was not kept, "
+                    "since the workspace records no content",
+                    {"tool_call_id": existing.tool_call_id, "status": existing.status},
+                )
             step = await self._require_tool_step(
                 run_id=existing.run_id,
                 run_step_id=existing.run_step_id,
@@ -387,7 +402,7 @@ class RuntimeToolExecutionService:
             attempt_count=1,
             lease_owner=self.lease_owner,
             lease_expires_at=now + timedelta(seconds=self.lease_seconds),
-            parameters_summary_json=summarize_parameters(command.arguments),
+            parameters_summary_json=await self._parameters_summary(command.arguments),
             created_by=command.created_by or self.ctx.user_id,
             created_at=now,
             updated_at=now,
@@ -442,7 +457,7 @@ class RuntimeToolExecutionService:
             tool_ref=command.tool_ref,
             status="waiting_approval",
             attempt_count=0,
-            parameters_summary_json=summarize_parameters(command.arguments),
+            parameters_summary_json=await self._parameters_summary(command.arguments),
             created_by=command.created_by or self.ctx.user_id,
             created_at=now,
             updated_at=now,
@@ -555,10 +570,16 @@ class RuntimeToolExecutionService:
             raise ConflictError("Tool-call lease expired before completion")
         now = utc_now()
         record.status = "succeeded" if response.success else "failed"
-        result_payload = {
-            "result": _json_payload(response.result),
-            "metadata": _json_payload(response.metadata),
-        }
+        capture = await self._capture()
+        result = _json_payload(response.result)
+        metadata = _json_payload(response.metadata)
+        if not capture.keeps_content:
+            # Kept: that the call returned something, and the ids a child run
+            # is found by. Withheld: what it returned, so nothing large is
+            # left to spill to storage either.
+            result = None if result is None else withheld_object(result)
+            metadata = capture.identifiers(metadata) if isinstance(metadata, dict) else {}
+        result_payload = {"result": result, "metadata": metadata}
         encoded_result = json.dumps(
             result_payload,
             ensure_ascii=False,
@@ -591,13 +612,13 @@ class RuntimeToolExecutionService:
             )
             record.result_artifact_id = artifact.id
             record.result_json = {
-                "metadata": _json_payload(response.metadata),
+                "metadata": metadata,
                 "artifact": {"id": artifact.id, "size_bytes": len(encoded_result)},
             }
         else:
             record.result_json = result_payload
         record.error_code = None if response.success else "TOOL_ERROR"
-        record.error_message = response.error
+        record.error_message = capture.text(response.error)
         record.lease_owner = None
         record.lease_expires_at = None
         record.updated_at = now
@@ -623,6 +644,16 @@ class RuntimeToolExecutionService:
         self.db.add(record)
         await self.db.commit()
         return record
+
+    async def _capture(self) -> ContentCapture:
+        return await writer_capture(self.trace_writer, self.ctx)
+
+    async def _parameters_summary(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """The call's arguments, or under content-free capture their names only."""
+        capture = await self._capture()
+        if capture.keeps_content:
+            return summarize_parameters(arguments)
+        return {**withheld_object(arguments), "argument_names": sorted(str(name) for name in arguments)}
 
     async def load_cached_response(self, claim: ToolExecutionClaim) -> ToolResponse | None:
         """Resolve an inline or artifact-backed replay response."""

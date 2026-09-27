@@ -255,3 +255,11 @@ async def test_a_metadata_only_audit_does_not_spill_content_to_storage(async_db,
     )
 
     assert all(SECRET.encode() not in data for data in storage.puts)
+
+
+def test_only_identifiers_are_spread_from_a_content_free_record() -> None:
+    # An MCP tool's metadata carries its output; a step keeps its ids only.
+    metadata = {"server_id": "srv_1", "content": [{"type": "text", "text": SECRET}], "isError": False}
+
+    assert ContentCapture(CAPTURE_METADATA_ONLY).identifiers(metadata) == {"server_id": "srv_1"}
+    assert ContentCapture(CAPTURE_FULL).identifiers(metadata) == metadata
