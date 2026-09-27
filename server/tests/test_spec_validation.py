@@ -143,6 +143,7 @@ def test_tool_spec_accepts_a_declared_per_call_price(pricing):
         {"currency": "USD", "call": "1234567890123"},
         {"currency": "USD"},
         {"currency": "USD", "call": "1", "per": "month"},
+        {"currency": "USD\n", "call": "1"},
     ],
 )
 def test_tool_spec_refuses_a_price_the_ledger_cannot_hold(pricing):

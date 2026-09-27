@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-_CURRENCY = re.compile(r"^[A-Z]{3}$")
+_CURRENCY = re.compile(r"[A-Z]{3}", re.ASCII)
 # The ToolSpec schema's own pattern: what the ledger's amount column holds,
 # 12 integer and 6 fractional ASCII digits, written as a string.
 _PRICE = re.compile(r"^(0|[1-9][0-9]{0,11})(\.[0-9]{1,6})?$", re.ASCII)
@@ -79,7 +79,7 @@ def declared_call_pricing(policy: dict[str, Any] | None, *, tool_ref: str) -> To
     currency = configured.get("currency")
     price = _price(configured.get("call"))
     unknown = set(configured) - {"currency", "call"}
-    if not isinstance(currency, str) or not _CURRENCY.match(currency) or price is None or unknown:
+    if not isinstance(currency, str) or not _CURRENCY.fullmatch(currency) or price is None or unknown:
         return _unpriced(
             "unsupported_pricing_config",
             tool_ref=tool_ref,

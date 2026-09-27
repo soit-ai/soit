@@ -57,6 +57,7 @@ def test_a_tool_without_a_price_is_unpriced_and_says_so() -> None:
         {"currency": "USD", "call": "+5"},
         {"currency": "USD", "call": " 0.5 "},
         {"currency": "USD", "call": "007"},
+        {"currency": "USD\n", "call": "1"},
         "0.002",
     ],
 )
