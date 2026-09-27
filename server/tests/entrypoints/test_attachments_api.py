@@ -61,3 +61,19 @@ async def test_attachment_upload_rejects_executable_content(async_client):
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_a_json_attachment_downloads_as_the_file_it_is(async_client):
+    # The envelope wraps API answers; wrapping a download changed the file.
+    data = b'{"a": 1}'
+    uploaded = await async_client.post(
+        "/api/v1/attachments", files={"file": ("config.json", data, "application/json")}
+    )
+    assert uploaded.status_code in (200, 201), uploaded.text
+    attachment_id = uploaded.json()["data"]["id"]
+
+    download = await async_client.get(f"/api/v1/attachments/{attachment_id}/content")
+
+    assert download.status_code == 200
+    assert download.content == data

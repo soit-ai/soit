@@ -106,6 +106,10 @@ class ResponseEnvelopeMiddleware(BaseHTTPMiddleware):
             return False
         if response.status_code in {204, 205, 304}:
             return False
+        if "content-disposition" in response.headers:
+            # A file download: a JSON file is still a file, returned as the
+            # bytes that were stored and hashed.
+            return False
         media_type = response.media_type or response.headers.get("content-type", "")
         if media_type and "application/json" not in media_type:
             return False

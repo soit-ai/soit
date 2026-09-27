@@ -105,6 +105,12 @@ record for operators.
 - `size: auto` on `POST /v1/images/generations` and `/edits` works as
   documented. The gateway's capability check read it as a malformed size,
   so the call failed with `Invalid image size: auto` after its run opened.
+- A file download that is JSON is returned as the file. Run artifacts,
+  attachments and knowledge documents of type `application/json` were
+  wrapped in the API's `{success, code, message, data}` envelope on
+  download, so the bytes no longer matched the recorded SHA-256 and a saved
+  file held the envelope. Any response sent as a file (`Content-Disposition`)
+  is now left as it is.
 - A workspace provider whose `connection_config_json` sets no `timeout_ms`
   no longer holds every call to 60 seconds. Its chat calls now get
   `llm_timeout_seconds` (180) and its image calls `llm_image_timeout_seconds`

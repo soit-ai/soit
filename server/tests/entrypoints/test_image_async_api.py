@@ -9,6 +9,7 @@ changes what the synchronous caller already gets.
 
 import asyncio
 import base64
+import hashlib
 import io
 from typing import Any
 
@@ -513,8 +514,9 @@ class TestProviderHostedResults:
             f"/api/v1/runs/{body['run_id']}/artifacts/{artifact.id}/content"
         )
         assert content.status_code == 200
-        # JSON content comes back in the API envelope, as every JSON body does.
-        assert content.json()["data"] == {"index": 0, "url": _HOSTED}
+        # A download is the stored file, byte for byte, not an API envelope.
+        assert content.json() == {"index": 0, "url": _HOSTED}
+        assert hashlib.sha256(content.content).hexdigest() == artifact.sha256
 
     @pytest.mark.asyncio
     async def test_a_synchronous_artifact_answer_carries_the_url_and_the_link(
