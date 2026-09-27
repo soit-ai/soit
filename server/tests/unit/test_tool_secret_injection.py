@@ -453,6 +453,167 @@ async def test_tool_policy_egress_denial_never_records_an_injected_secret(
     assert "sec_hook" in recorded
 
 
+class _RefusedCallPort:
+    """HTTP port and plugin runtime stub; a refused call must reach neither."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def invoke(self, **kwargs):
+        self.calls.append(kwargs)
+        return ToolResponse(result={"ok": True}, success=True, metadata={})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capture", ["metadata_only", "full"])
+@pytest.mark.parametrize(
+    ("tool_spec", "plugin", "parameters", "secret_value", "secret_parts"),
+    [
+        pytest.param(
+            {"adapter": "http", "http": {"url": "{{ inputs.url }}"}},
+            None,
+            {"url": {"secret_id": "sec_hook"}},
+            "https://hook-7q2x.example/services/T0/B0/tok-9Fh3Lw",
+            ("hook-7q2x", "tok-9Fh3Lw"),
+            id="http-secret-url",
+        ),
+        pytest.param(
+            {
+                "adapter": "http",
+                "http": {"url": "https://hook-7q2x.example/services/T0/B0/{{ inputs.token }}"},
+            },
+            None,
+            {"token": {"secret_id": "sec_hook"}},
+            "tok-9Fh3Lw",
+            ("tok-9Fh3Lw",),
+            id="http-template-rendered-from-a-secret",
+        ),
+        pytest.param(
+            {"adapter": "http"},
+            {"name": "hook-plugin", "version": "1.0.0"},
+            {"url": {"secret_id": "sec_hook"}},
+            "https://hook-7q2x.example/services/T0/B0/tok-9Fh3Lw",
+            ("hook-7q2x", "tok-9Fh3Lw"),
+            id="plugin-secret-url",
+        ),
+    ],
+)
+async def test_tool_allowlist_refusal_never_records_an_injected_secret(
+    async_db, ctx, monkeypatch, capture, tool_spec, plugin, parameters, secret_value, secret_parts
+):
+    """A URL the workspace allows but the tool's own allowlist refuses is never cited."""
+    from dataclasses import replace
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.kernel.ports.common.policy import unwrap_retry_error
+    from app.kernel.registry.deps import get_registry
+    from app.wiring.container import AuditEgressBlockRecorder
+
+    class SecretValuePort(SecretsPort):
+        async def get_secret(self, secret_id: str, **kwargs):
+            return secret_value
+
+    class WorkspaceAllowsHook:
+        async def get_scope_policy(self, ctx):
+            return egress.EgressScopePolicy(workspace_allowlist=["hook-7q2x.example"])
+
+    monkeypatch.setattr(settings, "enable_egress_policy", True)
+    monkeypatch.setattr(settings, "egress_allowlist", ["api.example.com"])
+    monkeypatch.setattr(settings, "egress_blocklist", [])
+    monkeypatch.setattr(egress, "_egress_policy", None)
+    monkeypatch.setattr(egress, "_egress_scope_policy_provider", WorkspaceAllowsHook())
+    monkeypatch.setattr(egress, "_egress_block_recorder", AuditEgressBlockRecorder())
+    monkeypatch.setattr(
+        "app.infra.db.session.get_async_session_local",
+        lambda: lambda: AsyncSession(async_db.bind, expire_on_commit=False),
+    )
+
+    tool_ref = "tool:http:hook"
+    payload = {
+        "tool_spec": {
+            **tool_spec,
+            "input_schema": {"type": "object"},
+            "output_schema": {"type": "object"},
+            "policy": {"egress": {"allow": ["api.example.com"]}},
+        }
+    }
+    if plugin:
+        payload["plugin"] = plugin
+    get_registry().register(
+        kind="tool",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name=tool_ref,
+        version="1.0.0",
+        payload=payload,
+    )
+    outbound = _RefusedCallPort()
+    router = RegistryToolRouterPort(http_port=outbound, plugin_runtime_port=outbound)
+
+    capture_ctx = replace(ctx, content_capture=capture)
+    trace_writer = TraceWriter(async_db, capture_ctx)
+    run = await trace_writer.create_run(mode="workflow", kind="workflow")
+    gateway = ToolPolicyGateway(
+        gateway=router,
+        ctx=capture_ctx,
+        trace_writer=trace_writer,
+        secrets_port=SecretValuePort(),
+    )
+
+    # One attempt under the durable ledger: the router's refusal arrives
+    # wrapped in the retry error.
+    with pytest.raises(RetryError) as raised:
+        await gateway.invoke(
+            tool_ref=tool_ref,
+            parameters=parameters,
+            strict_registry=True,
+            run_id=run.id,
+            tool_call_id="call-tool-allowlist",
+        )
+
+    refused = unwrap_retry_error(raised.value)
+    assert isinstance(refused, ForbiddenError)
+    # Refused by the tool's allowlist, after workspace policy let it through.
+    assert refused.message == "Tool egress blocked by allowlist"
+    assert refused.details == {"tool_ref": tool_ref}
+    assert outbound.calls == []
+    step_result = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).one()
+    step = step_result if isinstance(step_result, RunStep) else step_result[0]
+    assert step.status == "failed"
+    assert "url" not in step.error_details
+    if capture == "full":
+        assert step.error_details["tool_ref"] == tool_ref
+        # The reader still finds what was refused, by its reference.
+        arguments = step.metrics_json["tool_call"]["arguments"]
+        assert next(iter(arguments.values())) == {"secret_id": "sec_hook"}
+    record_result = (await async_db.exec(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    )).one()
+    record = record_result if isinstance(record_result, RunStepToolCall) else record_result[0]
+    audits = [
+        audit if isinstance(audit, AuditEvent) else audit[0]
+        for audit in (await async_db.exec(select(AuditEvent))).all()
+    ]
+    assert audits
+
+    recorded = str(
+        [
+            raised.value,
+            refused,
+            refused.details,
+            step.error_message,
+            step.error_details,
+            step.metrics_json,
+            record.parameters_summary_json,
+            record.error_message,
+            *[(audit.resource_id, audit.payload_json) for audit in audits],
+        ]
+    )
+    for part in secret_parts:
+        assert part not in recorded
+
+
 @pytest.mark.asyncio
 async def test_builtin_ticket_tool_is_governed_and_redacts_secret(async_db, ctx, monkeypatch):
     """Ticket tool requires workspace context, applies egress, and audits redacted inputs."""

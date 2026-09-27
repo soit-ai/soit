@@ -301,7 +301,14 @@ class RegistryToolRouterPort(ToolPort):
         allowlist: list[Any] | None,
         tool_ref: str,
     ) -> None:
-        """Enforce tool-level egress allowlist if provided."""
+        """Enforce tool-level egress allowlist if provided.
+
+        The refusal cites the tool, never the URL. The URL arrives with secret
+        values already injected and the router cannot tell which parts came
+        from one: a webhook URL kept as a secret is the secret, host included.
+        The step's recorded arguments show the URL, or its secret reference,
+        as the gateway redacted them.
+        """
         if not url or not allowlist:
             return
         policy = get_egress_policy()
@@ -309,7 +316,7 @@ class RegistryToolRouterPort(ToolPort):
         if not is_allowed:
             raise ForbiddenError(
                 "Tool egress blocked by allowlist",
-                {"tool_ref": tool_ref, "url": url},
+                {"tool_ref": tool_ref},
             )
 
     async def _resolve_reserved_auth_payload(

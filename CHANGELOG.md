@@ -253,6 +253,14 @@ record for operators.
   refusal now cites the secret's reference, `secret:<secret_id>`, in place
   of the URL and names no domain. The policy still decides on the URL's
   real host.
+- A call that workspace egress policy allowed but the tool's own
+  `policy.egress.allow` refused reported the whole URL it refused, path and
+  query included, in the error's details, which the failed step's error
+  details and the tool call's audit event carry. That URL arrives with
+  secret values already injected, either as the URL itself or rendered into
+  the tool's `http.url` template. The refusal now names only the tool; the
+  step's recorded arguments still show the URL, or the secret reference it
+  came from. The allowlist still decides on the real URL.
 - An outbound request refused by egress policy was recorded by its URL's
   origin, except a URL with no host, which was recorded whole. A
   content-free workspace now withholds such a URL as well.
