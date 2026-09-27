@@ -129,7 +129,8 @@ record for operators.
   `timeout_ms` that is saved must be a positive number of milliseconds; a
   stored value that is not is ignored with a warning instead of failing
   calls. A model test call from the console is held to a minute in all,
-  retries included, and reported as failing past it.
+  retries included, or to the provider's `timeout_ms` when that is longer,
+  and reported as failing past it.
 - A streamed chat call that reached the provider is now always charged.
   Before, a `/v1/chat/completions` client that disconnected before the final
   chunk left the model step `running` with no cost, so the call escaped

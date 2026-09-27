@@ -74,17 +74,22 @@ _T = TypeVar("_T")
 
 DIAGNOSTIC_CALL_SECONDS = 60.0
 """How long a console test call may take, retries included, before it is
-reported as failing. It goes through the runtime gateway, whose timeouts are
-sized for real calls."""
+reported as failing, unless its provider's own timeout is longer. It goes
+through the runtime gateway, whose timeouts are sized for real calls."""
 
 
-async def _within_diagnostic_bound(call: Awaitable[_T]) -> _T:
+async def _within_diagnostic_bound(call: Awaitable[_T], provider: Provider) -> _T:
+    # A provider that sets a longer timeout of its own is given it.
+    bound = max(
+        DIAGNOSTIC_CALL_SECONDS,
+        provider_timeout_seconds(provider.connection_config_json) or 0.0,
+    )
     try:
-        return await asyncio.wait_for(call, timeout=DIAGNOSTIC_CALL_SECONDS)
+        return await asyncio.wait_for(call, timeout=bound)
     except TimeoutError:
         raise KernelError(
             "TIMEOUT",
-            f"The provider did not answer within {DIAGNOSTIC_CALL_SECONDS:g} seconds",
+            f"The provider did not answer within {bound:g} seconds",
         ) from None
 
 
@@ -1584,7 +1589,7 @@ class ModelHubService:
         provider = await self._get_provider(data.provider_id)
         start = utc_now()
         try:
-            result = await _within_diagnostic_bound(self._test_chat_result(provider, data))
+            result = await _within_diagnostic_bound(self._test_chat_result(provider, data), provider)
             elapsed = int((utc_now() - start).total_seconds() * 1000)
             return {
                 "success": True,
@@ -1609,7 +1614,7 @@ class ModelHubService:
         provider = await self._get_provider(data.provider_id)
         start = utc_now()
         try:
-            result = await _within_diagnostic_bound(self._test_embeddings_result(provider, data))
+            result = await _within_diagnostic_bound(self._test_embeddings_result(provider, data), provider)
             elapsed = int((utc_now() - start).total_seconds() * 1000)
             return {
                 "success": True,

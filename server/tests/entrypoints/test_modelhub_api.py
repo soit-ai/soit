@@ -1367,3 +1367,38 @@ async def test_a_console_test_call_is_bounded_whatever_the_runtime_allows(async_
         assert result["success"] is False
         assert "did not answer within" in result["message"]
         assert result["latency_ms"] < 2000
+
+
+
+@pytest.mark.asyncio
+async def test_a_console_test_call_gets_the_providers_longer_timeout(async_db, ctx, monkeypatch):
+    # A self-hosted model that needs longer to load says so with timeout_ms.
+    import asyncio
+
+    from app.modules.modelhub.application import service as modelhub_service
+    from app.modules.modelhub.application.schemas import ModelTestChatRequest
+
+    class _Slow(_TestLiteLLMPort):
+        async def chat(self, messages, model, **kwargs):
+            await asyncio.sleep(0.2)
+            return await super().chat(messages, model, **kwargs)
+
+    provider = Provider(
+        id="prov_model_test_slow",
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        slug="model-test-slow",
+        kind="openai",
+        name="Model Test Slow Provider",
+        credential_secret_id="sec_openai",
+        status="active",
+        connection_config_json={"timeout_ms": 2000},
+    )
+    async_db.add(provider)
+    await async_db.commit()
+    monkeypatch.setattr(modelhub_service, "DIAGNOSTIC_CALL_SECONDS", 0.05)
+    service = _modelhub_service(async_db, ctx, runtime_llm_port=_Slow())
+
+    chat = await service.test_chat(ModelTestChatRequest(provider_id=provider.id, model_id="m", input="hello"))
+
+    assert chat["success"] is True, chat
