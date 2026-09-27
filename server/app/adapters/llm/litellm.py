@@ -384,7 +384,7 @@ class LiteLLMPort(LLMPort):
             params,
             kwargs,
             ("background", "output_format"),
-            in_extra_body=params["model"].split("/", 1)[0] in self._EXTRA_BODY_PROVIDERS,
+            in_extra_body=self._merges_extra_body(params["model"]),
         )
         response = await self._image_generation(**params)
         images: list[GeneratedImage] = []
@@ -400,10 +400,21 @@ class LiteLLMPort(LLMPort):
             model=_value(response, "model", params["model"]),
         )
 
-    # LiteLLM prefixes whose image generation merges extra_body into the
-    # request body. Other providers are sent it as a literal field named
-    # extra_body, which none of them reads.
-    _EXTRA_BODY_PROVIDERS = ("openai", "azure")
+    @staticmethod
+    def _merges_extra_body(model: str) -> bool:
+        """Whether LiteLLM merges extra_body into this model's request body.
+
+        It does for OpenAI, Azure and the providers it treats as
+        OpenAI-compatible; any other is sent a literal field named extra_body.
+        """
+        prefix = model.split("/", 1)[0]
+        if prefix in ("openai", "azure"):
+            return True
+        try:
+            import litellm
+        except ImportError:
+            return False
+        return prefix in getattr(litellm, "openai_compatible_providers", ())
 
     @staticmethod
     def _forward_image_options(
@@ -415,14 +426,15 @@ class LiteLLMPort(LLMPort):
     ) -> None:
         """Place image options where LiteLLM carries them to the provider.
 
-        LiteLLM drops what it does not map without a word. An OpenAI or Azure
-        generation keeps only a handful of OpenAI keys, so a background passed
-        to gpt-image as a plain argument never reaches the wire, while
-        extra_body is merged into the body; other providers take the options
-        as plain arguments. An edit never sends extra_body: its OpenAI-style
-        request keeps a fixed field list, background among them, and its
-        Bedrock, Stability and Black Forest Labs requests take plain
-        arguments, so an edit's options go as plain arguments.
+        LiteLLM drops what it does not map without a word. A generation for
+        OpenAI, Azure or a provider LiteLLM treats as OpenAI-compatible keeps
+        only a handful of OpenAI keys, so a background passed to gpt-image as
+        a plain argument never reaches the wire, while extra_body is merged
+        into the body; other providers take the options as plain arguments.
+        An edit never sends extra_body: its OpenAI-style request keeps a fixed
+        field list, background among them, and its Bedrock, Stability and
+        Black Forest Labs requests take plain arguments, each reading the ones
+        it knows.
         """
         body = dict(kwargs.get("extra_body") or {})
         for name in names:

@@ -233,7 +233,7 @@ class TestGenerationOptions:
         # Elsewhere LiteLLM forwards extra_body as a field of that name.
         recorder = _Recorder()
         port = LiteLLMPort(
-            provider_kind="dashscope",
+            provider_kind="openrouter",
             api_key="test-key",
             completion_fn=_Recorder(),
             embedding_fn=_Recorder(),
@@ -243,7 +243,7 @@ class TestGenerationOptions:
         )
         await port.generate_image(
             prompt="a red dot",
-            model="model:dashscope:qwen-image",
+            model="model:openrouter:google/gemini-2.5-flash-image",
             background="transparent",
             output_format="webp",
         )

@@ -38,9 +38,10 @@ record for operators.
   already did, and sends them to the provider only when set. A model whose
   `capabilities_json.image` declares `transparent_background: false` refuses
   a transparent request before anything is billed; a model that declares
-  nothing is sent both. OpenAI and Azure providers receive them; others are
-  sent them as provider parameters, which they may ignore, and through
-  LiteLLM DashScope receives them nested where it does not read them.
+  nothing is sent both. OpenAI, Azure and the providers LiteLLM treats as
+  OpenAI-compatible receive them; others are sent them as provider
+  parameters, which they may ignore, and through LiteLLM DashScope receives
+  them nested where it does not read them.
 
 - `POST /v1/images/generations` honours OpenAI's `background` and
   `output_format` (`png`, `jpeg`, `webp`), which it ignored, and
@@ -94,10 +95,12 @@ record for operators.
 - An image edit's options reach the providers LiteLLM can hand them to. They
   were sent in `extra_body`, which LiteLLM never sends on an image edit, so a
   transparent edit came back opaque and was billed, and a seed reached no
-  provider. They now go as plain arguments: `background` reaches
-  OpenAI-style providers, and `seed`, `strength`, `negative_prompt` and
-  `output_format` reach LiteLLM's Bedrock, Stability and Black Forest Labs
-  edits. OpenAI-style edits still have no field for those four.
+  provider. They now go as plain arguments, and each LiteLLM edit reads the
+  ones it knows: OpenAI-style edits read `background` only; Bedrock's
+  Stability models read `seed`, `strength`, `negative_prompt` and
+  `output_format`; Stability reads the first three and is always asked for
+  PNG; Black Forest Labs reads `seed` and `output_format`; Nova Canvas reads
+  `seed`.
 - An image artifact is named and typed after the bytes the provider
   returned (PNG, WebP or JPEG), not after the requested `output_format`. A
   provider that ignored the request no longer leaves PNG bytes labelled

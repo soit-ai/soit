@@ -76,16 +76,19 @@ def _port(wire: _Wire, litellm_provider: str | None = None, **litellm_params: An
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("model", "litellm_params"),
+    ("model", "litellm_provider", "litellm_params"),
     [
-        ("openai:gpt-image-1", {}),
+        ("openai:gpt-image-1", None, {}),
         # LiteLLM refuses response_format for this model unless told to drop it.
-        ("openai:doubao-seedream-3-0", {"drop_params": True}),
+        ("openai:doubao-seedream-3-0", None, {"drop_params": True}),
+        # A provider LiteLLM treats as OpenAI-compatible drops them as plain
+        # arguments just the same.
+        ("litellm_proxy:gpt-image-1", "litellm_proxy", {}),
     ],
 )
-async def test_a_generation_sends_background_and_output_format(model, litellm_params):
+async def test_a_generation_sends_background_and_output_format(model, litellm_provider, litellm_params):
     wire = _Wire()
-    await _port(wire, **litellm_params).generate_image(
+    await _port(wire, litellm_provider, **litellm_params).generate_image(
         prompt="a red dot",
         model=f"model:{model}",
         background="transparent",
