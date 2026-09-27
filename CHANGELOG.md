@@ -27,6 +27,10 @@ record for operators.
   `usage_estimated`. An AG-UI interaction canceled mid-stream settles its
   model call the same way, and a whole chat answer refused by outbound
   inspection is charged the usage the provider reported.
+- A function, MCP or plugin tool now receives an argument named `query`,
+  `url`, `method`, `headers` or `body` when its input schema declares one.
+  The tool router dropped those names as HTTP envelope keys for every tool,
+  so the builtin `knowledge_query` tool never received its query.
 - Errors that describe a caller's mistake, or a state the caller can change,
   answer 4xx instead of 500, so their messages reach callers outside
   development too:

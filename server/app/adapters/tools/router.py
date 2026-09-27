@@ -387,10 +387,14 @@ class RegistryToolRouterPort(ToolPort):
             if "body" in parameters:
                 tool_inputs = parameters.get("body") or {}
             else:
+                # HTTP envelope keys mean nothing to other tools, unless a
+                # tool declares an argument of that name (knowledge_query's
+                # own ``query``, say).
+                declared = set((tool_spec.get("input_schema") or {}).get("properties") or {})
                 tool_inputs = {
                     k: v
                     for k, v in parameters.items()
-                    if k not in ("url", "method", "headers", "body", "query")
+                    if k in declared or k not in ("url", "method", "headers", "body", "query")
                 }
 
         self._validate_inputs(tool_ref, tool_spec, tool_inputs)

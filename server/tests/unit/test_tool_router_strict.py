@@ -367,3 +367,40 @@ async def test_registered_plugin_tool_requires_plugin_runtime_port(test_context:
             strict_registry=True,
             ctx=test_context,
         )
+
+
+@pytest.mark.asyncio
+async def test_a_function_tool_receives_the_arguments_it_declares(test_context: RequestContext):
+    get_registry().register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:function:search_notes",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "name": "search_notes",
+                "adapter": "function",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+                "function": {"entrypoint": "notes:search"},
+            }
+        },
+    )
+    function = AsyncMock()
+    function.invoke = AsyncMock(return_value=ToolResponse(result={"ok": True}))
+
+    port = RegistryToolRouterPort(function_port=function)
+    await port.invoke(
+        "tool:function:search_notes",
+        {"query": "refund policy", "url": "https://example.com"},
+        strict_registry=True,
+        ctx=test_context,
+    )
+
+    # ``query`` is the tool's own argument; ``url`` is an HTTP key it never declared.
+    inputs = function.invoke.await_args.kwargs["parameters"]["inputs"]
+    assert inputs == {"query": "refund policy"}
