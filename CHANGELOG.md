@@ -218,6 +218,16 @@ record for operators.
   limit allows; an approved call goes back to `waiting_approval` and runs
   when sent again, under the same run and approval. An agent or workflow
   tool call refused this way fails as before.
+- An approved tool call resumed by two requests at once, with the same
+  `Idempotency-Key` on `POST /api/v1/tools/{ref}/invoke` or as the same
+  call sent again over MCP `tools/call`, could run the tool twice: the
+  second request read the call as still waiting for approval after the
+  first had claimed it, and claimed it again. The claim now reads the call
+  afresh under its row lock, so the second request is refused as in flight
+  (`409`) and leaves the run to the first, and the tool runs once. A resume
+  refused by the member's tool limits while another request runs the call
+  now leaves the run alone too: it failed the run, so the request running
+  the tool could not close it as succeeded.
 
 ### Security
 

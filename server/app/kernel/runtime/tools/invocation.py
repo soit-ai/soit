@@ -38,7 +38,11 @@ again.
 Each request holds the call it runs under a lease of its own, never one a
 caller could name: a request that repeats a running call, request id and
 all, finds the lease taken and is refused as in flight. Two approved resumes
-of one call arriving together are not yet serialized.
+of one call arriving together are serialized by the claim, which reads the
+call afresh under its row lock: the first claims the call and runs the tool,
+and the other is refused as in flight. A resume that does not claim the call,
+refused as in flight or by the member's limits while another request holds
+it, leaves the run to that request.
 """
 
 from __future__ import annotations
@@ -69,6 +73,7 @@ from app.kernel.ports.tools.interface import ToolPort, ToolResponse
 from app.kernel.runtime.db.models.runs import Run, RunStepToolCall
 from app.kernel.runtime.runs.tool_calls import (
     RuntimeToolExecutionService,
+    ToolCallInFlightError,
     ToolExecutionCommand,
     canonical_request_hash,
     summarize_parameters,
@@ -113,6 +118,14 @@ def _summary(value: Any) -> str | None:
     if value is None:
         return None
     return json.dumps(summarize_tool_payload(value), ensure_ascii=False, default=str)[:8192]
+
+
+def _resumed_elsewhere(record: RunStepToolCall, lease_owner: str) -> bool:
+    """Whether a request other than ``lease_owner``'s holds the call, or ran it to success."""
+
+    if record.status == "succeeded":
+        return True
+    return record.status in {"claimed", "running"} and record.lease_owner != lease_owner
 
 
 class ToolInvocationService:
@@ -517,14 +530,15 @@ class ToolInvocationService:
         run_step_id: str | None = None,
         resume_approval: bool = False,
     ) -> ToolInvocation:
+        # Not the request id a caller may choose: a repeated request must not
+        # find the call's lease to be its own.
+        lease_owner = f"tool-invoke:{generate_ulid()}"
         try:
             response: ToolResponse = await self.tool_port.invoke(
                 tool_ref=tool.ref,
                 parameters=arguments,
                 ctx=replace(self.ctx, api_key_requests_spent=True),
-                # Not the request id a caller may choose: a repeated request
-                # must not find the call's lease to be its own.
-                lease_owner=f"tool-invoke:{generate_ulid()}",
+                lease_owner=lease_owner,
                 # The catalog's policy, MCP tools' included, prices the call.
                 tool_policy=dict(tool.policy or {}),
                 run_id=run_id,
@@ -540,17 +554,9 @@ class ToolInvocationService:
             root = unwrap_retry_error(exc)
             if finish_run:
                 await self.db.rollback()
-                if resume_approval and await self._still_waiting(stored_key):
-                    # Refused before the call was claimed, such as by the
-                    # member's rate, quota or spend guard: the approval
-                    # stands, and the same call runs when sent again.
-                    await self._wait_again(run_id)
-                else:
-                    await self._fail_run(
-                        run_id,
-                        getattr(root, "code", None) or "TOOL_INVOCATION_FAILED",
-                        str(root),
-                    )
+                await self._settle_run(
+                    run_id, root, stored_key=stored_key, lease_owner=lease_owner, resumed=resume_approval
+                )
             if root is not exc:
                 raise root from exc
             raise
@@ -576,9 +582,37 @@ class ToolInvocationService:
             replayed=replayed,
         )
 
-    async def _still_waiting(self, stored_key: str) -> bool:
-        record = await self._find_record(stored_key)
-        return record is not None and record.status == "waiting_approval"
+    async def _settle_run(
+        self,
+        run_id: str,
+        error: BaseException,
+        *,
+        stored_key: str,
+        lease_owner: str,
+        resumed: bool,
+    ) -> None:
+        """Fail the run of a call the gateway raised on, or return it to waiting, or leave it to another request."""
+
+        if resumed:
+            if isinstance(error, ToolCallInFlightError):
+                # Another request claimed the approved call first and runs it.
+                return
+            record = await self._find_record(stored_key)
+            if record is not None and record.status == "waiting_approval":
+                # Refused before the call was claimed, such as by the
+                # member's rate, quota or spend guard: the approval stands,
+                # and the same call runs when sent again.
+                await self._wait_again(run_id)
+                return
+            if record is not None and _resumed_elsewhere(record, lease_owner):
+                # Refused while another request resumed the call: that
+                # request holds it, or ran it, and closes the run.
+                return
+        await self._fail_run(
+            run_id,
+            getattr(error, "code", None) or "TOOL_INVOCATION_FAILED",
+            str(error),
+        )
 
     async def _wait_again(self, run_id: str) -> None:
         try:

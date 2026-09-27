@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from decimal import Decimal
 
@@ -739,3 +740,113 @@ async def test_a_request_for_a_call_still_running_does_not_run_it_again(async_cl
     assert again.status_code == 409, again.text
     costs = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == record.run_id))).all()
     assert len(costs) == 1
+
+
+async def _resume_while_a_first_resume_runs(async_client, async_db, monkeypatch, waiting: dict, call: dict):
+    """Resume the approved call ``waiting`` over the API, overtaken by a first resume of it.
+
+    The request sent here reads the call as waiting for approval. A first
+    resume of the same call, in a session of its own, then claims it, and is
+    still inside the tool when this one goes on to claim it. Returns this
+    request's response, the run's status while the first still runs, the
+    first resume's outcome, and the arguments the tool ran with each time.
+    """
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.kernel.runtime.tools.invocation import ToolInvocationService
+    from app.utils import builtin_tools
+    from app.wiring.services import build_tool_invocation_service
+
+    ran: list[dict] = []
+    first_runs, first_may_finish = asyncio.Event(), asyncio.Event()
+
+    async def random_int(min: int, max: int) -> dict:
+        ran.append({"min": min, "max": max})
+        if len(ran) == 1:
+            first_runs.set()
+            await first_may_finish.wait()
+        return {"value": min}
+
+    first_session = AsyncSession(async_db.bind, expire_on_commit=False)
+    first: list[asyncio.Task] = []
+    find_record = ToolInvocationService._find_record
+
+    async def read_then_let_the_first_resume_claim(self, stored_key):
+        record = await find_record(self, stored_key)
+        if not first:
+            service = build_tool_invocation_service(db=first_session, ctx=self.ctx)
+            first.append(
+                asyncio.create_task(
+                    service.invoke(GATED, call["arguments"], idempotency_key=waiting["idempotency_key"])
+                )
+            )
+            await asyncio.wait_for(first_runs.wait(), timeout=10)
+        return record
+
+    monkeypatch.setattr(builtin_tools, "random_int", random_int)
+    monkeypatch.setattr(ToolInvocationService, "_find_record", read_then_let_the_first_resume_claim)
+    try:
+        second = await async_client.post(
+            f"/api/v1/tools/{GATED}/invoke", json=call, headers={"Idempotency-Key": waiting["idempotency_key"]}
+        )
+        while_the_first_runs = (await _run(async_db, waiting["run_id"])).status
+        first_may_finish.set()
+        first_outcome = await asyncio.wait_for(first[0], timeout=10)
+    finally:
+        first_may_finish.set()
+        await first_session.close()
+    return second, while_the_first_runs, first_outcome, ran
+
+
+async def _approved_call(async_client, call: dict) -> dict:
+    waiting = (await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call)).json()["data"]
+    resolved = await async_client.post(
+        f"/api/v1/observe/approvals/{waiting['approval_id']}/resolve", json={"status": "approved"}
+    )
+    assert resolved.status_code == 200, resolved.text
+    return waiting
+
+
+async def test_two_approved_resumes_of_one_call_run_it_once(async_client, async_db, ctx, monkeypatch) -> None:
+    # The second resume read the call as waiting before the first claimed it;
+    # the claim must find the first one's, not take the call over again.
+    _register_gated_tool(ctx)
+    call = {"arguments": {"min": 5, "max": 5}}
+    waiting = await _approved_call(async_client, call)
+
+    second, while_the_first_runs, first, ran = await _resume_while_a_first_resume_runs(
+        async_client, async_db, monkeypatch, waiting, call
+    )
+
+    assert ran == [{"min": 5, "max": 5}], "the tool ran once"
+    assert second.status_code == 409, second.text
+    assert (second.json()["code"], second.json()["message"]) == ("CONFLICT", "Tool call is already claimed")
+    assert while_the_first_runs == "running", "the refused resume leaves the run to the first"
+    assert (first.run_id, first.status, first.result) == (waiting["run_id"], "succeeded", {"value": 5})
+    assert (await _run(async_db, waiting["run_id"])).status == "succeeded"
+    costs = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == waiting["run_id"]))).all()
+    assert len(costs) == 1
+
+
+@pytest.mark.usefixtures("key_counters")
+async def test_a_resume_the_members_rate_refuses_leaves_a_running_call_alone(
+    async_client, async_db, ctx, monkeypatch
+) -> None:
+    # Refused before it claims, while a first resume runs the call: the call
+    # is no longer waiting, and its run is not this request's to fail.
+    _register_gated_tool(ctx)
+    call = {"arguments": {"min": 5, "max": 5}}
+    _as(dataclasses.replace(ctx, tool_rate_limit_per_minute=1))
+    try:
+        waiting = await _approved_call(async_client, call)
+        second, while_the_first_runs, first, ran = await _resume_while_a_first_resume_runs(
+            async_client, async_db, monkeypatch, waiting, call
+        )
+    finally:
+        _as(ctx)
+
+    assert second.status_code == 429, second.text
+    assert while_the_first_runs == "running"
+    assert (first.status, first.result) == ("succeeded", {"value": 5})
+    assert ran == [{"min": 5, "max": 5}]
+    assert (await _run(async_db, waiting["run_id"])).status == "succeeded"

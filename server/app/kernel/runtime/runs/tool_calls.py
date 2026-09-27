@@ -111,6 +111,13 @@ def _aware_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+class ToolCallInFlightError(ConflictError):
+    """Another claim holds the call, so this one never ran it."""
+
+    def __init__(self) -> None:
+        super().__init__("Tool call is already claimed")
+
+
 @dataclass(frozen=True)
 class ToolExecutionCommand:
     """Stable identity and input for one logical runtime tool call."""
@@ -195,6 +202,12 @@ class RuntimeToolExecutionService:
         statement = self._call_statement(command.run_id, command.tool_call_id)
         if for_update:
             statement = statement.with_for_update()
+        # Read from the row, not the identity map: the session may hold the
+        # record from an earlier read, such as the invocation service's, and
+        # another request may have claimed it since. Under the row lock this
+        # makes a claim a compare-and-set: an approved call waiting is claimed
+        # once, and a second resume finds it claimed.
+        statement = statement.execution_options(populate_existing=True)
         # Plain SQLAlchemy select: scalarize, the way the sync code did.
         return (await self.db.exec(statement)).scalars().first()
 
@@ -347,7 +360,7 @@ class RuntimeToolExecutionService:
                 run_step_id=existing.run_step_id,
             )
             return ToolExecutionClaim(record=existing, run_step=step)
-        raise ConflictError("Tool call is already claimed")
+        raise ToolCallInFlightError()
 
     async def recorded_outcome(self, command: ToolExecutionCommand) -> ToolExecutionClaim | None:
         """The recorded outcome ``command`` replays, found without claiming anything.
@@ -414,7 +427,7 @@ class RuntimeToolExecutionService:
             await self.db.rollback()
             concurrent = await self._find_existing(command)
             if concurrent is not None:
-                raise ConflictError("Tool call is already claimed") from exc
+                raise ToolCallInFlightError() from exc
             raise
         return ToolExecutionClaim(record=record, run_step=run_step)
 
