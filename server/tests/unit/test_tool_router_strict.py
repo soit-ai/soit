@@ -437,3 +437,39 @@ async def test_a_plugin_under_the_knowledge_query_name_never_gets_the_callers_co
     )
 
     assert plugin_runtime.calls[0]["input_json"] == {"query": "salaries"}
+
+
+@pytest.mark.asyncio
+async def test_a_function_tool_that_declares_a_body_receives_it(test_context: RequestContext):
+    get_registry().register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:function:send_note",
+        version="1.0.0",
+        payload={
+            "tool_spec": {
+                "name": "send_note",
+                "adapter": "function",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"to": {"type": "string"}, "body": {"type": "string"}},
+                    "required": ["to", "body"],
+                },
+                "function": {"entrypoint": "notes:send"},
+            }
+        },
+    )
+    function = AsyncMock()
+    function.invoke = AsyncMock(return_value=ToolResponse(result={"ok": True}))
+
+    port = RegistryToolRouterPort(function_port=function)
+    await port.invoke(
+        "tool:function:send_note",
+        {"to": "ops@example.com", "body": "hello"},
+        strict_registry=True,
+        ctx=test_context,
+    )
+
+    inputs = function.invoke.await_args.kwargs["parameters"]["inputs"]
+    assert inputs == {"to": "ops@example.com", "body": "hello"}

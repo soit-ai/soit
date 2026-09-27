@@ -61,10 +61,12 @@ record for operators.
   session they never commit, so their priced embedding and rerank costs
   were rolled back and the query run stayed `running`; a query through the
   API lost them the same way when it failed after the embedding call.
-- A function, MCP or plugin tool now receives an argument named `query`,
-  `url`, `method`, `headers` or `body` when its input schema declares one.
-  The tool router dropped those names as HTTP envelope keys for every tool,
-  so the builtin `knowledge_query` tool never received its query.
+- A function or plugin tool now receives an argument named `query`, `url`,
+  `method`, `headers` or `body` when its input schema declares one. The tool
+  router treated those names as HTTP envelope keys for every tool that was
+  not an HTTP tool, dropping them (or, for `body`, replacing all arguments
+  with its value), so the builtin `knowledge_query` tool never received its
+  query.
 - Errors that describe a caller's mistake, or a state the caller can change,
   answer 4xx instead of 500, so their messages reach callers outside
   development too:
