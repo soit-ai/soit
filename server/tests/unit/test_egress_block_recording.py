@@ -251,3 +251,129 @@ async def test_a_content_free_block_records_where_a_request_went_not_what_it_car
     [event] = (await async_db.exec(select(AuditEvent).where(AuditEvent.event_type == EGRESS_BLOCK_EVENT_TYPE))).all()
     assert event.payload_json["url"] == (url if capture == "full" else "https://blocked.example")
     assert event.payload_json["domain"] == "blocked.example"
+
+
+# A webhook URL stored as a secret: the host is a capability id and the path
+# carries the token, so no part of it may be cited by a refusal.
+_SECRET_URL = "https://hook-7q2x.example/services/T0/B0/tok-9Fh3Lw"
+_SECRET_PARTS = ("hook-7q2x", "tok-9Fh3Lw")
+
+
+def _discloses_secret(*values) -> bool:
+    return any(part in str(value) for value in values for part in _SECRET_PARTS)
+
+
+@pytest.mark.usefixtures("egress_enabled")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reason", "scope_policy"),
+    [
+        ("not_allowlisted", None),
+        ("tenant_blocklist", {"tenant_blocklist": ["*.example"]}),
+        ("workspace_blocklist", {"workspace_blocklist": ["*.example"]}),
+        ("policy_lookup_failed", RuntimeError("policy store is down")),
+    ],
+)
+async def test_a_refusal_reported_as_a_reference_cites_neither_the_url_nor_its_host(
+    ctx, monkeypatch, reason, scope_policy
+):
+    from app.kernel.security import egress
+    from app.kernel.security.egress import EgressScopePolicy
+
+    class _Provider:
+        async def get_scope_policy(self, ctx):
+            if isinstance(scope_policy, Exception):
+                raise scope_policy
+            return EgressScopePolicy(**(scope_policy or {}))
+
+    monkeypatch.setattr(egress, "_egress_scope_policy_provider", _Provider())
+    sink = _RecordingSink()
+    register_egress_block_recorder(sink)
+
+    with pytest.raises(ForbiddenError) as refused:
+        await check_egress_policy(
+            ctx, "tool:http.fetch", {"url": _SECRET_URL}, reported_as="secret:sec_hook"
+        )
+
+    [call] = sink.calls
+    assert call["reason"] == reason
+    assert call["url"] == "secret:sec_hook"
+    assert call["domain"] is None
+    assert not _discloses_secret(call, refused.value, refused.value.details)
+
+
+@pytest.mark.usefixtures("egress_enabled")
+@pytest.mark.asyncio
+async def test_a_reported_reference_leaves_the_decision_to_the_real_host(ctx, monkeypatch):
+    from app.kernel.security import egress
+
+    monkeypatch.setattr(settings, "egress_allowlist", ["hook-7q2x.example"])
+    monkeypatch.setattr(egress, "_egress_policy", None)
+    monkeypatch.setattr(egress, "_egress_scope_policy_provider", None)
+
+    await check_egress_policy(
+        ctx, "tool:http.fetch", {"url": _SECRET_URL}, reported_as="secret:sec_hook"
+    )
+    with pytest.raises(ForbiddenError):
+        await check_egress_policy(
+            ctx,
+            "tool:http.fetch",
+            {"url": "https://elsewhere.example/x"},
+            reported_as="https://hook-7q2x.example",
+        )
+
+
+@pytest.mark.usefixtures("egress_enabled")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capture", ["metadata_only", "full"])
+async def test_a_refused_url_injected_from_a_secret_reaches_the_ledger_as_its_reference(
+    async_db, ctx, monkeypatch, capture
+):
+    """A webhook stored as a secret must not land in plaintext in the audit ledger."""
+    from dataclasses import replace
+
+    from sqlmodel import select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.kernel.ports.secrets.interface import SecretsPort
+    from app.kernel.ports.tools.interface import ToolPort
+    from app.kernel.ports.tools.policy import ToolPolicyGateway
+    from app.kernel.security import egress
+    from app.wiring.container import AuditEgressBlockRecorder
+
+    class _Secrets(SecretsPort):
+        async def get_secret(self, secret_id: str, **kwargs):
+            return _SECRET_URL
+
+    class _Tool(ToolPort):
+        async def invoke(self, tool_ref: str, parameters: dict, **kwargs):
+            raise AssertionError("a refused call must not be sent")
+
+    monkeypatch.setattr(
+        "app.infra.db.session.get_async_session_local",
+        lambda: lambda: AsyncSession(async_db.bind, expire_on_commit=False),
+    )
+    monkeypatch.setattr(egress, "_egress_scope_policy_provider", None)
+    register_egress_block_recorder(AuditEgressBlockRecorder())
+    gateway = ToolPolicyGateway(
+        gateway=_Tool(),
+        ctx=replace(ctx, content_capture=capture),
+        secrets_port=_Secrets(),
+    )
+
+    with pytest.raises(ForbiddenError) as refused:
+        await gateway.invoke(
+            tool_ref="tool:http:request",
+            parameters={"url": {"secret_id": "sec_hook"}, "body": {"text": "ping"}},
+        )
+
+    events = (await async_db.exec(select(AuditEvent))).all()
+    [block] = [event for event in events if event.event_type == EGRESS_BLOCK_EVENT_TYPE]
+    assert block.payload_json["url"] == "secret:sec_hook"
+    assert block.payload_json["domain"] is None
+    assert block.payload_json["reason"] == "not_allowlisted"
+    assert not _discloses_secret(
+        *[(event.resource_id, event.payload_json) for event in events],
+        refused.value,
+        refused.value.details,
+    )

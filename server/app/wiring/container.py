@@ -6,6 +6,7 @@ Dependency injection container for managing Port instances.
 import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -203,8 +204,13 @@ class AuditEgressBlockRecorder:
         try:
             # Where a refused request went is governance evidence; the path and
             # query of its URL are what it carried, which a content-free
-            # workspace does not keep.
-            if url and not (await resolve_content_capture(db, ctx)).keeps_content:
+            # workspace does not keep. A secret's reference, cited in place of
+            # a URL that is itself the secret, is an identifier and stays.
+            if (
+                url
+                and not (await resolve_content_capture(db, ctx)).keeps_content
+                and urlsplit(url).scheme in {"http", "https"}
+            ):
                 url = url_origin(url)
             db.add(
                 AuditEvent(

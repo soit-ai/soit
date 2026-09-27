@@ -316,10 +316,50 @@ def get_egress_policy() -> EgressPolicy:
     return _egress_policy
 
 
+async def _refuse(
+    ctx: RequestContext,
+    resource_ref: str,
+    *,
+    url: str,
+    domain: str | None,
+    reason: str,
+    refused: str,
+    bundles: dict[str, str | None],
+    reported_as: str | None,
+) -> ForbiddenError:
+    """Record one refusal and build the error that reports it.
+
+    A target the caller must not disclose stands in for the URL and its host in
+    both: a URL that is itself a secret would otherwise be written into the
+    evidence of refusing it.
+    """
+    target = domain
+    if reported_as is not None:
+        url, domain, target = reported_as, None, reported_as
+    await record_egress_block(
+        ctx,
+        resource_ref=resource_ref,
+        url=url,
+        domain=domain,
+        reason=reason,
+        bundles=bundles,
+    )
+    return ForbiddenError(
+        f"Egress to {target} {refused}",
+        {
+            "url": url,
+            "domain": domain,
+            "resource_ref": resource_ref,
+        },
+    )
+
+
 async def check_egress_policy(
     ctx: RequestContext,
     resource_ref: str,
     parameters: dict[str, Any],
+    *,
+    reported_as: str | None = None,
 ) -> None:
     """Check egress policy (deny-by-default).
 
@@ -327,6 +367,9 @@ async def check_egress_policy(
         ctx: Request context.
         resource_ref: Resource reference (tool_ref, endpoint, etc.).
         parameters: Request parameters (may contain URLs).
+        reported_as: What a refusal records and reports in place of the URL
+            and its host, for a URL the caller must not disclose, such as one
+            injected from a secret. The decision is still made on the URL.
 
     Raises:
         ForbiddenError: If egress is denied.
@@ -387,7 +430,7 @@ async def check_egress_policy(
             await record_egress_block(
                 ctx,
                 resource_ref=resource_ref,
-                url=str(url),
+                url=reported_as if reported_as is not None else str(url),
                 domain=None,
                 reason="policy_lookup_failed",
             )
@@ -401,40 +444,28 @@ async def check_egress_policy(
         if tenant_blocklist:
             tenant_patterns = [policy._compile_pattern(p) for p in tenant_blocklist]
             if policy._matches_pattern(domain, tenant_patterns):
-                await record_egress_block(
+                raise await _refuse(
                     ctx,
-                    resource_ref=resource_ref,
+                    resource_ref,
                     url=str(url),
                     domain=domain,
                     reason="tenant_blocklist",
+                    refused="is blocked by tenant policy",
                     bundles=bundles,
-                )
-                raise ForbiddenError(
-                    f"Egress to {domain} is blocked by tenant policy",
-                    {
-                        "url": url,
-                        "domain": domain,
-                        "resource_ref": resource_ref,
-                    },
+                    reported_as=reported_as,
                 )
         if workspace_blocklist:
             workspace_patterns = [policy._compile_pattern(p) for p in workspace_blocklist]
             if policy._matches_pattern(domain, workspace_patterns):
-                await record_egress_block(
+                raise await _refuse(
                     ctx,
-                    resource_ref=resource_ref,
+                    resource_ref,
                     url=str(url),
                     domain=domain,
                     reason="workspace_blocklist",
+                    refused="is blocked by workspace policy",
                     bundles=bundles,
-                )
-                raise ForbiddenError(
-                    f"Egress to {domain} is blocked by workspace policy",
-                    {
-                        "url": url,
-                        "domain": domain,
-                        "resource_ref": resource_ref,
-                    },
+                    reported_as=reported_as,
                 )
 
     is_allowed = policy.check_allowed(
@@ -445,22 +476,15 @@ async def check_egress_policy(
     )
 
     if not is_allowed:
-        domain = policy._extract_domain(url)
-        await record_egress_block(
+        raise await _refuse(
             ctx,
-            resource_ref=resource_ref,
+            resource_ref,
             url=str(url),
-            domain=domain,
+            domain=policy._extract_domain(url),
             reason="not_allowlisted",
+            refused="is not allowed by policy",
             bundles=bundles,
-        )
-        raise ForbiddenError(
-            f"Egress to {domain} is not allowed by policy",
-            {
-                "url": url,
-                "domain": domain,
-                "resource_ref": resource_ref,
-            }
+            reported_as=reported_as,
         )
 
 

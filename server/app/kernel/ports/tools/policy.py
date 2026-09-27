@@ -190,6 +190,30 @@ class ToolPolicyGateway(ToolPort):
             return resolved_list, redacted_list
         return value, value
 
+    def _egress_targets(self, resolved: Any, redacted: Any) -> list[tuple[str, str | None]]:
+        """Every URL a call reaches, with what a refusal cites in its place.
+
+        A URL injected from a secret is checked as it will be sent, but a
+        refusal cites the secret's reference instead: the URL, its host
+        included, is the secret.
+        """
+        if isinstance(redacted, dict) and "secret_id" in redacted:
+            reference = f"secret:{redacted['secret_id']}"
+            return [(url, reference) for url in iter_http_urls(resolved)]
+        if isinstance(resolved, dict) and isinstance(redacted, dict):
+            return [
+                target
+                for key, item in resolved.items()
+                for target in self._egress_targets(item, redacted.get(key))
+            ]
+        if isinstance(resolved, list) and isinstance(redacted, list):
+            return [
+                target
+                for item, redacted_item in zip(resolved, redacted, strict=True)
+                for target in self._egress_targets(item, redacted_item)
+            ]
+        return [(url, None) for url in iter_http_urls(resolved)]
+
     def _first_url(self, value: Any) -> str | None:
         if isinstance(value, dict):
             for item in value.values():
@@ -388,8 +412,12 @@ class ToolPolicyGateway(ToolPort):
         start_time = utc_now()
         try:
             if self.enable_egress_check:
-                for url in iter_http_urls(resolved_parameters):
-                    await check_egress_policy(self.ctx, tool_ref, {"url": url})
+                for url, reported_as in self._egress_targets(
+                    resolved_parameters, redacted_parameters
+                ):
+                    await check_egress_policy(
+                        self.ctx, tool_ref, {"url": url}, reported_as=reported_as
+                    )
 
             async def _invoke():
                 if tool_execution_service and tool_execution_claim:

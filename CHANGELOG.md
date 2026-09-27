@@ -243,6 +243,14 @@ record for operators.
 
 ### Security
 
+- A tool call whose URL was injected from a secret, such as a webhook URL
+  kept as one, put that secret into the evidence of its refusal when egress
+  policy refused it, in every capture mode: the `security.egress.blocked`
+  audit event, the error's message and details and the failed step's error
+  details named the URL's host, and held all of a URL with no host. The
+  refusal now cites the secret's reference, `secret:<secret_id>`, in place
+  of the URL and names no domain. The policy still decides on the URL's
+  real host.
 - A content-free workspace's record of an outbound request refused by egress
   policy keeps the URL's origin, not its path and query.
 - A content-free workspace's evidence bundle no longer hands out content that

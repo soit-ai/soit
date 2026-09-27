@@ -363,6 +363,97 @@ async def test_tool_policy_audits_egress_denials(async_db, ctx, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("capture", ["metadata_only", "full"])
+@pytest.mark.parametrize(
+    "secret_url",
+    [
+        # A webhook whose host is a capability id and whose path is the token.
+        "https://hook-7q2x.example/services/T0/B0/tok-9Fh3Lw",
+        # No host to reduce it to: the check saw the whole value.
+        "https:hook-7q2x.example/services/tok-9Fh3Lw",
+    ],
+)
+async def test_tool_policy_egress_denial_never_records_an_injected_secret(
+    async_db, ctx, monkeypatch, capture, secret_url
+):
+    """A refused URL injected from a secret is cited by its reference, everywhere."""
+    from dataclasses import replace
+
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.wiring.container import AuditEgressBlockRecorder
+
+    class UrlSecretsPort(SecretsPort):
+        async def get_secret(self, secret_id: str, **kwargs):
+            return secret_url
+
+    monkeypatch.setattr(settings, "enable_egress_policy", True)
+    monkeypatch.setattr(settings, "egress_allowlist", ["api.example.com"])
+    monkeypatch.setattr(settings, "egress_blocklist", [])
+    monkeypatch.setattr(egress, "_egress_policy", None)
+    monkeypatch.setattr(egress, "_egress_scope_policy_provider", None)
+    monkeypatch.setattr(egress, "_egress_block_recorder", AuditEgressBlockRecorder())
+    monkeypatch.setattr(
+        "app.infra.db.session.get_async_session_local",
+        lambda: lambda: AsyncSession(async_db.bind, expire_on_commit=False),
+    )
+
+    capture_ctx = replace(ctx, content_capture=capture)
+    dummy_tool = DummyToolPort()
+    trace_writer = TraceWriter(async_db, capture_ctx)
+    run = await trace_writer.create_run(mode="workflow", kind="workflow")
+    gateway = ToolPolicyGateway(
+        gateway=dummy_tool,
+        ctx=capture_ctx,
+        trace_writer=trace_writer,
+        secrets_port=UrlSecretsPort(),
+    )
+
+    with pytest.raises(ForbiddenError) as refused:
+        await gateway.invoke(
+            tool_ref="tool:http:demo",
+            parameters={"url": {"secret_id": "sec_hook"}},
+            run_id=run.id,
+            tool_call_id="call-secret-url",
+        )
+
+    assert dummy_tool.last_parameters is None
+    step_result = (await async_db.exec(select(RunStep).where(RunStep.run_id == run.id))).one()
+    step = step_result if isinstance(step_result, RunStep) else step_result[0]
+    assert step.status == "failed"
+    assert step.error_details["domain"] is None
+    if capture == "full":
+        # A content-free step withholds the reference with its other values.
+        assert step.error_details["url"] == "secret:sec_hook"
+    record_result = (await async_db.exec(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == run.id)
+    )).one()
+    record = record_result if isinstance(record_result, RunStepToolCall) else record_result[0]
+    audits = [
+        audit if isinstance(audit, AuditEvent) else audit[0]
+        for audit in (await async_db.exec(select(AuditEvent))).all()
+    ]
+    assert {audit.event_type for audit in audits} >= {"security.egress.blocked"}
+    assert len(audits) >= 2
+
+    recorded = str(
+        [
+            refused.value,
+            refused.value.details,
+            step.error_message,
+            step.error_details,
+            step.metrics_json,
+            record.parameters_summary_json,
+            record.error_message,
+            *[(audit.resource_id, audit.payload_json) for audit in audits],
+        ]
+    )
+    for part in ("hook-7q2x", "tok-9Fh3Lw"):
+        assert part not in recorded
+    assert "sec_hook" in recorded
+
+
+@pytest.mark.asyncio
 async def test_builtin_ticket_tool_is_governed_and_redacts_secret(async_db, ctx, monkeypatch):
     """Ticket tool requires workspace context, applies egress, and audits redacted inputs."""
     monkeypatch.setattr(settings, "enable_egress_policy", True)
