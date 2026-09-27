@@ -193,10 +193,19 @@ class AuditEgressBlockRecorder:
     ) -> None:
         from app.infra.db.session import get_async_session_local
         from app.kernel.runtime.db.models.audit import AuditEvent
+        from app.kernel.runtime.runs.content_capture import (
+            resolve_content_capture,
+            url_origin,
+        )
         from app.kernel.security.egress import EGRESS_BLOCK_EVENT_TYPE
 
         db = get_async_session_local()()
         try:
+            # Where a refused request went is governance evidence; the path and
+            # query of its URL are what it carried, which a content-free
+            # workspace does not keep.
+            if url and not (await resolve_content_capture(db, ctx)).keeps_content:
+                url = url_origin(url)
             db.add(
                 AuditEvent(
                     tenant_id=ctx.tenant_id,

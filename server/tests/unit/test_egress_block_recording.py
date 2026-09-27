@@ -220,3 +220,34 @@ async def test_the_summary_carries_the_bundle_that_refused_each_request(async_db
 
     assert summary.recent[0].workspace_bundle_id == "pb_workspace"
     assert summary.recent[0].tenant_bundle_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capture", ["metadata_only", "full"])
+async def test_a_content_free_block_records_where_a_request_went_not_what_it_carried(
+    async_db, ctx, monkeypatch, capture
+):
+    from dataclasses import replace
+
+    from sqlmodel import select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.wiring.container import AuditEgressBlockRecorder
+
+    monkeypatch.setattr(
+        "app.infra.db.session.get_async_session_local",
+        lambda: lambda: AsyncSession(async_db.bind, expire_on_commit=False),
+    )
+    url = "https://blocked.example/hook?q=patient-7731+reports+chest+pain"
+
+    await AuditEgressBlockRecorder().record_block(
+        replace(ctx, content_capture=capture),
+        resource_ref="tool:http:request",
+        url=url,
+        domain="blocked.example",
+        reason="not_allowlisted",
+    )
+
+    [event] = (await async_db.exec(select(AuditEvent).where(AuditEvent.event_type == EGRESS_BLOCK_EVENT_TYPE))).all()
+    assert event.payload_json["url"] == (url if capture == "full" else "https://blocked.example")
+    assert event.payload_json["domain"] == "blocked.example"

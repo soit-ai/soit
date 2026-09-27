@@ -221,6 +221,8 @@ record for operators.
 
 ### Security
 
+- A content-free workspace's record of an outbound request refused by egress
+  policy keeps the URL's origin, not its path and query.
 - A content-free workspace's evidence bundle no longer hands out content that
   its rows still hold from before the workspace went content-free, or from
   fields not covered until now: run and step summaries and error text, step
