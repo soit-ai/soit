@@ -53,9 +53,11 @@ def stricter_capture(*modes: str | None) -> str:
 
 _MARKER = re.compile(r"\[withheld: \d+ chars, sha256:[0-9a-f]{16}\]")
 
-# Keys whose values identify what a call touched rather than carry what it
-# handled. They keep their value wherever they appear in a withheld record.
-_IDENTIFIER_KEYS = frozenset(
+# Fields of a record's own envelope (a step's tool call, an egress decision,
+# the audit payload around a call, a step's metrics) that say what was called
+# and how it went. They keep their value where the envelope holds them, never
+# inside what the call handled.
+_ENVELOPE_KEYS = frozenset(
     {
         "id",
         "run_id",
@@ -84,6 +86,7 @@ _IDENTIFIER_KEYS = frozenset(
         "decision",
         "success",
         "outcome",
+        "reason",
         "error_code",
         "error_type",
         "code",
@@ -94,7 +97,9 @@ _IDENTIFIER_KEYS = frozenset(
         "duration_ms",
         "attempt",
         "attempts",
+        "attempt_count",
         "iteration",
+        "replayed",
         "idempotent_replay",
         "result_type",
         "result_artifact_id",
@@ -102,18 +107,52 @@ _IDENTIFIER_KEYS = frozenset(
         "audit_size",
         "truncated",
         "timestamp",
+        "model",
+        "model_ref",
+        "upstream_model",
         "provider",
+        "provider_id",
+        "provider_slug",
+        "provider_kind",
         "direction",
         "category",
         "score",
+        "strategy",
         "knowledge_id",
         "index_id",
+        "node_id",
     }
 )
 
-# Top-level step metrics that hold what a call handled.
-_CONTENT_METRIC_KEYS = ("tool_call", "egress", "content", "structuredContent")
+# Where a record holds what the call handled. Every value inside is withheld,
+# whatever its key, except the references records are linked by.
+_PAYLOAD_KEYS = frozenset(
+    {
+        "arguments",
+        "result",
+        "metadata",
+        "parameters",
+        "content",
+        "structuredContent",
+        "body",
+        "query",
+        "headers",
+        "error",
+        "error_message",
+        "details",
+        "input",
+        "output",
+        "preview",
+        "messages",
+        "text",
+        "data",
+    }
+)
 
+# Inside a payload, only these still say which record another one is.
+_REFERENCE_KEYS = frozenset(
+    {"run_id", "tool_call_id", "workflow_run_id", "response_id", "task_id", "approval_id"}
+)
 
 def is_withheld(value: Any) -> bool:
     """Whether ``value`` is already a withheld marker."""
@@ -141,12 +180,21 @@ def withheld_object(value: Any) -> dict[str, str]:
 
 
 def url_origin(url: str) -> str:
-    """``scheme://host[:port]`` of a URL: where it went, not what it carried."""
-    parts = urlsplit(url)
-    if not parts.scheme or not parts.hostname:
+    """``scheme://host[:port]`` of a URL: where it went, not what it carried.
+
+    Whatever cannot be read as one (no host, a port out of range, a broken
+    IPv6 literal) is withheld whole rather than left to fail the write.
+    """
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
         return withheld(url)
-    host = parts.hostname if ":" not in parts.hostname else f"[{parts.hostname}]"
-    return f"{parts.scheme}://{host}" + (f":{parts.port}" if parts.port else "")
+    if not parts.scheme or not hostname:
+        return withheld(url)
+    host = hostname if ":" not in hostname else f"[{hostname}]"
+    return f"{parts.scheme}://{host}" + (f":{port}" if port else "")
 
 
 def _is_plain(value: Any) -> bool:
@@ -157,12 +205,17 @@ def _is_plain(value: Any) -> bool:
     )
 
 
-def withhold_values(value: Any) -> Any:
-    """``value`` with its shape kept and every content-bearing leaf withheld."""
-    if isinstance(value, dict):
-        return {key: _withhold_member(str(key), item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [withhold_values(item) for item in value]
+def _is_secret_reference(key: str, value: Any) -> bool:
+    if key == "secret_id":
+        return isinstance(value, str) and value.startswith("sec_")
+    if key == "secret_ids":
+        return isinstance(value, list | tuple) and all(
+            isinstance(item, str) and item.startswith("sec_") for item in value
+        )
+    return False
+
+
+def _leaf(value: Any) -> Any:
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -170,12 +223,54 @@ def withhold_values(value: Any) -> Any:
     return withheld(json.dumps(value, default=str))
 
 
-def _withhold_member(key: str, value: Any) -> Any:
-    if key in _IDENTIFIER_KEYS and _is_plain(value):
-        return value
-    if key == "url" and isinstance(value, str) and not is_withheld(value) and "://" in value:
+def _url(value: Any) -> Any:
+    if isinstance(value, str) and not is_withheld(value) and "://" in value:
         return url_origin(value)
-    return withhold_values(value)
+    return _leaf(value)
+
+
+def withhold_payload(value: Any) -> Any:
+    """What a call handled, with only the references that link records kept."""
+    if isinstance(value, dict):
+        kept: dict[Any, Any] = {}
+        for key, item in value.items():
+            name = str(key)
+            if _is_secret_reference(name, item):
+                kept[key] = item
+            elif (name in _REFERENCE_KEYS or name.endswith("_run_id")) and isinstance(item, str):
+                kept[key] = item
+            elif name == "url":
+                kept[key] = _url(item)
+            else:
+                kept[key] = withhold_payload(item)
+        return kept
+    if isinstance(value, list | tuple):
+        return [withhold_payload(item) for item in value]
+    return _leaf(value)
+
+
+def withhold_values(value: Any) -> Any:
+    """A record's envelope with its shape and identifiers kept.
+
+    What the envelope holds of the call itself (arguments, results, bodies)
+    goes through :func:`withhold_payload`; any other value is withheld.
+    """
+    if isinstance(value, dict):
+        kept: dict[Any, Any] = {}
+        for key, item in value.items():
+            name = str(key)
+            if name in _PAYLOAD_KEYS:
+                kept[key] = withhold_payload(item)
+            elif name in _ENVELOPE_KEYS and _is_plain(item):
+                kept[key] = item
+            elif name == "url":
+                kept[key] = _url(item)
+            else:
+                kept[key] = withhold_values(item)
+        return kept
+    if isinstance(value, list | tuple):
+        return [withhold_values(item) for item in value]
+    return _leaf(value)
 
 
 @dataclass(frozen=True)
@@ -208,27 +303,33 @@ class ContentCapture:
         return kept
 
     def metrics(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        """Step metrics with the content of the call they describe withheld.
+        """Step metrics with only counts, timings and identity kept.
 
-        Counts, timings, model and provider identity are kept; so is the
-        structure of a tool call, its identifiers and its status.
+        Numbers, flags and the fields that name a model, provider, tool or
+        knowledge base stay; a tool call keeps its envelope; any other value
+        a metric carries, a retrieval's query or a tool's output, is withheld.
         """
         if value is None or self.keeps_content:
             return value
-        kept = dict(value)
-        for key in _CONTENT_METRIC_KEYS:
-            if key in kept:
-                kept[key] = withhold_values(kept[key])
-        safety = kept.get("content_safety")
-        if isinstance(safety, list):
-            kept["content_safety"] = [_without_finding_details(item) for item in safety]
+        kept: dict[str, Any] = {}
+        for key, item in value.items():
+            if item is None or isinstance(item, bool | int | float):
+                kept[key] = item
+            elif key == "content_safety" and isinstance(item, list):
+                kept[key] = [_without_finding_details(entry) for entry in item]
+            elif key in _PAYLOAD_KEYS:
+                kept[key] = withhold_payload(item)
+            elif key in _ENVELOPE_KEYS and _is_plain(item):
+                kept[key] = item
+            else:
+                kept[key] = withhold_values(item)
         return kept
 
     def identifiers(self, value: dict[str, Any]) -> dict[str, Any]:
         """Only the identifying fields of a record spread into another."""
         if self.keeps_content:
             return value
-        return {key: item for key, item in value.items() if key in _IDENTIFIER_KEYS and _is_plain(item)}
+        return {key: item for key, item in value.items() if key in _ENVELOPE_KEYS and _is_plain(item)}
 
     def audit_payload(self, value: dict[str, Any]) -> dict[str, Any]:
         """A gateway audit payload with its structure and identifiers only."""

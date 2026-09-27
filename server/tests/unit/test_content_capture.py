@@ -263,3 +263,45 @@ def test_only_identifiers_are_spread_from_a_content_free_record() -> None:
 
     assert ContentCapture(CAPTURE_METADATA_ONLY).identifiers(metadata) == {"server_id": "srv_1"}
     assert ContentCapture(CAPTURE_FULL).identifiers(metadata) == metadata
+
+
+
+def test_what_a_call_handled_is_withheld_whatever_its_keys_are_called() -> None:
+    # A tool's argument named "code" or a result field named "status" is
+    # content, not the record's own status.
+    capture = ContentCapture(CAPTURE_METADATA_ONLY)
+    call = {
+        "tool_ref": "tool:mcp:runner",
+        "status": "completed",
+        "arguments": {"code": SECRET, "source": SECRET, "id": SECRET},
+        "result": {"status": SECRET, "category": SECRET, "workflow_run_id": "wfr_1"},
+    }
+
+    metrics = capture.metrics({"tool_call": call})
+    audit = capture.audit_payload(
+        {"gateway_type": "tool", "request": {"tool_ref": "tool:mcp:runner", "parameters": {"code": SECRET}}}
+    )
+
+    assert SECRET not in str(metrics) and SECRET not in str(audit)
+    assert metrics["tool_call"]["status"] == "completed"
+    assert metrics["tool_call"]["result"]["workflow_run_id"] == "wfr_1"
+    assert audit["request"]["tool_ref"] == "tool:mcp:runner"
+
+
+def test_a_retrievals_query_is_withheld_with_its_counts_kept() -> None:
+    metrics = ContentCapture(CAPTURE_METADATA_ONLY).metrics(
+        {"knowledge_id": "kb_1", "query": SECRET, "top_k": 3, "avg_score": 0.5, "model_ref": "model:test:m"}
+    )
+
+    assert metrics["query"] == withheld(SECRET)
+    assert (metrics["knowledge_id"], metrics["top_k"], metrics["avg_score"]) == ("kb_1", 3, 0.5)
+    assert metrics["model_ref"] == "model:test:m"
+
+
+@pytest.mark.parametrize("url", ["https://h:99999/x", "http://h:80:80/", "http://[::1/x", "https://h:port/"])
+def test_a_url_that_cannot_be_read_is_withheld_not_raised(url) -> None:
+    capture = ContentCapture(CAPTURE_METADATA_ONLY)
+
+    assert url_origin(url) == withheld(url)
+    assert capture.metrics({"tool_call": {"arguments": {"url": url}}})["tool_call"]["arguments"]["url"] == withheld(url)
+    assert capture.audit_payload({"request": {"egress": {"url": url}}})["request"]["egress"]["url"] == withheld(url)

@@ -285,7 +285,12 @@ record for operators.
   there. They now keep their structure, identifiers (run, tool call, child
   workflow run, secret references) and a URL's origin, with every other
   value replaced by its length and a hash; nothing spills to storage.
-  Content-safety findings keep their category, not text a classifier echoed.
+  What a call handled is withheld whatever its keys are called, so an
+  argument named `code` or a result field named `status` is not kept as an
+  identifier. Other step metrics keep their counts, timings and the model,
+  provider and knowledge base they name, and withhold any other text, such
+  as a retrieval's query. Content-safety findings keep their category, not
+  text a classifier echoed.
 - An API key's calls-per-minute and 24-hour request limits now count the
   tool calls made with it through `POST /api/v1/tools/{ref}/invoke` and
   `/mcp` `tools/call`, which spent neither, lifting a limitation v1.3.0
