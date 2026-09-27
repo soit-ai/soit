@@ -30,6 +30,7 @@ from app.kernel.specs.validator import validate_spec
 
 # Arguments that would say who is calling; a tool learns that from its context.
 _CONTEXT_KEYS = frozenset({"ctx", "tenant_id", "workspace_id", "user_id", "tenant_role", "workspace_role"})
+_KNOWLEDGE_QUERY_ENTRYPOINT = "app.modules.knowledge.runtime.tool_entrypoint:knowledge_query"
 
 
 class RegistryToolRouterPort(ToolPort):
@@ -133,7 +134,7 @@ class RegistryToolRouterPort(ToolPort):
                 },
                 "output_schema": {"type": "object"},
                 "policy": {"audit_level": "basic"},
-                "function": {"entrypoint": "app.modules.knowledge.runtime.tool_entrypoint:knowledge_query"},
+                "function": {"entrypoint": _KNOWLEDGE_QUERY_ENTRYPOINT},
             }
         if tool_ref == "builtin.ticket.create_review_ticket":
             return {
@@ -404,9 +405,15 @@ class RegistryToolRouterPort(ToolPort):
                 }
 
         self._validate_inputs(tool_ref, tool_spec, tool_inputs)
-        if adapter == "function" and tool_ref == "tool:function:knowledge_query":
+        if (
+            adapter == "function"
+            and tool_ref == "tool:function:knowledge_query"
+            and not payload.get("plugin")
+            and (tool_spec.get("function") or {}).get("entrypoint") == _KNOWLEDGE_QUERY_ENTRYPOINT
+        ):
             # The caller's whole context (roles, scopes, API key, content
-            # capture), never identity or role values taken from arguments.
+            # capture), never identity or role values taken from arguments;
+            # handed only to the builtin, never to a plugin under its name.
             tool_inputs = {
                 **{key: value for key, value in tool_inputs.items() if key not in _CONTEXT_KEYS},
                 "ctx": ctx,

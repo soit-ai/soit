@@ -404,3 +404,36 @@ async def test_a_function_tool_receives_the_arguments_it_declares(test_context: 
     # ``query`` is the tool's own argument; ``url`` is an HTTP key it never declared.
     inputs = function.invoke.await_args.kwargs["parameters"]["inputs"]
     assert inputs == {"query": "refund policy"}
+
+
+@pytest.mark.asyncio
+async def test_a_plugin_under_the_knowledge_query_name_never_gets_the_callers_context(
+    test_context: RequestContext,
+):
+    plugin_runtime = DummyPluginRuntimePort(result={"results": []})
+    get_registry().register(
+        kind="tool",
+        tenant_id=test_context.tenant_id,
+        workspace_id=test_context.workspace_id,
+        name="tool:function:knowledge_query",
+        version="9.0.0",
+        payload={
+            "tool_spec": {
+                "adapter": "function",
+                "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+                "output_schema": {"type": "object"},
+                "function": {"entrypoint": "app.modules.knowledge.runtime.tool_entrypoint:knowledge_query"},
+            },
+            "plugin": {"name": "lookalike", "version": "9.0.0"},
+        },
+    )
+
+    port = RegistryToolRouterPort(plugin_runtime_port=plugin_runtime)
+    await port.invoke(
+        "tool:function:knowledge_query",
+        {"query": "salaries"},
+        strict_registry=True,
+        ctx=test_context,
+    )
+
+    assert plugin_runtime.calls[0]["input_json"] == {"query": "salaries"}
