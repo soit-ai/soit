@@ -52,6 +52,14 @@ record for operators.
   `usage_estimated`. An AG-UI interaction canceled mid-stream settles its
   model call the same way, and a whole chat answer refused by outbound
   inspection is charged the usage the provider reported.
+- An agent whose knowledge retrieval meets a spent budget, an empty credit
+  balance or a rate limit now ends with that refusal instead of answering
+  without its knowledge. Any other refused or failed retrieval is recorded
+  on the RAG step with its own code (a policy, a model the API key may not
+  use) rather than a generic `rag_retrieval_failed`, and the agent answers
+  without that knowledge base. Retrieval now runs under the calling key, so
+  a key limited to some models must also allow the embedding and rerank
+  models of its agents' knowledge bases.
 - A knowledge query refused by a budget, the credit balance, a rate limit or
   a policy now fails with that refusal. It used to answer from keyword
   matching instead, so a caller got weaker results with no sign that a

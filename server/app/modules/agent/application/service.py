@@ -12,7 +12,13 @@ from typing import Any
 from sqlalchemy import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.errors import KernelError, ValidationError
+from app.kernel.commons.errors import (
+    BudgetExhaustedError,
+    CreditExhaustedError,
+    KernelError,
+    RateLimitExceededError,
+    ValidationError,
+)
 from app.kernel.commons.ids import generate_run_id
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
@@ -56,6 +62,10 @@ class _AgentApprovalInterrupt(Exception):
         self.interrupt = interrupt
         self.checkpoint: dict[str, Any] | None = None
         super().__init__(str(interrupt.get("message") or "Approval required"))
+
+
+# Refusals of spend that end an agent run when its retrieval meets them.
+_SPEND_REFUSALS = (BudgetExhaustedError, CreditExhaustedError, RateLimitExceededError)
 
 
 class AgentService:
@@ -1549,7 +1559,8 @@ class AgentService:
                             "avg_score": (sum(score_values) / len(score_values)) if score_values else None,
                         },
                     )
-            except Exception:
+            except Exception as exc:
+                refusal = exc if isinstance(exc, KernelError) else None
                 if self.trace_writer and step_id:
                     await self.trace_writer.update_step_status(
                         step_id,
@@ -1562,9 +1573,17 @@ class AgentService:
                             "result_count": 0,
                             "citation_count": 0,
                         },
-                        error_code="rag_retrieval_failed",
-                        error_message=f"RAG retrieval failed for {kb_id}",
+                        # The refusal itself (a policy, a model the key may
+                        # not use) shows on the step, not only that it failed.
+                        error_code=refusal.code if refusal else "rag_retrieval_failed",
+                        error_message=(
+                            refusal.message if refusal else f"RAG retrieval failed for {kb_id}"
+                        ),
                     )
+                if isinstance(exc, _SPEND_REFUSALS):
+                    # A spent budget, an empty balance or a rate limit ends the
+                    # run with that refusal; the answer would meet it anyway.
+                    raise
                 continue
 
         if not chunks:

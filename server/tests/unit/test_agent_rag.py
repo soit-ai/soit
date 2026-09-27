@@ -278,3 +278,62 @@ async def test_rag_retrieval_failure_graceful(async_db, ctx):
     assert retrieval_step.metrics_json["knowledge_id"] == "broken_kb"
     assert retrieval_step.metrics_json["result_count"] == 0
     assert retrieval_step.error_code == "rag_retrieval_failed"
+
+
+@pytest.mark.asyncio
+async def test_a_spend_refusal_in_retrieval_ends_the_run_with_it(async_db, ctx):
+    from app.kernel.commons.errors import BudgetExhaustedError
+
+    llm_port = QueueLLMPort([
+        ChatResponse(text="never used", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+    ])
+    service = AgentService(
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
+        tool_resolver=_make_resolver(),
+        trace_writer=TraceWriter(async_db, ctx),
+    )
+    refusing = AsyncMock(side_effect=BudgetExhaustedError("Budget exhausted", {"budget_id": "bud_1"}))
+    request = _runtime_request(
+        messages=[ChatMessageInput(role="user", content="Spent")],
+        knowledge_refs=["knowledge:kb_support"],
+        verify=False,
+    )
+
+    with patch("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", refusing):
+        with pytest.raises(BudgetExhaustedError):
+            await service.run(request)
+
+    retrieval_step = (await async_db.execute(
+        select(RunStep).where(RunStep.step_type == "retrieval", RunStep.step_id == "rag:kb_support")
+    )).scalars().one()
+    assert (retrieval_step.status, retrieval_step.error_code) == ("failed", "BUDGET_EXHAUSTED")
+
+
+@pytest.mark.asyncio
+async def test_a_policy_refusal_in_retrieval_shows_on_its_step(async_db, ctx):
+    from app.kernel.commons.errors import ForbiddenError
+
+    llm_port = QueueLLMPort([
+        ChatResponse(text="answered without it", tokens_prompt=1, tokens_completion=1, finish_reason="stop"),
+    ])
+    service = AgentService(
+        db=async_db, ctx=ctx, llm_port=llm_port, tool_port=StubToolPort(),
+        tool_resolver=_make_resolver(),
+        trace_writer=TraceWriter(async_db, ctx),
+    )
+    refusing = AsyncMock(side_effect=ForbiddenError("This API key may not use this model", {"reason": "model_not_allowed"}))
+    request = _runtime_request(
+        messages=[ChatMessageInput(role="user", content="Not allowed")],
+        knowledge_refs=["knowledge:kb_support"],
+        verify=False,
+    )
+
+    with patch("app.modules.knowledge.runtime.tool_entrypoint.knowledge_query", refusing):
+        result = await service.run(request)
+
+    assert result["output"] == "answered without it"
+    retrieval_step = (await async_db.execute(
+        select(RunStep).where(RunStep.step_type == "retrieval", RunStep.step_id == "rag:kb_support")
+    )).scalars().one()
+    assert retrieval_step.error_code == "FORBIDDEN"
+    assert retrieval_step.error_message == "This API key may not use this model"
