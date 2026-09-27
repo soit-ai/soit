@@ -25,7 +25,6 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import aliased
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import (
@@ -89,23 +88,21 @@ def _scope_on_aggregates(budget: Budget) -> list[Any]:
     return []
 
 
-_ParentRun = aliased(Run)
-
-
 def _scope_on_runs(budget: Budget) -> list[Any]:
     if budget.scope_kind == "api_key":
         return [Run.api_key_id == budget.scope_id]
     if budget.scope_kind == "user":
         return [Run.user_id == budget.scope_id]
-    if budget.scope_kind == "agent":
-        # The agent's own runs and the runs they started (its retrieval).
-        return [
-            or_(
-                and_(Run.subject_kind == "agent", Run.subject_id == budget.scope_id),
-                and_(_ParentRun.subject_kind == "agent", _ParentRun.subject_id == budget.scope_id),
-            )
-        ]
     return []
+
+
+def _agent_run_ids(budget: Budget) -> Any:
+    """The agent's own runs and the runs they started (its retrieval), by index."""
+
+    scope = (Run.tenant_id == budget.tenant_id, Run.workspace_id == budget.workspace_id)
+    own = select(Run.id).where(*scope, Run.subject_kind == "agent", Run.subject_id == budget.scope_id)
+    started = select(Run.id).where(*scope, Run.parent_run_id.in_(own))
+    return own.union_all(started)
 
 
 async def _ledger_spend(db: AsyncSession, budget: Budget, since: datetime) -> BudgetSpend:
@@ -118,10 +115,10 @@ async def _ledger_spend(db: AsyncSession, budget: Budget, since: datetime) -> Bu
     ]
     query = select(func.coalesce(func.sum(RunCostEntry.amount), 0), func.count(RunCostEntry.id))
     run_clauses = _scope_on_runs(budget)
-    if run_clauses:
+    if budget.scope_kind == "agent":
+        clauses.append(RunCostEntry.run_id.in_(_agent_run_ids(budget)))
+    elif run_clauses:
         query = query.join(Run, Run.id == RunCostEntry.run_id)
-        if budget.scope_kind == "agent":
-            query = query.outerjoin(_ParentRun, _ParentRun.id == Run.parent_run_id)
         clauses.extend(run_clauses)
     total, calls = (await db.exec(query.where(and_(*clauses)))).one()
     return BudgetSpend(Decimal(str(total)), int(calls))
