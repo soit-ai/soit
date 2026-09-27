@@ -83,3 +83,14 @@ async def test_retrieval_itself_refuses_an_index_of_another_knowledge_base(async
         )
 
     assert refused.value.code == "NOT_FOUND"
+
+
+async def test_an_index_that_no_longer_exists_is_left_to_retrieval(async_db, ctx) -> None:
+    service, mine, _ = await _two_bases(async_db, ctx)
+    retrieval = _Searches()
+    service.retrieval_service = retrieval
+
+    await service.query(mine, QueryRequest(query="refunds", index_id="idx_deleted"))
+
+    # Not refused up front: retrieval meets it and the query falls back, as before.
+    assert retrieval.indexes == ["idx_deleted"]
