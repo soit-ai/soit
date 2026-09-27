@@ -67,6 +67,47 @@ async def test_artifact_registration_requires_scoped_key_and_evidence(async_db, 
     assert artifact.size_bytes == 2
 
 
+async def test_an_unpriced_row_says_why_and_cannot_claim_a_price(async_db, ctx):
+    writer = TraceWriter(async_db, ctx)
+    run = await writer.create_run("agent")
+
+    vector = await writer.record_cost(
+        run_id=run.id,
+        step_id=None,
+        billing_basis="requests",
+        billed_quantity=1,
+        source_port="vector",
+        operation="query",
+        pricing_snapshot_json={"priced": True},
+    )
+    model = await writer.record_cost(
+        run_id=run.id,
+        step_id=None,
+        billing_basis="tokens",
+        billed_quantity=15,
+        source_port="llm",
+        operation="chat",
+        pricing_snapshot_json={"priced": False, "reason": "pricing_not_configured"},
+    )
+    free = await writer.record_cost(
+        run_id=run.id,
+        step_id=None,
+        billing_basis="requests",
+        billed_quantity=1,
+        currency="USD",
+        amount=Decimal("0"),
+        pricing_snapshot_json={"priced": False},
+    )
+
+    assert (vector.amount, vector.pricing_snapshot_json["priced"]) == (None, False)
+    assert vector.pricing_snapshot_json["reason"] == "no_price_source"
+    # A port's own reason is kept.
+    assert model.pricing_snapshot_json["reason"] == "pricing_not_configured"
+    # An explicit zero is a price, and says so.
+    assert (free.amount, free.currency, free.pricing_snapshot_json["priced"]) == (Decimal("0"), "USD", True)
+    assert "reason" not in free.pricing_snapshot_json
+
+
 async def test_priced_usage_is_one_record_with_an_immutable_pricing_snapshot(async_db, ctx):
     writer = TraceWriter(async_db, ctx)
     run = await writer.create_run("agent")

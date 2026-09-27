@@ -12,6 +12,15 @@ record for operators.
 
 ## [Unreleased]
 
+### Changed
+
+- Every unpriced cost row now says why in `pricing_snapshot.reason`:
+  `no_price_source` unless its port names the cause, such as
+  `pricing_not_configured` for a model with no configured price. And
+  `pricing_snapshot.priced` always matches whether the row has an amount; a
+  caller's snapshot can no longer mark an unpriced row as priced. An amount
+  of `0` with a currency stays an explicit zero price.
+
 ### Fixed
 
 - A streamed chat call that reached the provider is now always charged.

@@ -189,7 +189,7 @@ Workspace-scoped.
 - Dedicated measurement columns, `NULL` when the dimension does not apply:
   `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms`,
   `request_count`, `embedding_count`, `rerank_count`, `vector_count`, `storage_bytes`
-- `pricing_snapshot_json` immutable source config, normalized rates, billing unit, unit size, measured quantities, and calculated amount; `usage_estimated: true` when the provider never reported usage (see below)
+- `pricing_snapshot_json` immutable source config, normalized rates, billing unit, unit size, measured quantities, and calculated amount; `usage_estimated: true` when the provider never reported usage (see below). `priced` always matches whether `amount` is set, and an unpriced row names its `reason` (`no_price_source` unless the port says more, e.g. `pricing_not_configured` for a model without a configured price). `amount = 0` with a currency is an explicit zero price, not an unpriced row.
 - `created_at`
 - CHECK `amount IS NULL OR (amount >= 0 AND currency IS NOT NULL)`
 - CHECK `billed_quantity >= 0`

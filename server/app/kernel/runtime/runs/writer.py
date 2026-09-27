@@ -103,7 +103,11 @@ def _build_pricing_snapshot(
 
     result.setdefault("schema_version", 1)
     result.setdefault("source", "runtime")
-    result.setdefault("priced", amount is not None)
+    # Whether the row is priced is what its amount says, whatever a caller's
+    # snapshot claims; an unpriced row says why, so it is never read as free.
+    result["priced"] = amount is not None
+    if amount is None:
+        result.setdefault("reason", "no_price_source")
     result.setdefault("billing_basis", billing_basis)
     result.setdefault("billing_unit", billing_basis)
     result.setdefault("unit_size", 1)
