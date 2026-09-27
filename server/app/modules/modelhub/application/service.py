@@ -27,7 +27,9 @@ from app.kernel.ports.llm.interface import ChatMessage, LLMPort
 from app.kernel.ports.llm.policy import LLMPolicyGateway
 from app.kernel.ports.llm.runtime_config import (
     normalize_capability_matrix,
+    provider_timeout_seconds,
     resolve_litellm_runtime_config,
+    validate_provider_timeout_ms,
 )
 from app.kernel.ports.secrets.interface import SecretsPort
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry
@@ -307,7 +309,6 @@ class ModelHubService:
     ) -> LLMPort:
         connection = provider.connection_config_json or {}
         retry_policy = connection.get("retry_policy") or {}
-        timeout_ms = connection.get("timeout_ms")
         retryable_status_codes = retry_policy.get(
             "retryable_status_codes",
             [408, 409, 429, 500, 502, 503, 504],
@@ -316,7 +317,9 @@ class ModelHubService:
             self._build_litellm_port(provider, credentials),
             self.ctx,
             trace_writer=None,
-            timeout_seconds=float(timeout_ms) / 1000 if timeout_ms is not None else 60.0,
+            # A health check or a test call answers within a minute or is
+            # reported as failing, whatever the provider allows real calls.
+            timeout_seconds=provider_timeout_seconds(connection) or 60.0,
             max_retries=int(retry_policy.get("max_retries", 3)),
             retry_backoff_base_seconds=0.5,
             retry_backoff=str(retry_policy.get("backoff", "exponential")),
@@ -1023,6 +1026,7 @@ class ModelHubService:
     async def create_provider(self, data: ProviderCreate) -> Provider:
         """Create a provider."""
         self._ensure_preset_supports_adapter(data.kind, data.adapter_backend)
+        validate_provider_timeout_ms((data.connection_config_json or {}).get("timeout_ms"))
         self._validate_provider_runtime_configuration(
             provider_kind=data.kind,
             adapter_backend=data.adapter_backend,
@@ -1066,6 +1070,13 @@ class ModelHubService:
             data.kind or provider.kind,
             data.adapter_backend or provider.adapter_backend,
         )
+        if data.connection_config_json is not None:
+            # Checked only when it changes: consoles send the stored
+            # configuration back whole, and a value saved before the check
+            # must not block renaming or disabling the provider.
+            timeout_ms = data.connection_config_json.get("timeout_ms")
+            if timeout_ms != (provider.connection_config_json or {}).get("timeout_ms"):
+                validate_provider_timeout_ms(timeout_ms)
         self._validate_provider_runtime_configuration(
             provider_kind=data.kind or provider.kind,
             adapter_backend=data.adapter_backend or provider.adapter_backend,

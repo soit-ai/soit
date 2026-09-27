@@ -59,7 +59,7 @@ class LiteLLMPort(LLMPort):
         litellm_params: dict[str, Any] | None = None,
         api_key: str | None = None,
         api_base: str | None = None,
-        timeout: float = 60.0,
+        timeout: float | None = 60.0,
         max_retries: int = 3,
         completion_fn: SDKCall | None = None,
         embedding_fn: SDKCall | None = None,
@@ -123,9 +123,12 @@ class LiteLLMPort(LLMPort):
     def _connection_params(self) -> dict[str, Any]:
         params: dict[str, Any] = {
             **self.litellm_params,
-            "timeout": self.timeout,
             "num_retries": 0,
         }
+        # Without a provider timeout the SDK keeps its own, longer default and
+        # the gateway's per-call-type deadline is what ends a slow call.
+        if self.timeout is not None:
+            params["timeout"] = self.timeout
         if self.api_key:
             params["api_key"] = self.api_key
         if self.api_base:

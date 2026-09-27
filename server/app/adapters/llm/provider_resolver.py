@@ -14,6 +14,7 @@ from app.infra.db.session import get_async_session_local
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.runtime_config import (
     normalize_image_capabilities,
+    provider_timeout_seconds,
     resolve_litellm_runtime_config,
 )
 from app.modules.modelhub.infra.repository import (
@@ -56,7 +57,6 @@ class DatabaseProviderResolver:
     def _config_from_provider(provider: Any, model: Any) -> RuntimeProviderConfig:
         connection = provider.connection_config_json or {}
         retry_policy = connection.get("retry_policy") or {}
-        timeout_ms = connection.get("timeout_ms")
         litellm_config = None
         if provider.adapter_backend == "litellm":
             litellm_config = resolve_litellm_runtime_config(
@@ -74,7 +74,9 @@ class DatabaseProviderResolver:
             status=provider.status,
             base_url=provider.base_url,
             credential_secret_id=provider.credential_secret_id,
-            timeout=float(timeout_ms) / 1000 if timeout_ms is not None else 60.0,
+            # None unless the provider sets one, so the gateway applies the
+            # timeout of the call type (chat, image) rather than a flat minute.
+            timeout=provider_timeout_seconds(connection),
             max_retries=int(retry_policy.get("max_retries", 3)),
             retry_backoff=str(retry_policy.get("backoff", "exponential")),
             retryable_status_codes=tuple(

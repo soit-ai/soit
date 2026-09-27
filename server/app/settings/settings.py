@@ -243,20 +243,21 @@ class Settings(BaseSettings):
     """
     Default timeout for a single LLM call, in seconds.
 
-    Applies whenever the resolved route carries no timeout of its own, which is the
-    case for every static (platform-key) provider. Long-form generation regularly
-    exceeds a minute, so the previous hard-coded 60s aborted legitimate requests
-    mid-flight; workspace-configured providers still override this per route.
+    Applies whenever the resolved route carries no timeout of its own: every
+    static (platform-key) provider, and every workspace provider whose
+    ``connection_config_json`` sets no ``timeout_ms``. A provider that sets one
+    uses it for every call type. Long-form generation regularly exceeds a
+    minute, so a flat 60s aborted legitimate requests mid-flight.
     """
 
     llm_image_timeout_seconds: float = 300.0
     """
-    Fallback timeout for a single image generation call, in seconds.
+    Fallback timeout for a single image generation or edit call, in seconds.
 
-    Applies whenever the resolved route carries no timeout of its own. Image
-    models routinely spend minutes on a multi-image request, so the chat
-    fallback is too short; workspace-configured providers still override this
-    per route.
+    Applies whenever the resolved route carries no timeout of its own, as for
+    ``llm_timeout_seconds``. Image models routinely spend minutes on a
+    multi-image request, so the chat fallback is too short; a workspace
+    provider's ``timeout_ms`` still bounds its image calls too.
     """
 
     llm_image_max_retries: int = 0

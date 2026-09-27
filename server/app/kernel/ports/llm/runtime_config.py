@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.secrets.interface import require_opaque_secret_id
+
+logger = logging.getLogger(__name__)
 
 LITELLM_PROVIDER_PRESETS: dict[str, str] = {
     "openai": "openai",
@@ -232,6 +237,47 @@ def resolve_litellm_runtime_config(
         params=params,
         secret_bindings=secret_bindings,
     )
+
+
+def _timeout_ms_seconds(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        milliseconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(milliseconds) or milliseconds <= 0:
+        return None
+    return milliseconds / 1000
+
+
+def provider_timeout_seconds(connection_config: Mapping[str, Any] | None) -> float | None:
+    """A provider's own per-call timeout, or None when it sets none.
+
+    None is what lets each call type fall back to its own timeout: chat to
+    ``llm_timeout_seconds``, images to ``llm_image_timeout_seconds``. A stored
+    value that is not a positive number of milliseconds also counts as none,
+    with a warning, so a provider saved before the value was checked keeps
+    routing instead of failing every call.
+    """
+    raw = (connection_config or {}).get("timeout_ms")
+    if raw is None:
+        return None
+    seconds = _timeout_ms_seconds(raw)
+    if seconds is None:
+        logger.warning("Ignoring an unusable provider timeout_ms: %r", raw)
+    return seconds
+
+
+def validate_provider_timeout_ms(value: Any) -> None:
+    """Refuse a timeout_ms that is not a positive number of milliseconds."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int | float) or _timeout_ms_seconds(value) is None:
+        raise ValidationError(
+            "connection_config_json.timeout_ms must be a positive number of milliseconds",
+            {"param": "connection_config_json.timeout_ms"},
+        )
 
 
 def _normalize_support_value(value: Any) -> bool | None:

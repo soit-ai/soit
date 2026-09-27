@@ -328,6 +328,7 @@ def build_modelhub_service(*, db: AsyncSession, ctx: RequestContext) -> ModelHub
     from app.adapters.llm.litellm import LiteLLMPort
     from app.adapters.modelhub.references import DatabaseModelReferenceUsage
     from app.kernel.ports.llm.runtime_config import (
+        provider_timeout_seconds,
         resolve_litellm_runtime_config,
     )
     from app.modules.modelhub.domain.models import Provider
@@ -347,7 +348,6 @@ def build_modelhub_service(*, db: AsyncSession, ctx: RequestContext) -> ModelHub
     ) -> LiteLLMPort:
         connection = provider.connection_config_json or {}
         retry_policy = connection.get("retry_policy") or {}
-        timeout_ms = connection.get("timeout_ms")
         runtime = resolve_litellm_runtime_config(
             provider_kind=provider.kind,
             runtime_config=provider.runtime_config_json,
@@ -364,7 +364,8 @@ def build_modelhub_service(*, db: AsyncSession, ctx: RequestContext) -> ModelHub
             litellm_params={**runtime.params, **extra_credentials},
             api_key=credentials.get("api_key"),
             api_base=provider.base_url,
-            timeout=float(timeout_ms) / 1000 if timeout_ms is not None else 60.0,
+            # Diagnostics only: the same one-minute bound as their gateway.
+            timeout=provider_timeout_seconds(connection) or 60.0,
             max_retries=int(retry_policy.get("max_retries", 3)),
         )
 

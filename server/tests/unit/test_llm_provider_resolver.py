@@ -338,3 +338,70 @@ async def test_provider_resolver_falls_back_to_database_when_redis_fails(monkeyp
 
     assert resolved is not None
     assert resolved.slug == "team-gateway"
+
+
+def _provider(**connection):
+    return SimpleNamespace(
+        id="provider-1",
+        slug="team-gateway",
+        kind="openai_compatible",
+        adapter_backend="litellm",
+        status="active",
+        base_url="https://gateway.example.com/v1",
+        credential_secret_id="sec_team-gateway",
+        connection_config_json=connection,
+        runtime_config_json=None,
+        auth_config_json=None,
+    )
+
+
+def test_a_provider_without_timeout_ms_leaves_the_timeout_unset():
+    config = DatabaseProviderResolver._config_from_provider(_provider(), _provider_model())
+
+    assert config.timeout is None
+
+
+@pytest.mark.parametrize("timeout_ms", [0, -1, "abc"])
+def test_an_unusable_stored_timeout_ms_falls_back_rather_than_failing(timeout_ms):
+    config = DatabaseProviderResolver._config_from_provider(
+        _provider(timeout_ms=timeout_ms), _provider_model()
+    )
+
+    assert config.timeout is None
+
+
+@pytest.mark.asyncio
+async def test_an_unset_timeout_survives_the_cache(monkeypatch, ctx):
+    class _Database:
+        async def close(self):
+            return None
+
+    class _Repository:
+        def __init__(self, db, request_ctx):
+            pass
+
+        async def get_by_slug(self, slug):
+            return _provider()
+
+    class _ModelRepository:
+        def __init__(self, db, request_ctx):
+            pass
+
+        async def get_by_provider_and_model_id(self, provider_id, model_id):
+            return _provider_model()
+
+    monkeypatch.setattr("app.adapters.llm.provider_resolver.get_async_session_local", lambda: _Database)
+    monkeypatch.setattr("app.adapters.llm.provider_resolver.ProviderRepository", _Repository)
+    monkeypatch.setattr(
+        "app.adapters.llm.provider_resolver.ProviderModelRepository",
+        _ModelRepository,
+    )
+    cache = _FakeRedis()
+    resolver = DatabaseProviderResolver(redis_client=cache, cache_ttl_seconds=30)
+
+    await resolver(ctx, "team-gateway", "gpt-4.1-mini")
+    cached = await resolver(ctx, "team-gateway", "gpt-4.1-mini")
+
+    assert len(cache.values) == 1
+    assert cached is not None
+    assert cached.timeout is None

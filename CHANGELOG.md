@@ -86,6 +86,19 @@ record for operators.
 - `size: auto` on `POST /v1/images/generations` and `/edits` works as
   documented. The gateway's capability check read it as a malformed size,
   so the call failed with `Invalid image size: auto` after its run opened.
+- A workspace provider whose `connection_config_json` sets no `timeout_ms`
+  no longer holds every call to 60 seconds. Its chat calls now get
+  `llm_timeout_seconds` (180) and its image calls `llm_image_timeout_seconds`
+  (300), timeouts they could never reach: an image model needing more than
+  a minute failed with `LLM image request timed out after 60.0 seconds`,
+  while the provider may still have made, and billed, the image. A provider
+  that sets `timeout_ms` keeps it for every call type. A timed-out chat call
+  is retried (`retry_policy.max_retries`, 3 by default), so a hung call on
+  such a provider can now take four times 180 seconds before it fails or a
+  virtual model moves on; set `timeout_ms` to keep the old bound. A
+  `timeout_ms` that is saved must be a positive number of milliseconds; a
+  stored value that is not is ignored with a warning instead of failing
+  calls.
 - A streamed chat call that reached the provider is now always charged.
   Before, a `/v1/chat/completions` client that disconnected before the final
   chunk left the model step `running` with no cost, so the call escaped

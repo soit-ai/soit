@@ -1256,3 +1256,69 @@ async def test_model_test_endpoints_return_success_and_failure_payloads(async_cl
     unsupported_embedding = unsupported_embedding_response.json()["data"]
     assert unsupported_embedding["success"] is False
     assert unsupported_embedding["message"] == "Embedding test not supported for provider: anthropic"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timeout_ms", [0, -1, "abc"])
+async def test_a_provider_timeout_must_be_a_positive_number(async_client, timeout_ms):
+    created = await async_client.post(
+        "/api/v1/modelhub/providers",
+        headers=_headers(),
+        json={
+            "slug": "openai-timeout",
+            "kind": "openai",
+            "name": "OpenAI Timeout",
+            "credential_secret_id": "sec_openai",
+            "connection_config_json": {"timeout_ms": timeout_ms},
+        },
+    )
+    assert created.status_code == status.HTTP_400_BAD_REQUEST
+    assert created.json()["code"] == "VALIDATION_ERROR"
+
+    valid = await async_client.post(
+        "/api/v1/modelhub/providers",
+        headers=_headers(),
+        json={
+            "slug": "openai-timeout",
+            "kind": "openai",
+            "name": "OpenAI Timeout",
+            "credential_secret_id": "sec_openai",
+            "connection_config_json": {"timeout_ms": 45000},
+        },
+    )
+    changed = await async_client.patch(
+        f"/api/v1/modelhub/providers/{valid.json()['data']['id']}",
+        headers=_headers(),
+        json={"connection_config_json": {"timeout_ms": timeout_ms}},
+    )
+    assert changed.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_a_stored_unusable_timeout_does_not_block_other_edits(async_client, async_db):
+    # Consoles send the stored configuration back whole; a value saved before
+    # it was checked must not stop the provider being renamed or disabled.
+    created = await async_client.post(
+        "/api/v1/modelhub/providers",
+        headers=_headers(),
+        json={
+            "slug": "openai-legacy-timeout",
+            "kind": "openai",
+            "name": "OpenAI Legacy Timeout",
+            "credential_secret_id": "sec_openai",
+        },
+    )
+    provider_id = created.json()["data"]["id"]
+    provider = await async_db.get(Provider, provider_id)
+    provider.connection_config_json = {"timeout_ms": 0}
+    async_db.add(provider)
+    await async_db.commit()
+
+    renamed = await async_client.patch(
+        f"/api/v1/modelhub/providers/{provider_id}",
+        headers=_headers(),
+        json={"name": "OpenAI Renamed", "connection_config_json": {"timeout_ms": 0}},
+    )
+
+    assert renamed.status_code == status.HTTP_200_OK, renamed.text
+    assert renamed.json()["data"]["name"] == "OpenAI Renamed"

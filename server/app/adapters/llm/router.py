@@ -46,7 +46,8 @@ class RuntimeProviderConfig:
     status: str
     base_url: str | None = None
     credential_secret_id: str | None = None
-    timeout: float = 60.0
+    timeout: float | None = None
+    """The provider's own timeout in seconds; None leaves each call type its own."""
     max_retries: int = 3
     provider_id: str | None = None
     retry_backoff: str = "exponential"

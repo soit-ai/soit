@@ -831,3 +831,117 @@ async def test_a_generation_asking_for_what_the_model_ruled_out_is_refused_unbil
     assert exc.value.code == "MODEL_IMAGE_CAPABILITY_UNAVAILABLE"
     port.generate_image.assert_not_awaited()
     writer.record_cost.assert_not_called()
+
+
+def _database_config(slug: str, model_id: str, **connection):
+    """A route config built the way a workspace provider's is, from its stored record."""
+    from types import SimpleNamespace
+
+    from app.adapters.llm.provider_resolver import DatabaseProviderResolver
+
+    provider = SimpleNamespace(
+        id="provider-db",
+        slug=slug,
+        kind="openai_compatible",
+        adapter_backend="litellm",
+        status="active",
+        base_url="https://gateway.example.com/v1",
+        credential_secret_id=None,
+        connection_config_json={"retry_policy": {"max_retries": 0}, **connection},
+        runtime_config_json=None,
+        auth_config_json=None,
+    )
+    model = SimpleNamespace(
+        id="provider-model-db",
+        model_id=model_id,
+        status="active",
+        capability_matrix_json={
+            "chat": {"merged": True},
+            "image_generation": {"merged": True},
+        },
+        pricing_json={},
+        capabilities_json=None,
+    )
+    return DatabaseProviderResolver._config_from_provider(provider, model)
+
+
+class _SlowImagePort(DummyPort):
+    async def chat(self, messages, model, temperature=None, max_tokens=None, **kwargs):
+        import asyncio
+
+        await asyncio.sleep(0.05)
+        return ChatResponse(text="ok", model=model)
+
+    async def generate_image(self, prompt, model, n=1, size=None, **kwargs):
+        import asyncio
+
+        from app.kernel.ports.llm.interface import (
+            GeneratedImage,
+            ImageGenerationResponse,
+        )
+
+        await asyncio.sleep(0.05)
+        return ImageGenerationResponse(images=[GeneratedImage(b64_json="aGk=")], model=model)
+
+
+def _slow_gateway(ctx, image_timeout_seconds=1.0, **connection):
+    from app.kernel.ports.llm.policy import LLMPolicyGateway
+
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: _database_config(
+            slug, model_id, **connection
+        ),
+        litellm_factory=lambda config, credentials: _SlowImagePort(),
+    )
+    return LLMPolicyGateway(
+        router,
+        ctx,
+        timeout_seconds=0.01,
+        image_timeout_seconds=image_timeout_seconds,
+        max_retries=0,
+        retry_backoff_base_seconds=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_image_call_gets_the_image_timeout_when_its_provider_sets_none(ctx):
+    # A provider without timeout_ms pinned every call to 60s, so image models
+    # that need longer timed out although llm_image_timeout_seconds allowed it.
+    gateway = _slow_gateway(ctx, image_timeout_seconds=0.02)
+
+    with pytest.raises(KernelError) as exc:
+        await gateway.generate_image(prompt="a red dot", model="model:db-gateway:seedream")
+
+    assert exc.value.details["timeout_seconds"] == 0.02
+
+
+@pytest.mark.asyncio
+async def test_a_chat_call_gets_the_chat_timeout_when_its_provider_sets_none(ctx):
+    gateway = _slow_gateway(ctx)
+
+    with pytest.raises(KernelError) as exc:
+        await gateway.chat([ChatMessage(role="user", content="hi")], model="model:db-gateway:chatty")
+
+    assert exc.value.details["timeout_seconds"] == 0.01
+
+
+@pytest.mark.asyncio
+async def test_a_provider_timeout_still_bounds_its_image_calls(ctx):
+    gateway = _slow_gateway(ctx, timeout_ms=10)
+
+    with pytest.raises(KernelError) as exc:
+        await gateway.generate_image(prompt="a red dot", model="model:db-gateway:seedream")
+
+    assert exc.value.details["timeout_seconds"] == 0.01
+
+
+def test_a_litellm_port_for_a_provider_without_a_timeout_leaves_the_sdk_its_own():
+    # The gateway's deadline ends a slow call; the SDK's default is longer.
+    from app.adapters.llm.router import _default_litellm_factory
+
+    unset = _default_litellm_factory(_database_config("db-gateway", "m"), {"api_key": "k"})
+    set_ = _default_litellm_factory(_database_config("db-gateway", "m", timeout_ms=45000), {"api_key": "k"})
+
+    assert "timeout" not in unset._connection_params()
+    assert set_._connection_params()["timeout"] == 45.0
