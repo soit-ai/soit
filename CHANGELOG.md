@@ -206,6 +206,18 @@ record for operators.
   time: the call's lease belonged to the request id the caller chose. Each
   request now holds the call under a lease of its own, and such a repeat is
   refused as in flight (`409`).
+- A tool call refused by the member's tool rate limit, the daily tool quota,
+  the credit balance or a budget no longer records a failed outcome. The
+  tool gateway checked them only after it had claimed the call, so a direct
+  call sent again with the same `Idempotency-Key` replayed the refusal as a
+  failed call, and an approved call refused as it resumed could never run:
+  its key replayed the failure and an MCP client sending the same call again
+  opened a new approval. The gateway now checks them before it claims the
+  call. A refused new call still answers `429` (or the credit or budget
+  refusal) and fails its run, and the same key starts it afresh once the
+  limit allows; an approved call goes back to `waiting_approval` and runs
+  when sent again, under the same run and approval. An agent or workflow
+  tool call refused this way fails as before.
 
 ### Security
 

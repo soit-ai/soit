@@ -29,6 +29,12 @@ call's behalf spend none of the key's request limits either, though their
 tokens count. The tool calls an agent or a workflow makes inside a run do not
 spend the key's budget.
 
+Member limits. The tool gateway checks the member's tool rate, the daily tool
+quota and the spend guard before it claims the call, so a refusal records no
+outcome under the key: a new call's run fails and nothing replays it, and an
+approved call refused as it resumes goes back to waiting, to run when sent
+again.
+
 A request that names a call still running is refused as in flight: each
 request holds the call under a lease of its own, never one a caller could
 name, so a repeated request cannot run the tool a second time.
@@ -533,11 +539,17 @@ class ToolInvocationService:
             root = unwrap_retry_error(exc)
             if finish_run:
                 await self.db.rollback()
-                await self._fail_run(
-                    run_id,
-                    getattr(root, "code", None) or "TOOL_INVOCATION_FAILED",
-                    str(root),
-                )
+                if resume_approval and await self._still_waiting(stored_key):
+                    # Refused before the call was claimed, such as by the
+                    # member's rate, quota or spend guard: the approval
+                    # stands, and the same call runs when sent again.
+                    await self._wait_again(run_id)
+                else:
+                    await self._fail_run(
+                        run_id,
+                        getattr(root, "code", None) or "TOOL_INVOCATION_FAILED",
+                        str(root),
+                    )
             if root is not exc:
                 raise root from exc
             raise
@@ -562,6 +574,18 @@ class ToolInvocationService:
             error=None if response.success else response.error,
             replayed=replayed,
         )
+
+    async def _still_waiting(self, stored_key: str) -> bool:
+        record = await self._find_record(stored_key)
+        return record is not None and record.status == "waiting_approval"
+
+    async def _wait_again(self, run_id: str) -> None:
+        try:
+            await self.trace_writer.update_run_status(run_id, "waiting_approval")
+            await self.db.commit()
+        except Exception:
+            logger.warning("Failed to return tool run %s to waiting", run_id, exc_info=True)
+            await self.db.rollback()
 
     async def _fail_run(self, run_id: str, error_code: str, message: str) -> None:
         try:

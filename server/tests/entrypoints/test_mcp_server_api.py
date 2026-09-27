@@ -479,3 +479,36 @@ async def test_a_gated_call_run_once_approved_spends_no_more_of_the_daily_quota(
 
     assert (done["isError"], done["structuredContent"]) == (False, {"value": 9})
     assert [key for key in key_counters if "api_key" in key] == ["quota:llm:api_key:key_1"]
+
+
+async def test_an_approved_call_refused_by_the_members_tool_rate_runs_when_called_again(
+    async_client, ctx, key_counters
+) -> None:
+    # Refused as it resumes, the call still waits on its approval, so the
+    # same call sent again runs it instead of opening a new approval.
+    _register_gated_tool(ctx)
+    _as(dataclasses.replace(ctx, tool_rate_limit_per_minute=1))
+    other = {"name": "function_gated_random", "arguments": {"min": 8, "max": 8}}
+    call = {"name": "function_gated_random", "arguments": {"min": 9, "max": 9}}
+
+    async def approved(gated: dict[str, Any]) -> dict[str, Any]:
+        waiting = (await _rpc(async_client, "tools/call", gated)).json()["result"]
+        await async_client.post(
+            f"/api/v1/observe/approvals/{waiting['_meta']['ai.soit/approval_id']}/resolve",
+            json={"status": "approved"},
+        )
+        return waiting
+
+    await approved(other)
+    waiting = await approved(call)
+    ran = (await _rpc(async_client, "tools/call", other)).json()["result"]
+    refused = (await _rpc(async_client, "tools/call", call)).json()["result"]
+    key_counters.clear()
+    done = (await _rpc(async_client, "tools/call", call)).json()["result"]
+
+    assert (ran["isError"], ran["structuredContent"]) == (False, {"value": 8})
+    assert refused["isError"] is True
+    assert refused["_meta"]["ai.soit/code"] == "RATE_LIMIT_EXCEEDED"
+    assert (done["isError"], done["structuredContent"]) == (False, {"value": 9})
+    assert done["_meta"]["ai.soit/run_id"] == waiting["_meta"]["ai.soit/run_id"]
+    assert done["_meta"]["ai.soit/approval_id"] == waiting["_meta"]["ai.soit/approval_id"]

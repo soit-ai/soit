@@ -258,6 +258,33 @@ class ToolPolicyGateway(ToolPort):
             }
         }
 
+    async def _admit(self, tool_ref: str, kwargs: dict[str, Any]) -> None:
+        """Spend the member's tool rate and the daily quota, and ask the spend guard."""
+
+        rate_limit = kwargs.get("rate_limit_per_minute") or self.rate_limit_per_minute
+        if rate_limit:
+            rate_limit_key = f"tool:{tool_ref}:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=rate_limit_key,
+                limit=rate_limit,
+                window_seconds=60,
+            )
+        if self.daily_quota:
+            quota_key = f"quota:tool:{tool_ref}:{self.ctx.tenant_id}:{self.ctx.workspace_id}"
+            await self.rate_limiter.check_rate_limit(
+                key=quota_key,
+                limit=self.daily_quota,
+                window_seconds=86400,
+            )
+        if self.credit_guard:
+            # Tools that bill (search, scraping, paid APIs) spend the same
+            # credit and budgets as model calls.
+            await check_spend(
+                self.credit_guard,
+                operation="tool",
+                run_id=resolve_run_id(kwargs, self.ctx),
+            )
+
     async def invoke(
         self,
         tool_ref: str,
@@ -286,6 +313,7 @@ class ToolPolicyGateway(ToolPort):
             )
         step = None
         tool_execution_service = None
+        tool_execution_command = None
         tool_execution_claim = None
         timeout_seconds = float(kwargs.get("timeout_s") or self.timeout_seconds)
         redacted_parameters = parameters
@@ -314,19 +342,32 @@ class ToolPolicyGateway(ToolPort):
                 lease_seconds=max(60, math.ceil(timeout_seconds) + 10),
                 storage_port=self.storage_port,
             )
-            tool_execution_claim = await tool_execution_service.claim(
-                ToolExecutionCommand(
-                    run_id=run_id,
-                    run_step_id=(str(kwargs["run_step_id"]) if kwargs.get("run_step_id") else None),
-                    tool_call_id=tool_call_id,
-                    tool_ref=tool_ref,
-                    arguments=redacted_parameters,
-                    idempotency_key=idempotency_key,
-                    created_by=self.ctx.user_id,
-                    resume_approval=bool(kwargs.get("resume_approval", False)),
-                    retry_failed=bool(kwargs.get("retry_failed", False)),
-                )
+            tool_execution_command = ToolExecutionCommand(
+                run_id=run_id,
+                run_step_id=(str(kwargs["run_step_id"]) if kwargs.get("run_step_id") else None),
+                tool_call_id=tool_call_id,
+                tool_ref=tool_ref,
+                arguments=redacted_parameters,
+                idempotency_key=idempotency_key,
+                created_by=self.ctx.user_id,
+                resume_approval=bool(kwargs.get("resume_approval", False)),
+                retry_failed=bool(kwargs.get("retry_failed", False)),
             )
+            # A recorded outcome replays before anything is spent: sending a
+            # finished call again is not another call.
+            recorded = await tool_execution_service.recorded_outcome(tool_execution_command)
+            if recorded is not None:
+                cached_response = await tool_execution_service.load_cached_response(recorded)
+                if cached_response is not None:
+                    return cached_response
+
+        # Admitted before the claim: a call the member's rate, the daily quota
+        # or the spend guard refuses changes no state, so it is not recorded
+        # as failed, and an approved call still runs when sent again.
+        await self._admit(tool_ref, kwargs)
+
+        if tool_execution_service is not None and tool_execution_command is not None:
+            tool_execution_claim = await tool_execution_service.claim(tool_execution_command)
             step = tool_execution_claim.run_step
             if tool_execution_claim.replayed:
                 cached_response = await tool_execution_service.load_cached_response(
@@ -337,8 +378,8 @@ class ToolPolicyGateway(ToolPort):
             await tool_execution_service.mark_running(tool_execution_claim.record.id)
             kwargs = {
                 **kwargs,
-                "tool_call_id": tool_call_id,
-                "idempotency_key": idempotency_key,
+                "tool_call_id": tool_execution_command.tool_call_id,
+                "idempotency_key": tool_execution_command.idempotency_key,
                 "run_step_id": step.id,
             }
 
@@ -347,30 +388,6 @@ class ToolPolicyGateway(ToolPort):
             if self.enable_egress_check:
                 for url in iter_http_urls(resolved_parameters):
                     await check_egress_policy(self.ctx, tool_ref, {"url": url})
-
-            rate_limit = kwargs.get("rate_limit_per_minute") or self.rate_limit_per_minute
-            if rate_limit:
-                rate_limit_key = f"tool:{tool_ref}:{self.ctx.tenant_id}:{self.ctx.workspace_id}:{self.ctx.user_id}"
-                await self.rate_limiter.check_rate_limit(
-                    key=rate_limit_key,
-                    limit=rate_limit,
-                    window_seconds=60,
-                )
-            if self.daily_quota:
-                quota_key = f"quota:tool:{tool_ref}:{self.ctx.tenant_id}:{self.ctx.workspace_id}"
-                await self.rate_limiter.check_rate_limit(
-                    key=quota_key,
-                    limit=self.daily_quota,
-                    window_seconds=86400,
-                )
-            if self.credit_guard:
-                # Tools that bill (search, scraping, paid APIs) spend the same
-                # credit and budgets as model calls.
-                await check_spend(
-                    self.credit_guard,
-                    operation="tool",
-                    run_id=resolve_run_id(kwargs, self.ctx),
-                )
 
             async def _invoke():
                 if tool_execution_service and tool_execution_claim:

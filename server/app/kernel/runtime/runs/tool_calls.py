@@ -334,6 +334,20 @@ class RuntimeToolExecutionService:
             return ToolExecutionClaim(record=existing, run_step=step)
         raise ConflictError("Tool call is already claimed")
 
+    async def recorded_outcome(self, command: ToolExecutionCommand) -> ToolExecutionClaim | None:
+        """The recorded outcome ``command`` replays, found without claiming anything.
+
+        None when the call has no outcome yet, or has a failure that
+        ``retry_failed`` runs again: the caller then admits and claims it.
+        """
+
+        existing = await self._find_existing(command)
+        if existing is None or existing.status not in {"succeeded", "failed"}:
+            return None
+        if existing.status == "failed" and command.retry_failed:
+            return None
+        return await self._claim_existing(command, existing, canonical_request_hash(command.arguments))
+
     async def _resolve_run_step(self, command: ToolExecutionCommand) -> RunStep:
         if command.run_step_id:
             return await self._require_tool_step(

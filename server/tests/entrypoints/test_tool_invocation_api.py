@@ -536,6 +536,70 @@ async def test_an_approved_call_refused_by_the_rate_still_runs_when_sent_again(
     assert done.json()["data"]["status"] == "succeeded"
 
 
+async def test_a_call_the_members_tool_rate_refused_runs_when_sent_again(
+    async_client, async_db, ctx, key_counters
+) -> None:
+    # The gateway spends the member's rate before it claims the call, so a
+    # refusal records no failure under the idempotency key to replay.
+    _as(dataclasses.replace(ctx, tool_rate_limit_per_minute=1))
+    headers = {"Idempotency-Key": "after-the-window"}
+    try:
+        await async_client.post(RANDOM, json=ONE)
+        refused = await async_client.post(RANDOM, json=ONE, headers=headers)
+        key_counters.clear()
+        accepted = await async_client.post(RANDOM, json=ONE, headers=headers)
+    finally:
+        _as(ctx)
+
+    assert refused.status_code == 429, refused.text
+    assert refused.json()["code"] == "RATE_LIMIT_EXCEEDED"
+    assert accepted.status_code == 200, accepted.text
+    assert (accepted.json()["data"]["status"], accepted.json()["data"]["replayed"]) == ("succeeded", False)
+    failed = (await async_db.exec(select(Run).where(Run.mode == "tool", Run.status == "failed"))).all()
+    assert [run.error_code for run in failed] == ["RATE_LIMIT_EXCEEDED"]
+    calls = (await async_db.exec(select(RunStepToolCall).where(RunStepToolCall.run_id == failed[0].id))).all()
+    assert calls == []
+
+
+async def test_an_approved_call_refused_by_the_members_tool_rate_still_runs_when_sent_again(
+    async_client, async_db, ctx, key_counters
+) -> None:
+    # Refused as it resumes, the call goes back to waiting on its approval.
+    _register_gated_tool(ctx)
+    other = {"arguments": {"min": 4, "max": 4}}
+    call = {"arguments": {"min": 5, "max": 5}}
+    _as(dataclasses.replace(ctx, tool_rate_limit_per_minute=1))
+    try:
+        spends_the_rate = (await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=other)).json()["data"]
+        waiting = (await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call)).json()["data"]
+        for gated in (spends_the_rate, waiting):
+            await async_client.post(
+                f"/api/v1/observe/approvals/{gated['approval_id']}/resolve", json={"status": "approved"}
+            )
+        ran = await async_client.post(
+            f"/api/v1/tools/{GATED}/invoke",
+            json=other,
+            headers={"Idempotency-Key": spends_the_rate["idempotency_key"]},
+        )
+        key = {"Idempotency-Key": waiting["idempotency_key"]}
+        refused = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call, headers=key)
+        status_after_refusal = (await _run(async_db, waiting["run_id"])).status
+        key_counters.clear()
+        done = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call, headers=key)
+    finally:
+        _as(ctx)
+
+    assert ran.status_code == 200, ran.text
+    assert refused.status_code == 429, refused.text
+    assert refused.json()["code"] == "RATE_LIMIT_EXCEEDED"
+    assert status_after_refusal == "waiting_approval"
+    assert done.status_code == 200, done.text
+    body = done.json()["data"]
+    assert (body["status"], body["result"], body["replayed"]) == ("succeeded", {"value": 5}, False)
+    assert body["run_id"] == waiting["run_id"]
+    assert (await _run(async_db, waiting["run_id"])).status == "succeeded"
+
+
 @pytest.mark.usefixtures("key_counters")
 async def test_a_gated_call_the_key_refused_opens_no_approval(async_client, async_db, ctx) -> None:
     from app.modules.observe.domain.models import ApprovalRequest
