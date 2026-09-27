@@ -80,6 +80,8 @@ class ImageGenerationCreate(BaseModel):
     response_format: str | None = Field(
         default=None, pattern="^(b64_json|url|artifact)$"
     )
+    background: str | None = Field(default=None, pattern="^(transparent|opaque)$")
+    output_format: str | None = Field(default=None, pattern="^(png|webp)$")
     run_async: bool = Field(default=False, alias="async")
 
     @field_validator("size")
@@ -303,6 +305,8 @@ async def create_image_generation(
             n=payload.n,
             size=payload.size,
             response_format=payload.response_format or "b64_json",
+            output_format=payload.output_format,
+            extra={"background": payload.background} if payload.background else {},
         ),
         ctx=ctx,
         db=db,

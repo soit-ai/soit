@@ -6,6 +6,9 @@ In-memory LLM adapter for tests and local runs.
 from __future__ import annotations
 
 import asyncio
+import base64
+import functools
+import io
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -29,11 +32,25 @@ _TINY_PNG_B64 = (
 )
 
 
+
+@functools.cache
+def _tiny_image_b64(output_format: str | None) -> str:
+    """A 1x1 image in the format asked for, so labels can be checked against bytes."""
+    if output_format not in ("webp", "jpeg"):
+        return _TINY_PNG_B64
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (1, 1), (255, 0, 0)).save(buffer, format=output_format.upper())
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
 class InMemoryLLMPort(LLMPort):
     """In-memory LLM implementation with deterministic responses."""
 
     def __init__(self) -> None:
         self.last_edit: dict[str, Any] | None = None
+        self.last_generate: dict[str, Any] | None = None
         # Load tests set this to stand in for a real model's latency, so the
         # measurement is about how many executions can wait at once.
         self.latency_seconds = max(0.0, float(os.getenv("SOIT_TESTING_MODEL_LATENCY_MS", "0") or 0)) / 1000
@@ -178,8 +195,11 @@ class InMemoryLLMPort(LLMPort):
         **kwargs: Any,
     ) -> ImageGenerationResponse:
         model_name = model.split(":")[-1] if ":" in model else model
+        # Recorded so tests can assert what reached the adapter.
+        self.last_generate = {"prompt": prompt, "size": size, "kwargs": dict(kwargs)}
+        encoded = _tiny_image_b64(kwargs.get("output_format"))
         return ImageGenerationResponse(
-            images=[GeneratedImage(b64_json=_TINY_PNG_B64) for _ in range(max(1, n))],
+            images=[GeneratedImage(b64_json=encoded) for _ in range(max(1, n))],
             model=model_name,
         )
 
@@ -203,8 +223,9 @@ class InMemoryLLMPort(LLMPort):
             "size": size,
             "kwargs": dict(kwargs),
         }
+        encoded = _tiny_image_b64(kwargs.get("output_format"))
         return ImageGenerationResponse(
-            images=[GeneratedImage(b64_json=_TINY_PNG_B64) for _ in range(max(1, n))],
+            images=[GeneratedImage(b64_json=encoded) for _ in range(max(1, n))],
             model=model_name,
         )
 

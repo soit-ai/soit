@@ -33,6 +33,13 @@ record for operators.
   rule (a tool that requires approval now waits for it when an agent calls
   it) and its declared price. Agents resolved such tools with no policy.
 
+- `POST /api/v1/images/generations` accepts `background` (`transparent`,
+  `opaque`) and `output_format` (`png`, `webp`), as the edit endpoint
+  already did, and sends them to the provider only when set. A model whose
+  `capabilities_json.image` declares `transparent_background: false` refuses
+  a transparent request before anything is billed; a model that declares
+  nothing receives both and may still ignore them.
+
 ### Changed
 
 - Every unpriced cost row now says why in `pricing_snapshot.reason`:
@@ -60,6 +67,15 @@ record for operators.
   `inspected` `false`), with the URL in the stored object rather than in the
   metadata run listings show, so every billed image has an artifact to
   fetch. The link lives as long as the provider keeps it.
+- An image edit's `background` now reaches OpenAI-style providers. It was
+  sent in `extra_body`, which LiteLLM discards on image edits, so a
+  transparent edit came back opaque and was billed. The edit options LiteLLM
+  has no field for, `seed`, `strength`, `negative_prompt` and
+  `output_format`, still do not reach OpenAI-style providers.
+- An image artifact is named and typed after the bytes the provider
+  returned (PNG, WebP or JPEG), not after the requested `output_format`. A
+  provider that ignored the request no longer leaves PNG bytes labelled
+  `image/webp`; `meta_json.requested_format` records what was asked for.
 - A streamed chat call that reached the provider is now always charged.
   Before, a `/v1/chat/completions` client that disconnected before the final
   chunk left the model step `running` with no cost, so the call escaped

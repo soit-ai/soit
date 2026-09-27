@@ -64,7 +64,23 @@ def resolve_response_format(requested: str | None, *, detached: bool) -> str:
 _OUTPUT_MIME = {
     "png": "image/png",
     "webp": "image/webp",
+    "jpeg": "image/jpeg",
 }
+
+
+def _sniff_format(data: bytes) -> str | None:
+    """The image format the bytes are actually in, when it is one we label.
+
+    A provider may ignore the requested output_format, so the stored artifact
+    is named and typed after what came back rather than after what was asked.
+    """
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    return None
 
 
 @dataclass(frozen=True)
@@ -79,7 +95,8 @@ class ImageJobRequest:
     n: int = 1
     size: str | None = None
     response_format: str = "b64_json"
-    output_format: str = "png"
+    output_format: str | None = None
+    """Sent to the provider only when set; ``png`` is assumed otherwise."""
     image: bytes | None = None
     mask: bytes | None = None
     extra: dict[str, Any] = field(default_factory=dict)
@@ -89,6 +106,10 @@ class ImageJobRequest:
             raise ValidationError(f"Unsupported image job kind: {self.kind}")
         if self.kind == "edit" and not self.image:
             raise ValidationError("An image edit requires a source image")
+
+    @property
+    def file_format(self) -> str:
+        return self.output_format or "png"
 
     @property
     def summary(self) -> str:
@@ -124,7 +145,7 @@ def _gateway_kwargs(request: ImageJobRequest, run_id: str) -> dict[str, Any]:
     kwargs["response_format"] = (
         "b64_json" if request.response_format == "artifact" else request.response_format
     )
-    if request.kind == "edit":
+    if request.output_format is not None:
         kwargs["output_format"] = request.output_format
     return kwargs
 
@@ -223,7 +244,6 @@ async def _store_as_artifacts(
     run_id: str,
     request: ImageJobRequest,
 ) -> list[ImageResult]:
-    mime = _OUTPUT_MIME.get(request.output_format, "image/png")
     results: list[ImageResult] = []
     for index, image in enumerate(response.images):
         if not image.b64_json:
@@ -242,13 +262,24 @@ async def _store_as_artifacts(
             )
             continue
         data = _decode(image.b64_json)
-        storage_key = f"{_images_prefix(ctx, run_id)}/{index}.{request.output_format}"
+        file_format = _sniff_format(data) or request.file_format
+        mime = _OUTPUT_MIME.get(file_format, "image/png")
+        storage_key = f"{_images_prefix(ctx, run_id)}/{index}.{file_format}"
         await storage_port.put(
             storage_key,
             data,
             content_type=mime,
             metadata={"run_id": run_id, "index": str(index)},
         )
+        meta: dict[str, Any] = {
+            "kind": "image",
+            "index": index,
+            "name": f"{index}.{file_format}",
+            "operation": _operation(request),
+        }
+        if request.output_format is not None and request.output_format != file_format:
+            # The provider answered in another format than the one asked for.
+            meta["requested_format"] = request.output_format
         artifact = await trace_writer.create_artifact(
             run_id=run_id,
             artifact_type="file",
@@ -256,12 +287,7 @@ async def _store_as_artifacts(
             mime=mime,
             size_bytes=len(data),
             sha256=hashlib.sha256(data).hexdigest(),
-            meta={
-                "kind": "image",
-                "index": index,
-                "name": f"{index}.{request.output_format}",
-                "operation": _operation(request),
-            },
+            meta=meta,
         )
         results.append(ImageResult(attachment_id=artifact.id))
     return results
@@ -285,7 +311,6 @@ async def _inspect_results(
         return []
 
     evidence: list[dict[str, Any]] = []
-    media_type = _OUTPUT_MIME.get(request.output_format, "image/png")
     for index, image in enumerate(response.images):
         if not image.b64_json:
             # A provider-hosted URL means the bytes never reached us; saying so
@@ -299,10 +324,11 @@ async def _inspect_results(
             )
             continue
 
+        data = _decode(image.b64_json)
         verdict = await content_safety.inspect_image(
-            _decode(image.b64_json),
+            data,
             direction=SafetyDirection.OUTBOUND,
-            media_type=media_type,
+            media_type=_OUTPUT_MIME.get(_sniff_format(data) or request.file_format, "image/png"),
             run_id=run_id,
         )
         if verdict.findings:

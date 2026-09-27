@@ -117,8 +117,8 @@ class TestRequestShape:
 
     @pytest.mark.asyncio
     async def test_non_standard_parameters_travel_in_extra_body(self):
-        # Dropping a seed would make a request the caller believes is
-        # reproducible quietly not be.
+        # Where providers whose LiteLLM config reads extra_body find them.
+        # OpenAI-style edits do not: test_litellm_image_wire records that.
         recorder = _Recorder()
         await _port("openai", recorder).edit_image(
             image=b"image-bytes",
@@ -134,6 +134,20 @@ class TestRequestShape:
         assert extra["negative_prompt"] == "blurry"
 
     @pytest.mark.asyncio
+    async def test_background_is_a_plain_argument(self):
+        # LiteLLM's edit request keeps background from its own argument list
+        # and discards extra_body on OpenAI-style providers.
+        recorder = _Recorder()
+        await _port("openai", recorder).edit_image(
+            image=b"image-bytes",
+            prompt="a red dot",
+            model="model:openai:gpt-image-1",
+            background="transparent",
+        )
+        assert recorder.params["background"] == "transparent"
+        assert "extra_body" not in recorder.params
+
+    @pytest.mark.asyncio
     async def test_unset_parameters_are_not_invented(self):
         recorder = _Recorder()
         await _port("openai", recorder).edit_image(
@@ -142,6 +156,7 @@ class TestRequestShape:
             model="model:openai:gpt-image-1",
         )
         assert "extra_body" not in recorder.params
+        assert "background" not in recorder.params
 
     @pytest.mark.asyncio
     async def test_response_is_mapped_to_the_kernel_shape(self):
@@ -171,6 +186,45 @@ class TestRequestShape:
                 prompt="a red dot",
                 model="model:openai:gpt-image-1",
             )
+
+
+class TestGenerationOptions:
+    """Options outside LiteLLM's generation mapping travel in extra_body."""
+
+    @staticmethod
+    def _generation_port(recorder: _Recorder) -> LiteLLMPort:
+        return LiteLLMPort(
+            provider_kind="openai",
+            api_key="test-key",
+            completion_fn=_Recorder(),
+            embedding_fn=_Recorder(),
+            image_generation_fn=recorder,
+            image_edit_fn=_Recorder(),
+            load_sdk_defaults=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_background_and_output_format_travel_in_extra_body(self):
+        # As plain arguments LiteLLM drops them for gpt-image without a word.
+        recorder = _Recorder()
+        await self._generation_port(recorder).generate_image(
+            prompt="a red dot",
+            model="model:openai:gpt-image-1",
+            background="transparent",
+            output_format="webp",
+        )
+        assert recorder.params["extra_body"] == {"background": "transparent", "output_format": "webp"}
+        assert "background" not in recorder.params
+        assert "output_format" not in recorder.params
+
+    @pytest.mark.asyncio
+    async def test_unset_options_are_not_invented(self):
+        recorder = _Recorder()
+        await self._generation_port(recorder).generate_image(
+            prompt="a red dot",
+            model="model:openai:dall-e-3",
+        )
+        assert "extra_body" not in recorder.params
 
 
 class TestResponseFormatCompatibility:

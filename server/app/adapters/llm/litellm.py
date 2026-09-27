@@ -372,6 +372,7 @@ class LiteLLMPort(LLMPort):
         # Prefer inline bytes so callers own storage; providers without
         # b64 support ignore the hint and return URLs instead.
         self._apply_response_format(params, kwargs.get("response_format"))
+        self._forward_image_options(params, kwargs, extra_body=("background", "output_format"))
         response = await self._image_generation(**params)
         images: list[GeneratedImage] = []
         for item in _value(response, "data", []) or []:
@@ -385,6 +386,35 @@ class LiteLLMPort(LLMPort):
             images=images,
             model=_value(response, "model", params["model"]),
         )
+
+    @staticmethod
+    def _forward_image_options(
+        params: dict[str, Any],
+        kwargs: dict[str, Any],
+        *,
+        top_level: tuple[str, ...] = (),
+        extra_body: tuple[str, ...] = (),
+    ) -> None:
+        """Place each image option where LiteLLM carries it to the provider.
+
+        LiteLLM drops what it does not map without a word, and the two image
+        calls map differently. A generation keeps only a handful of OpenAI
+        keys, so a background passed as a plain argument to gpt-image never
+        reaches the wire, while extra_body is sent as given. An edit keeps its
+        own fixed list, background among them, and discards extra_body on
+        OpenAI-style providers.
+        """
+        for name in top_level:
+            value = kwargs.get(name)
+            if value is not None:
+                params[name] = value
+        body = dict(kwargs.get("extra_body") or {})
+        for name in extra_body:
+            value = kwargs.get(name)
+            if value is not None:
+                body[name] = value
+        if body:
+            params["extra_body"] = body
 
     # Providers that read the mask's alpha channel, where transparent marks
     # the region to replace. Everything else is sent SOIT's own convention:
@@ -452,17 +482,15 @@ class LiteLLMPort(LLMPort):
         if size is not None:
             params["size"] = size
         self._apply_response_format(params, kwargs.get("response_format"))
-
-        # Parameters outside the OpenAI edit shape reach the provider through
-        # extra_body rather than being dropped in silence: a seed the caller
-        # asked to reproduce with must either be honoured or refused.
-        extra_body = dict(kwargs.get("extra_body") or {})
-        for name in ("seed", "strength", "negative_prompt", "background", "output_format"):
-            value = kwargs.get(name)
-            if value is not None:
-                extra_body[name] = value
-        if extra_body:
-            params["extra_body"] = extra_body
+        # The remaining options have no place in LiteLLM's edit request: they
+        # reach providers whose LiteLLM config reads extra_body, and OpenAI-style
+        # providers do not receive them.
+        self._forward_image_options(
+            params,
+            kwargs,
+            top_level=("background",),
+            extra_body=("seed", "strength", "negative_prompt", "output_format"),
+        )
 
         response = await self._image_edit(**params)
         images: list[GeneratedImage] = []

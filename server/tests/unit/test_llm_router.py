@@ -791,3 +791,43 @@ async def test_llm_policy_uses_resolved_provider_timeout_and_retry_policy(ctx):
 
     assert resolutions == 1
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_a_generation_asking_for_what_the_model_ruled_out_is_refused_unbilled(ctx):
+    """background reaches the capability check on generations, not only on edits."""
+    from app.kernel.ports.llm.interface import ImageGenerationResponse
+    from app.kernel.ports.llm.policy import LLMPolicyGateway
+
+    port = DummyPort()
+    port.generate_image = AsyncMock(return_value=ImageGenerationResponse(images=[], model="m"))
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: RuntimeProviderConfig(
+            provider_id="provider-image",
+            slug=slug,
+            kind="openai_compatible",
+            adapter_backend="litellm",
+            status="active",
+            provider_model_id="seedream",
+            model_id=model_id,
+            model_status="active",
+            capability_matrix={"image_generation": {"merged": True}},
+            image_capabilities={"transparent_background": False},
+        ),
+        litellm_factory=lambda config, credentials: port,
+    )
+    writer = AsyncMock()
+    gateway = LLMPolicyGateway(router, ctx, trace_writer=writer, max_retries=0)
+
+    with pytest.raises(KernelError) as exc:
+        await gateway.generate_image(
+            prompt="a red dot",
+            model="model:image-provider:seedream",
+            background="transparent",
+            run_id="run-image",
+        )
+
+    assert exc.value.code == "MODEL_IMAGE_CAPABILITY_UNAVAILABLE"
+    port.generate_image.assert_not_awaited()
+    writer.record_cost.assert_not_called()

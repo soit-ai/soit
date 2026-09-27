@@ -138,6 +138,39 @@ class TestArtifactResponses:
         assert artifacts[0].meta_json["name"].endswith(".webp")
 
     @pytest.mark.asyncio
+    async def test_a_webp_generation_is_stored_as_webp(self, async_client, async_db):
+        body = (await _generate(
+            async_client, response_format="artifact", output_format="webp"
+        )).json()["data"]
+
+        [artifact] = await _artifacts(async_db, body["run_id"])
+        assert artifact.mime == "image/webp"
+        assert artifact.meta_json["name"].endswith(".webp")
+        assert "requested_format" not in artifact.meta_json
+
+    @pytest.mark.asyncio
+    async def test_an_artifact_is_labelled_by_its_bytes(self, async_client, async_db):
+        # A provider that ignores output_format still answers in PNG; the
+        # artifact says what it holds, and what was asked for.
+        from app.adapters.llm.memory import _TINY_PNG_B64
+        from app.kernel.ports.llm.interface import GeneratedImage
+
+        port = _HostedPort([GeneratedImage(b64_json=_TINY_PNG_B64)])
+        response = await _with_port(
+            port,
+            lambda: _generate(async_client, response_format="artifact", output_format="webp"),
+        )
+
+        [artifact] = await _artifacts(async_db, response.json()["data"]["run_id"])
+        assert artifact.mime == "image/png"
+        assert artifact.meta_json["name"] == "0.png"
+        assert artifact.meta_json["requested_format"] == "webp"
+        content = await async_client.get(
+            f"/api/v1/runs/{response.json()['data']['run_id']}/artifacts/{artifact.id}/content"
+        )
+        assert content.headers["content-type"].startswith("image/png")
+
+    @pytest.mark.asyncio
     async def test_artifacts_still_bill_once(self, async_client, async_db):
         body = (await _generate(async_client, n=2, response_format="artifact")).json()["data"]
 
@@ -264,6 +297,36 @@ class TestJobRequestContract:
             response_format="artifact",
         )
         assert _gateway_kwargs(request, "run_1")["response_format"] == "b64_json"
+
+    def test_output_format_is_sent_only_when_asked_for(self):
+        # A generation that names no format leaves the provider its default,
+        # so models that do not take the parameter are not handed one.
+        from app.kernel.runtime.images.service import _gateway_kwargs
+
+        unset = ImageJobRequest(kind="generate", model="model:test:m", prompt="hi")
+        webp = ImageJobRequest(kind="generate", model="model:test:m", prompt="hi", output_format="webp")
+        edit = ImageJobRequest(
+            kind="edit", model="model:test:m", prompt="hi", image=b"x", output_format="png"
+        )
+        assert "output_format" not in _gateway_kwargs(unset, "run_1")
+        assert _gateway_kwargs(webp, "run_1")["output_format"] == "webp"
+        assert _gateway_kwargs(edit, "run_1")["output_format"] == "png"
+
+
+@pytest.mark.parametrize(
+    ("image", "expected"),
+    [
+        (b"\x89PNG\r\n\x1a\n" + b"\0" * 8, "png"),
+        (b"RIFF\0\0\0\0WEBPVP8 ", "webp"),
+        (b"\xff\xd8\xff\xe0\0\x10JFIF", "jpeg"),
+        (b"GIF89a", None),
+        (b"", None),
+    ],
+)
+def test_image_bytes_are_recognised_by_their_signature(image, expected):
+    from app.kernel.runtime.images.service import _sniff_format
+
+    assert _sniff_format(image) == expected
 
 
 def test_detached_worker_survives_a_cancelled_event_loop_reference():

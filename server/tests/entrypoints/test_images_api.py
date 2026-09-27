@@ -117,3 +117,41 @@ async def test_image_generation_rejects_unsupported_dimensions(async_client, asy
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "VALIDATION_ERROR"
     assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
+
+
+class TestGenerationOptions:
+    """background and output_format reach generation as they already reached edits."""
+
+    @pytest.mark.asyncio
+    async def test_they_reach_the_adapter(self, async_client):
+        port = get_container().get("llm_port")
+        port.last_generate = None
+
+        response = await _generate(async_client, background="transparent", output_format="webp")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.text
+        passed = port.last_generate["kwargs"]
+        assert passed["background"] == "transparent"
+        assert passed["output_format"] == "webp"
+
+    @pytest.mark.asyncio
+    async def test_unset_options_are_not_invented(self, async_client):
+        port = get_container().get("llm_port")
+        port.last_generate = None
+
+        await _generate(async_client)
+
+        passed = port.last_generate["kwargs"]
+        assert "background" not in passed
+        assert "output_format" not in passed
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("overrides", [{"background": "checkered"}, {"output_format": "gif"}])
+    async def test_unknown_values_are_refused_before_a_run_opens(
+        self, async_client, async_db, overrides
+    ):
+        response = await _generate(async_client, **overrides)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "VALIDATION_ERROR"
+        assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
