@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlparse
 
 import anyio
 from sqlalchemy import and_, desc, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import PendingRollbackError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import (
@@ -85,8 +85,8 @@ UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
 logger = logging.getLogger(__name__)
 
 # How long closing a canceled query's run may take; it runs shielded from
-# the cancellation that ended the query.
-_SETTLE_TIMEOUT_SECONDS = 30.0
+# the cancellation that ended the query, which waits for it.
+_SETTLE_TIMEOUT_SECONDS = 10.0
 # Refusals by governance that a query passes on to its caller rather than
 # answering from the keyword fallback.
 _GOVERNANCE_REFUSALS = (BudgetExhaustedError, CreditExhaustedError, RateLimitExceededError, ForbiddenError)
@@ -2351,7 +2351,9 @@ class KnowledgeRuntimeService:
         caller's session, and some callers (the knowledge_query tool, agent
         RAG) never commit it. Committing when the run settles keeps them. If
         an earlier write failed and left the session unusable, what it held
-        is lost, but the run still closes after a rollback.
+        is lost, but the run still closes after a rollback. A commit that
+        fails here is raised, never retried into a success that records no
+        usage: the query then settles as failed.
         """
         if not run_id or not self.trace_writer:
             return
@@ -2365,7 +2367,7 @@ class KnowledgeRuntimeService:
 
         try:
             await close()
-        except SQLAlchemyError:
+        except PendingRollbackError:
             await self.db.rollback()
             await close()
 

@@ -95,3 +95,31 @@ async def test_a_canceled_query_keeps_its_run_and_usage(async_db, ctx) -> None:
     runs, costs = await _query_runs(async_db)
     assert [run.status for run in runs] == ["canceled"]
     assert [cost.amount for cost in costs] == [Decimal("0.01")]
+
+
+async def test_a_failed_commit_settles_the_query_as_failed_not_as_free(async_db, ctx) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    session, service, knowledge_id = await _service_on_its_own_session(async_db, ctx)
+    service.retrieval_service = _PricedRetrieval(service.trace_writer)
+    commit = session.commit
+    commits = 0
+
+    async def commit_that_fails_at_settle() -> None:
+        nonlocal commits
+        commits += 1
+        if commits == 2:  # the first is the model call's, the second the settle's
+            await session.rollback()
+            raise OperationalError("COMMIT", {}, Exception("server closed the connection"))
+        await commit()
+
+    session.commit = commit_that_fails_at_settle  # type: ignore[method-assign]
+
+    with pytest.raises(OperationalError):
+        await service.query(knowledge_id, QueryRequest(query="refund policy"))
+    await session.close()
+
+    runs, _ = await _query_runs(async_db)
+    # Its usage was lost with the commit; the run says the query failed
+    # rather than that it succeeded and cost nothing.
+    assert [run.status for run in runs] == ["failed"]
