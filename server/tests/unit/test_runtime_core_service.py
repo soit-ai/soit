@@ -135,3 +135,48 @@ async def test_task_service_manages_task_lifecycle(async_db, tenant1_ctx):
 
     assert task.status == TaskStatus.SUCCEEDED.value
     assert task.output_json["result"] == "ok"
+
+
+async def test_a_content_free_task_keeps_its_resume_state_only_while_it_can_resume(async_db, tenant1_ctx):
+    """A paused conversation's checkpoint is content: not copied, not kept past the end."""
+    from dataclasses import replace
+
+    from sqlmodel import select
+
+    from app.kernel.runtime.db.models.tasks import TaskEvent
+
+    secret = "the launch code is 0451"
+    service = TaskService(async_db, replace(tenant1_ctx, content_capture="metadata_only"))
+    task = await service.create_task(task_type="agent_run")
+    await service.transition_task(task_id=task.id, status=TaskStatus.RUNNING.value)
+    waiting = await service.transition_task(
+        task_id=task.id,
+        status=TaskStatus.WAITING_APPROVAL.value,
+        progress={
+            "phase": "approval",
+            "checkpoint": {"messages": [{"role": "user", "content": secret}]},
+            "interrupt": {"metadata": {"arguments": {"q": secret}}},
+        },
+    )
+    # Still paused: the checkpoint is what it resumes from.
+    assert waiting.progress_json["checkpoint"]["messages"][0]["content"] == secret
+
+    failed = await service.transition_task(task_id=task.id, status=TaskStatus.FAILED.value, error_code="X")
+
+    events = (await async_db.exec(select(TaskEvent).where(TaskEvent.task_id == task.id))).all()
+    assert secret not in str([event.payload_json for event in events])
+    assert {"phase": "approval"} in [event.payload_json.get("progress") for event in events]
+    assert secret not in str(failed.progress_json)
+    assert failed.progress_json.get("phase") == "approval"
+
+
+async def test_a_full_capture_task_keeps_its_progress(async_db, tenant1_ctx):
+    service = TaskService(async_db, tenant1_ctx)
+    task = await service.create_task(task_type="agent_run")
+    progress = {"phase": "approval", "checkpoint": {"messages": ["kept"]}}
+
+    await service.transition_task(task_id=task.id, status=TaskStatus.RUNNING.value)
+    await service.transition_task(task_id=task.id, status=TaskStatus.WAITING_APPROVAL.value, progress=progress)
+    failed = await service.transition_task(task_id=task.id, status=TaskStatus.FAILED.value)
+
+    assert failed.progress_json == progress

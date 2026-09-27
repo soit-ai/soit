@@ -12,15 +12,47 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.observe.execution_metrics import observe_task_lifecycle
 from app.kernel.runtime.db.models.tasks import Task, TaskCheckpoint, TaskEvent
+from app.kernel.runtime.runs.content_capture import (
+    ContentCapture,
+    resolve_content_capture,
+)
 from app.kernel.runtime.status import TaskStatus, validate_task_transition
 from app.kernel.runtime.tasks.drivers import is_drivable
 from app.kernel.runtime.tasks.events import TaskEventType
 from app.kernel.runtime.tasks.protocols import TaskRepositoryProtocol
 from app.kernel.runtime.tasks.repository import TaskRepository
 
+_TERMINAL_STATUSES = frozenset(
+    {
+        TaskStatus.SUCCEEDED.value,
+        TaskStatus.FAILED.value,
+        TaskStatus.CANCELED.value,
+        TaskStatus.EXPIRED.value,
+    }
+)
+
+# What a paused task keeps to resume from: the conversation so far, the call
+# waiting for approval. Content, needed only until the task ends.
+_RESUME_STATE_KEYS = ("checkpoint", "interrupt")
+
+
+def _progress_facts(progress: dict[str, Any] | None) -> dict[str, Any]:
+    """The phase and action of a task's progress, without what it carries."""
+    return {
+        key: value
+        for key, value in (progress or {}).items()
+        if key not in _RESUME_STATE_KEYS and (value is None or isinstance(value, str | int | float | bool))
+    }
+
 
 class TaskService:
-    """Coordinates task lifecycle persistence."""
+    """Coordinates task lifecycle persistence.
+
+    Under content-free capture a task's events record only the phase and
+    action of its progress, and a finished task keeps no state to resume
+    from: the checkpoint of a conversation paused for approval is content,
+    kept only while the task can still resume.
+    """
 
     def __init__(
         self,
@@ -32,6 +64,12 @@ class TaskService:
         self.db = db
         self.ctx = ctx
         self.task_repo = task_repo or TaskRepository(db, ctx)
+        self._capture: ContentCapture | None = None
+
+    async def _content_capture(self) -> ContentCapture:
+        if self._capture is None:
+            self._capture = await resolve_content_capture(self.db, self.ctx)
+        return self._capture
 
     async def create_task(
         self,
@@ -104,6 +142,13 @@ class TaskService:
         task.status = status
         if progress is not None:
             task.progress_json = progress
+        capture = await self._content_capture()
+        if not capture.keeps_content and status in _TERMINAL_STATUSES:
+            task.progress_json = {
+                key: value
+                for key, value in (task.progress_json or {}).items()
+                if key not in _RESUME_STATE_KEYS
+            }
         if output_payload is not None:
             task.output_json = output_payload
         if error_code is not None:
@@ -138,7 +183,7 @@ class TaskService:
             event_type="task.status",
             payload={
                 "status": task.status,
-                "progress": task.progress_json,
+                "progress": task.progress_json if capture.keeps_content else _progress_facts(task.progress_json),
                 "error_code": task.error_code,
             },
         )

@@ -221,6 +221,10 @@ record for operators.
 
 ### Security
 
+- Under content-free capture a task's status events record only the phase
+  and action of its progress, not a copy of the conversation checkpoint a
+  task paused for approval keeps, and a finished task no longer keeps that
+  checkpoint.
 - Content-free runs (`metadata_only`) keep tool content out of the run
   ledger too. A step's tool call metrics (arguments, results, metadata,
   error text) and gateway audit payloads were stored as they came, and an
