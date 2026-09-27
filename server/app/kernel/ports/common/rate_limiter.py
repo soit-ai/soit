@@ -65,9 +65,10 @@ class RateLimiter:
         window_start = now - window_seconds
 
         # Each request is its own member: two requests in the same instant
-        # are two requests. A refusal returns when the oldest request in the
-        # window was made, which is when the next slot frees; the key's TTL
-        # says only when the last one leaves.
+        # are two requests. A refusal returns when the request whose leaving
+        # frees a slot was made: the oldest while the window holds the limit,
+        # a later one when the limit was lowered below what it holds. The
+        # key's TTL says only when the last one leaves.
         lua_script = """
         local key = KEYS[1]
         local window_start = tonumber(ARGV[1])
@@ -83,8 +84,8 @@ class RateLimiter:
             redis.call('EXPIRE', key, window_seconds)
             return {1, ARGV[2]}
         end
-        local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
-        return {0, oldest[2] or ARGV[2]}
+        local freeing = redis.call('ZRANGE', key, count - limit, count - limit, 'WITHSCORES')
+        return {0, freeing[2] or ARGV[2]}
         """
 
         try:
@@ -99,9 +100,9 @@ class RateLimiter:
                 f"{now}:{secrets.token_hex(8)}",
             )
 
-            allowed, oldest = cast(list[Any], result)
+            allowed, freeing_at = cast(list[Any], result)
             if int(allowed) == 0:
-                retry_after = max(1, math.ceil(float(oldest) + window_seconds - now))
+                retry_after = max(1, math.ceil(float(freeing_at) + window_seconds - now))
                 raise RateLimitExceededError(
                     f"Rate limit exceeded: {limit} requests per {window_seconds} seconds",
                     {

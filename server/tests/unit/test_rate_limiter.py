@@ -7,6 +7,7 @@ import time
 from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 import redis.asyncio as redis_async
 
 from app.kernel.commons.errors import RateLimitExceededError
@@ -99,3 +100,59 @@ async def test_every_request_is_counted_as_its_own_member(mock_redis):
 
     members = [call.args[-1] for call in mock_redis.eval.await_args_list]
     assert len(set(members)) == 2
+
+
+
+@pytest_asyncio.fixture
+async def real_redis():
+    """The Lua script runs only in Redis; these tests skip where none is reachable."""
+    import secrets
+
+    from app.settings.settings import settings
+
+    client = redis_async.from_url(settings.redis_url, socket_connect_timeout=0.5, socket_timeout=2)
+    try:
+        await client.ping()
+    except Exception:
+        await client.aclose()
+        pytest.skip("no Redis reachable")
+    key = f"test:rate_limiter:{secrets.token_hex(6)}"
+    yield client, key
+    await client.delete(f"ratelimit:{key}")
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_requests_in_one_instant_are_each_counted(real_redis, monkeypatch):
+    client, key = real_redis
+    monkeypatch.setattr(time, "time", lambda: 1_000_000.0)
+    limiter = RateLimiter(redis_client=client)
+
+    results = []
+    for _ in range(5):
+        try:
+            results.append(await limiter.check_rate_limit(key=key, limit=3, window_seconds=60))
+        except RateLimitExceededError:
+            results.append(False)
+
+    assert results == [True, True, True, False, False]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("held", "limit", "wait"), [(3, 3, 3600), (10, 3, 8 * 3600)])
+async def test_a_refusal_says_when_a_slot_frees(real_redis, held, limit, wait):
+    # One request an hour for the last `held` hours. With the window full at
+    # the limit, the oldest leaving frees a slot; with a limit lowered below
+    # what the window holds, a slot frees only when enough have left.
+    client, key = real_redis
+    now = time.time()
+    await client.zadd(
+        f"ratelimit:{key}",
+        {f"seed:{hour}": now - 86400 + (hour + 1) * 3600 for hour in range(held)},
+    )
+    limiter = RateLimiter(redis_client=client)
+
+    with pytest.raises(RateLimitExceededError) as refused:
+        await limiter.check_rate_limit(key=key, limit=limit, window_seconds=86400)
+
+    assert abs(refused.value.details["retry_after"] - wait) <= 2
