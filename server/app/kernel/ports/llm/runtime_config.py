@@ -7,7 +7,7 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.secrets.interface import require_opaque_secret_id
@@ -117,6 +117,7 @@ IMAGE_CAPABILITY_DEFAULTS: dict[str, Any] = {
     "transparent_background": None,
     "max_dimension": None,
     "supports_seed": None,
+    "response_format_param": None,
 }
 """Per-model image traits, declared alongside the coarse capability flags.
 
@@ -341,6 +342,64 @@ def normalize_capability_matrix(
     return normalized_matrix
 
 
+IMAGE_OPERATIONS = ("generate", "edit")
+
+IMAGE_INLINE_ONLY_MODEL_PREFIXES = ("gpt-image", "chatgpt-image")
+"""Models known to answer with inline base64 and refuse ``response_format``.
+
+LiteLLM still lists the parameter as supported for them, so sending it is a
+provider-side 400 on every call. This is the default for a model that has not
+declared ``response_format_param``; a declaration overrides it.
+"""
+
+
+def _normalize_response_format_param(value: Any) -> dict[str, bool | None] | None:
+    """Read whether each image endpoint takes ``response_format``.
+
+    One support value applies to both endpoints; an object gives them
+    separately, as ``{"generate": ..., "edit": ...}``, because the constraint
+    is the endpoint's: one model's generation may take the parameter while
+    its edit refuses it. Anything unreadable is unknown.
+    """
+    if isinstance(value, Mapping):
+        per_endpoint = cast(Mapping[str, Any], value)
+        declared: dict[str, bool | None] = {}
+        for operation in IMAGE_OPERATIONS:
+            try:
+                declared[operation] = _normalize_support_value(per_endpoint.get(operation))
+            except ValidationError:
+                declared[operation] = None
+        return declared if any(v is not None for v in declared.values()) else None
+    try:
+        support = _normalize_support_value(value)
+    except ValidationError:
+        return None
+    if support is None:
+        return None
+    return dict.fromkeys(IMAGE_OPERATIONS, support)
+
+
+def image_takes_response_format(
+    image_capabilities: Mapping[str, Any] | None,
+    *,
+    model: str,
+    operation: str,
+) -> bool:
+    """Whether an image call to ``model`` on ``operation`` is sent ``response_format``.
+
+    A declared ``response_format_param`` decides. Undeclared, the gpt-image
+    family is known to refuse it on every endpoint, and every other model is
+    sent it, as before the trait existed.
+    """
+    declared = (image_capabilities or {}).get("response_format_param")
+    if isinstance(declared, Mapping):
+        takes = cast(Mapping[str, Any], declared).get(operation)
+        if isinstance(takes, bool):
+            return takes
+    bare = model.rsplit("/", 1)[-1]
+    return not bare.startswith(IMAGE_INLINE_ONLY_MODEL_PREFIXES)
+
+
 def normalize_image_capabilities(
     capabilities_json: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -379,6 +438,11 @@ def normalize_image_capabilities(
         except (TypeError, ValueError):
             parsed = 0
         traits["max_dimension"] = parsed if parsed > 0 else None
+
+    if "response_format_param" in raw:
+        traits["response_format_param"] = _normalize_response_format_param(
+            raw.get("response_format_param")
+        )
 
     return traits
 

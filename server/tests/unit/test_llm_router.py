@@ -833,7 +833,7 @@ async def test_a_generation_asking_for_what_the_model_ruled_out_is_refused_unbil
     writer.record_cost.assert_not_called()
 
 
-def _database_config(slug: str, model_id: str, **connection):
+def _database_config(slug: str, model_id: str, capabilities_json=None, **connection):
     """A route config built the way a workspace provider's is, from its stored record."""
     from types import SimpleNamespace
 
@@ -858,9 +858,10 @@ def _database_config(slug: str, model_id: str, **connection):
         capability_matrix_json={
             "chat": {"merged": True},
             "image_generation": {"merged": True},
+            "image_edit": {"merged": True},
         },
         pricing_json={},
-        capabilities_json=None,
+        capabilities_json=capabilities_json,
     )
     return DatabaseProviderResolver._config_from_provider(provider, model)
 
@@ -945,3 +946,41 @@ def test_a_litellm_port_for_a_provider_without_a_timeout_leaves_the_sdk_its_own(
 
     assert "timeout" not in unset._connection_params()
     assert set_._connection_params()["timeout"] == 45.0
+
+
+@pytest.mark.asyncio
+async def test_a_models_declared_endpoint_traits_reach_the_litellm_call(ctx, monkeypatch):
+    """A stored model's response_format_param decides what its edits are sent."""
+    import litellm
+
+    from app.adapters.llm.router import _default_litellm_factory
+    from app.kernel.ports.llm.policy import LLMPolicyGateway
+
+    calls: dict[str, dict] = {}
+
+    def _recorder(operation):
+        async def record(**params):
+            calls[operation] = params
+            return {"data": [{"b64_json": "aGk="}], "model": params.get("model")}
+
+        return record
+
+    monkeypatch.setattr(litellm, "aimage_generation", _recorder("generate"))
+    monkeypatch.setattr(litellm, "aimage_edit", _recorder("edit"))
+    config = _database_config(
+        "db-gateway",
+        "dall-e-2",
+        capabilities_json={"image": {"response_format_param": {"generate": True, "edit": False}}},
+    )
+    router = LLMRouterPort(
+        providers={},
+        provider_resolver=lambda request_ctx, slug, model_id: config,
+        litellm_factory=_default_litellm_factory,
+    )
+    gateway = LLMPolicyGateway(router, ctx, max_retries=0)
+
+    await gateway.generate_image(prompt="a red dot", model="model:db-gateway:dall-e-2")
+    await gateway.edit_image(image=b"image-bytes", prompt="a red dot", model="model:db-gateway:dall-e-2")
+
+    assert calls["generate"]["response_format"] == "b64_json"
+    assert "response_format" not in calls["edit"]

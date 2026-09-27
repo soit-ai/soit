@@ -68,7 +68,23 @@ class TestNormalizeImageCapabilities:
             "transparent_background": False,
             "max_dimension": 2048,
             "supports_seed": True,
+            "response_format_param": None,
         }
+
+    def test_one_response_format_declaration_covers_both_endpoints(self):
+        traits = normalize_image_capabilities({"image": {"response_format_param": False}})
+        assert traits["response_format_param"] == {"generate": False, "edit": False}
+
+    def test_response_format_is_declared_per_endpoint(self):
+        traits = normalize_image_capabilities(
+            {"image": {"response_format_param": {"generate": "supported", "edit": False}}}
+        )
+        assert traits["response_format_param"] == {"generate": True, "edit": False}
+
+    @pytest.mark.parametrize("value", ["sometimes", {}, {"edit": {"x": 1}}, [False], None])
+    def test_an_unreadable_response_format_declaration_is_unknown(self, value):
+        traits = normalize_image_capabilities({"image": {"response_format_param": value}})
+        assert traits["response_format_param"] is None
 
     def test_string_support_values_are_accepted(self):
         traits = normalize_image_capabilities(

@@ -24,6 +24,7 @@ from app.kernel.ports.llm.interface import (
 )
 from app.kernel.ports.llm.runtime_config import (
     LITELLM_PROVIDER_PRESETS,
+    image_takes_response_format,
     validate_litellm_params,
     validate_litellm_provider_prefix,
 )
@@ -67,6 +68,7 @@ class LiteLLMPort(LLMPort):
         image_generation_fn: SDKCall | None = None,
         image_edit_fn: SDKCall | None = None,
         load_sdk_defaults: bool = True,
+        image_capabilities: dict[str, Any] | None = None,
     ) -> None:
         self.provider_kind = provider_kind
         self.litellm_provider = (
@@ -82,6 +84,9 @@ class LiteLLMPort(LLMPort):
         self.api_base = api_base
         self.timeout = timeout
         self.max_retries = max_retries
+        # The routed model's declared image traits, which decide whether an
+        # image endpoint is sent response_format.
+        self.image_capabilities = image_capabilities or {}
 
         if load_sdk_defaults and (
             completion_fn is None
@@ -374,7 +379,7 @@ class LiteLLMPort(LLMPort):
             params["size"] = size
         # Prefer inline bytes so callers own storage; providers without
         # b64 support ignore the hint and return URLs instead.
-        self._apply_response_format(params, kwargs.get("response_format"))
+        self._apply_response_format(params, kwargs.get("response_format"), operation="generate")
         self._forward_image_options(params, kwargs, extra_body=("background", "output_format"))
         response = await self._image_generation(**params)
         images: list[GeneratedImage] = []
@@ -424,36 +429,33 @@ class LiteLLMPort(LLMPort):
     # white marks the region to edit.
     _ALPHA_MASK_PROVIDERS = {"openai", "openai_compatible", "azure_openai"}
 
-    # Models that always answer with inline base64 and reject the parameter
-    # that asks for it. LiteLLM still lists response_format as supported for
-    # these, so sending it is a provider-side 400 on every call.
-    _IMPLICIT_B64_MODEL_PREFIXES = ("gpt-image", "chatgpt-image")
-
-    @classmethod
-    def _accepts_response_format(cls, model_name: str) -> bool:
-        bare = model_name.rsplit("/", 1)[-1]
-        return not bare.startswith(cls._IMPLICIT_B64_MODEL_PREFIXES)
-
-    @classmethod
     def _apply_response_format(
-        cls,
+        self,
         params: dict[str, Any],
         requested: str | None,
+        *,
+        operation: str,
     ) -> None:
-        """Ask for inline bytes where the model lets us, and say so where not.
+        """Ask for inline bytes where the endpoint takes the parameter, and say so where not.
 
-        A model that cannot serve URLs is told to the caller rather than
-        quietly handed back base64 under a URL request, which would break the
-        response shape they coded against.
+        Whether it does is the routed model's declared trait, per endpoint,
+        or the kernel's default for models known to refuse it. An endpoint
+        that is sent no response_format answers in its own format, so a
+        caller asking it for URLs is told rather than quietly handed base64,
+        which would break the response shape they coded against.
         """
         resolved = requested or "b64_json"
-        if cls._accepts_response_format(params["model"]):
+        if image_takes_response_format(
+            self.image_capabilities, model=params["model"], operation=operation
+        ):
             params["response_format"] = resolved
             return
         if resolved == "url":
             raise ValidationError(
-                f"Model {params['model']} returns inline image bytes only; "
-                "request response_format=b64_json"
+                f"Model {params['model']} takes no response_format on image "
+                f"{operation}s, so it cannot be asked for a URL; "
+                "request response_format=b64_json",
+                {"param": "response_format"},
             )
 
     def _mask_for_provider(self, mask: bytes) -> bytes:
@@ -484,7 +486,7 @@ class LiteLLMPort(LLMPort):
             params["mask"] = self._mask_for_provider(mask)
         if size is not None:
             params["size"] = size
-        self._apply_response_format(params, kwargs.get("response_format"))
+        self._apply_response_format(params, kwargs.get("response_format"), operation="edit")
         # The remaining options have no place in LiteLLM's edit request: they
         # reach providers whose LiteLLM config reads extra_body, and OpenAI-style
         # providers do not receive them.

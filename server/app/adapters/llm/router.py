@@ -150,6 +150,7 @@ def _default_litellm_factory(
         api_base=config.base_url,
         timeout=config.timeout,
         max_retries=config.max_retries,
+        image_capabilities=config.image_capabilities,
     )
 
 

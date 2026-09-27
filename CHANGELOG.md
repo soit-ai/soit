@@ -47,6 +47,17 @@ record for operators.
   auto` is the provider's default and is not sent; a transparent background
   with `jpeg` output is refused before a run opens.
 
+- A model's `capabilities_json.image.response_format_param` declares whether
+  its image endpoints take `response_format`: one value for both, or
+  `{"generate": ..., "edit": ...}`, since the constraint is the endpoint's.
+  An endpoint declared `false` is sent none, and a caller asking it for `url`
+  is refused with `VALIDATION_ERROR` before the provider is called.
+  Undeclared models behave as before: the gpt-image and chatgpt-image
+  families are sent none and every other model is sent it. Only those name
+  prefixes decided before, so an endpoint that refuses the parameter under
+  another name failed at the provider on every call with nothing to
+  configure.
+
 ### Changed
 
 - Every unpriced cost row now says why in `pricing_snapshot.reason`:

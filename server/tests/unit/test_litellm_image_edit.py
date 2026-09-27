@@ -13,6 +13,7 @@ from PIL import Image
 
 from app.adapters.llm.litellm import LiteLLMPort
 from app.kernel.commons.errors import ValidationError
+from app.kernel.ports.llm.runtime_config import image_takes_response_format
 
 
 def _mask_png(size=(8, 8)) -> bytes:
@@ -236,18 +237,20 @@ class TestResponseFormatCompatibility:
     "Unknown parameter: 'response_format'".
     """
 
-    def test_gpt_image_models_do_not_accept_the_parameter(self):
+    @pytest.mark.parametrize("operation", ["generate", "edit"])
+    def test_gpt_image_models_do_not_accept_the_parameter(self, operation):
         for model in (
             "openai/gpt-image-1",
             "openai/gpt-image-1.5",
             "gpt-image-2",
             "openai/chatgpt-image-latest",
         ):
-            assert LiteLLMPort._accepts_response_format(model) is False, model
+            assert image_takes_response_format(None, model=model, operation=operation) is False
 
-    def test_other_image_models_still_accept_it(self):
+    @pytest.mark.parametrize("operation", ["generate", "edit"])
+    def test_other_image_models_still_accept_it(self, operation):
         for model in ("openai/dall-e-2", "openai/dall-e-3", "bedrock/stability"):
-            assert LiteLLMPort._accepts_response_format(model) is True, model
+            assert image_takes_response_format(None, model=model, operation=operation) is True
 
     @pytest.mark.asyncio
     async def test_the_parameter_is_omitted_for_gpt_image_edits(self):
@@ -290,10 +293,70 @@ class TestResponseFormatCompatibility:
         # Handing back base64 under a URL request would break the response
         # shape the caller coded against.
         recorder = _Recorder()
-        with pytest.raises(ValidationError, match="inline image bytes only"):
+        with pytest.raises(ValidationError, match="cannot be asked for a URL"):
             await _port("openai", recorder).edit_image(
                 image=b"image-bytes",
                 prompt="a red dot",
                 model="model:openai:gpt-image-1",
                 response_format="url",
             )
+
+
+class TestDeclaredResponseFormatParameter:
+    """Whether an endpoint takes response_format is the model's declared trait.
+
+    Picover met dall-e-2 refusing it on /images/edits while its generations
+    took it: the constraint is the endpoint's, which a model name cannot say.
+    """
+
+    @staticmethod
+    def _declared_port(declared, generate: _Recorder, edit: _Recorder) -> LiteLLMPort:
+        return LiteLLMPort(
+            provider_kind="openai",
+            api_key="test-key",
+            completion_fn=_Recorder(),
+            embedding_fn=_Recorder(),
+            image_generation_fn=generate,
+            image_edit_fn=edit,
+            load_sdk_defaults=False,
+            image_capabilities={"response_format_param": declared},
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_edit_declared_without_it_is_not_sent_it(self):
+        generate, edit = _Recorder(), _Recorder()
+        port = self._declared_port({"generate": True, "edit": False}, generate, edit)
+
+        await port.generate_image(prompt="a red dot", model="model:openai:dall-e-2")
+        await port.edit_image(image=b"image-bytes", prompt="a red dot", model="model:openai:dall-e-2")
+
+        assert generate.params["response_format"] == "b64_json"
+        assert "response_format" not in edit.params
+
+    @pytest.mark.asyncio
+    async def test_a_declaration_overrides_the_gpt_image_default(self):
+        generate, edit = _Recorder(), _Recorder()
+        port = self._declared_port({"generate": True, "edit": None}, generate, edit)
+
+        await port.generate_image(prompt="a red dot", model="model:openai:gpt-image-9", response_format="url")
+        await port.edit_image(image=b"image-bytes", prompt="a red dot", model="model:openai:gpt-image-9")
+
+        assert generate.params["response_format"] == "url"
+        # Undeclared for edits: the family's known default still applies.
+        assert "response_format" not in edit.params
+
+    @pytest.mark.asyncio
+    async def test_a_url_cannot_be_asked_of_an_endpoint_without_it(self):
+        generate, edit = _Recorder(), _Recorder()
+        port = self._declared_port({"edit": False}, generate, edit)
+
+        with pytest.raises(ValidationError) as exc:
+            await port.edit_image(
+                image=b"image-bytes",
+                prompt="a red dot",
+                model="model:openai:dall-e-2",
+                response_format="url",
+            )
+
+        assert exc.value.details["param"] == "response_format"
+        assert edit.params is None
