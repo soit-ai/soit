@@ -79,8 +79,12 @@ run with `mode=tool` whose id comes back in the result's `_meta` as
 
 Refusals the model can act on (arguments that do not match the tool's
 schema, a blocked address, a spent budget) come back as a tool result with
-`isError: true` and the reason, so the model can correct itself. An unknown
-tool name is the protocol error `-32602`.
+`isError: true` and the reason, so the model can correct itself; its `_meta`
+holds the error code as `ai.soit/code`. A call refused by a rate limit or
+quota, the key's own included, says when to try again, in its text and as
+`ai.soit/retry_after` (seconds); a key's limit also names itself as
+`ai.soit/quota` (`per_minute`, `daily_requests`). An unknown tool name is the
+protocol error `-32602`.
 
 ## Approval
 

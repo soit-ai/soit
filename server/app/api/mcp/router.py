@@ -31,6 +31,7 @@ import base64
 import binascii
 import json
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -243,6 +244,26 @@ def _refusal_text(exc: KernelError) -> str:
     return exc.message
 
 
+def _refusal(exc: KernelError, tool_ref: str) -> types.CallToolResult:
+    """A refused call as a tool result, with when to try again if a limit refused it."""
+    text = _refusal_text(exc)
+    meta: dict[str, Any] = {f"{META_PREFIX}tool_ref": tool_ref, f"{META_PREFIX}code": exc.code}
+    details = exc.details or {}
+    retry_after = details.get("retry_after")
+    if (
+        exc.code == "RATE_LIMIT_EXCEEDED"
+        and isinstance(retry_after, int | float)
+        and not isinstance(retry_after, bool)
+        and retry_after > 0
+    ):
+        seconds = math.ceil(retry_after)
+        meta[f"{META_PREFIX}retry_after"] = seconds
+        if isinstance(details.get("quota"), str):
+            meta[f"{META_PREFIX}quota"] = details["quota"]
+        text = f"{text.rstrip('.')}. Retry after {seconds} seconds."
+    return _tool_error(text, meta)
+
+
 def _tool_error(text: str, meta: dict[str, Any] | None = None) -> types.CallToolResult:
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=text)],
@@ -356,10 +377,9 @@ async def _call_tool(call: _Call) -> dict[str, Any]:
         invocation = await service.invoke_or_continue(tool_ref, arguments)
     except KernelError as exc:
         # A refusal the model can act on: bad arguments, a blocked address,
-        # a spent budget. Reported as the tool's result, not a protocol error.
-        return _dump(
-            _tool_error(_refusal_text(exc), {f"{META_PREFIX}tool_ref": tool_ref, f"{META_PREFIX}code": exc.code})
-        )
+        # a spent budget, a limit to wait out. Reported as the tool's result,
+        # not a protocol error.
+        return _dump(_refusal(exc, tool_ref))
     except Exception:
         logger.exception("MCP tool call failed", extra={"tool_ref": tool_ref})
         return _dump(_tool_error("The tool call failed", {f"{META_PREFIX}tool_ref": tool_ref}))

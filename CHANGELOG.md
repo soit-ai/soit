@@ -203,6 +203,21 @@ record for operators.
 
 ### Security
 
+- An API key's calls-per-minute and 24-hour request limits now count the
+  tool calls made with it through `POST /api/v1/tools/{ref}/invoke` and
+  `/mcp` `tools/call`, which spent neither, lifting a limitation v1.3.0
+  documented. Model and tool calls share one budget. Every tool request
+  spends the per-minute rate, a poll or a replay with the same
+  `Idempotency-Key` included, before anything is recorded; a call spends the
+  24-hour quota once, when it starts, and a refusal then fails its run.
+  Running a call once approved spends no more of the quota, and a refusal
+  by the key's limits never voids an approval. A refusal is `429` with
+  `Retry-After`, and `details.quota` names the limit (`per_minute`,
+  `daily_requests`); over MCP it is a tool result whose `_meta` carries
+  `ai.soit/retry_after` and `ai.soit/quota` and whose text says when to
+  retry. A key that has these limits and also calls tools will reach them
+  sooner. Tool calls an agent or a workflow makes inside a run still do not
+  count.
 - A knowledge query searched whatever index it named. The query checked the
   caller's permission on the knowledge base it named, then searched the
   `index_id` (or, with `strategy: multi_index`, the `index_ids`) it was given

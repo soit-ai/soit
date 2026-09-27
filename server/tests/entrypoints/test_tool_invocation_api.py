@@ -388,3 +388,216 @@ async def test_a_tool_that_declares_a_price_is_charged_it(async_client, async_db
     ).all()
     assert unpriced_cost.amount is None
     assert unpriced_cost.pricing_snapshot_json["reason"] == "tool_pricing_not_declared"
+
+
+@pytest.fixture
+def key_counters(monkeypatch):
+    """Rate windows kept in memory, so each test starts with fresh ones."""
+    from app.kernel.commons.errors import RateLimitExceededError
+    from app.kernel.ports.common.rate_limiter import RateLimiter
+
+    spent: list[str] = []
+
+    async def check_rate_limit(_self, key: str, limit: int, window_seconds: int) -> bool:
+        spent.append(key)
+        if spent.count(key) > limit:
+            raise RateLimitExceededError(
+                f"Rate limit exceeded: {limit} requests per {window_seconds} seconds",
+                {"limit": limit, "window_seconds": window_seconds, "retry_after": 30},
+            )
+        return True
+
+    monkeypatch.setattr(RateLimiter, "check_rate_limit", check_rate_limit)
+    return spent
+
+
+def _keyed(ctx, **limits):
+    return dataclasses.replace(ctx, api_key_id="key_1", **limits)
+
+
+def _key_spend(spent: list[str]) -> list[str]:
+    return [key for key in spent if "api_key" in key]
+
+
+RANDOM = "/api/v1/tools/tool:function:random_int/invoke"
+ONE = {"arguments": {"min": 1, "max": 1}}
+
+
+@pytest.mark.usefixtures("key_counters")
+async def test_a_keys_rate_counts_its_tool_calls(async_client, async_db, ctx) -> None:
+    _as(_keyed(ctx, api_key_rate_limit_per_minute=1))
+    try:
+        first = await async_client.post(RANDOM, json=ONE)
+        second = await async_client.post(RANDOM, json=ONE)
+    finally:
+        _as(ctx)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429, second.text
+    assert second.headers["retry-after"] == "30"
+    assert second.json()["code"] == "RATE_LIMIT_EXCEEDED"
+    assert second.json()["details"]["quota"] == "per_minute"
+    # Refused before anything was recorded: one run, the first call's.
+    runs = (await async_db.exec(select(Run).where(Run.mode == "tool"))).all()
+    assert [run.id for run in runs] == [first.json()["data"]["run_id"]]
+
+
+async def test_a_keys_daily_quota_counts_each_call_once(async_client, async_db, ctx, key_counters) -> None:
+    _as(_keyed(ctx, api_key_daily_request_quota=1))
+    try:
+        first = await async_client.post(RANDOM, json=ONE, headers={"Idempotency-Key": "once"})
+        replay = await async_client.post(RANDOM, json=ONE, headers={"Idempotency-Key": "once"})
+        another = await async_client.post(RANDOM, json=ONE, headers={"Idempotency-Key": "another"})
+    finally:
+        _as(ctx)
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.json()["data"]["replayed"] is True
+    assert another.status_code == 429, another.text
+    assert another.json()["details"]["quota"] == "daily_requests"
+    assert _key_spend(key_counters) == ["quota:llm:api_key:key_1", "quota:llm:api_key:key_1"]
+    refused = [
+        run
+        for run in (await async_db.exec(select(Run).where(Run.mode == "tool"))).all()
+        if run.id != first.json()["data"]["run_id"]
+    ]
+    assert [(run.status, run.error_code, run.api_key_id) for run in refused] == [
+        ("failed", "RATE_LIMIT_EXCEEDED", "key_1")
+    ]
+    calls = (await async_db.exec(select(RunStepToolCall).where(RunStepToolCall.run_id == refused[0].id))).all()
+    costs = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == refused[0].id))).all()
+    assert calls == [] and costs == []
+
+
+async def test_a_call_the_key_refused_runs_when_sent_again(async_client, ctx, key_counters) -> None:
+    # A refusal records no outcome under the idempotency key, so sending the
+    # call again once the window moves runs it rather than replaying a failure.
+    _as(_keyed(ctx, api_key_daily_request_quota=1, api_key_rate_limit_per_minute=10))
+    headers = {"Idempotency-Key": "later"}
+    try:
+        await async_client.post(RANDOM, json=ONE)
+        refused = await async_client.post(RANDOM, json=ONE, headers=headers)
+        key_counters.clear()
+        accepted = await async_client.post(RANDOM, json=ONE, headers=headers)
+    finally:
+        _as(ctx)
+
+    assert refused.status_code == 429
+    assert accepted.status_code == 200, accepted.text
+    assert (accepted.json()["data"]["status"], accepted.json()["data"]["replayed"]) == ("succeeded", False)
+
+
+@pytest.mark.usefixtures("key_counters")
+async def test_an_approved_call_runs_without_spending_the_daily_quota_again(async_client, ctx) -> None:
+    _register_gated_tool(ctx)
+    call = {"arguments": {"min": 5, "max": 5}}
+    _as(_keyed(ctx, api_key_daily_request_quota=1))
+    try:
+        waiting = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call)
+        key = {"Idempotency-Key": waiting.json()["data"]["idempotency_key"]}
+        polled = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call, headers=key)
+        await async_client.post(
+            f"/api/v1/observe/approvals/{waiting.json()['data']['approval_id']}/resolve",
+            json={"status": "approved"},
+        )
+        done = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call, headers=key)
+        fresh = await async_client.post(RANDOM, json=ONE)
+    finally:
+        _as(ctx)
+
+    assert (waiting.status_code, polled.status_code) == (202, 202)
+    assert done.status_code == 200, done.text
+    assert done.json()["data"]["status"] == "succeeded"
+    assert fresh.status_code == 429, "the approved call's quota was spent when it was made"
+
+
+async def test_an_approved_call_refused_by_the_rate_still_runs_when_sent_again(
+    async_client, ctx, key_counters
+) -> None:
+    # The rate is spent before anything changes, so a refusal cannot void the approval.
+    _register_gated_tool(ctx)
+    call = {"arguments": {"min": 5, "max": 5}}
+    _as(_keyed(ctx, api_key_rate_limit_per_minute=1))
+    try:
+        waiting = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call)
+        key = {"Idempotency-Key": waiting.json()["data"]["idempotency_key"]}
+        await async_client.post(
+            f"/api/v1/observe/approvals/{waiting.json()['data']['approval_id']}/resolve",
+            json={"status": "approved"},
+        )
+        refused = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call, headers=key)
+        key_counters.clear()
+        done = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call, headers=key)
+    finally:
+        _as(ctx)
+
+    assert refused.status_code == 429
+    assert done.status_code == 200, done.text
+    assert done.json()["data"]["status"] == "succeeded"
+
+
+@pytest.mark.usefixtures("key_counters")
+async def test_a_gated_call_the_key_refused_opens_no_approval(async_client, async_db, ctx) -> None:
+    from app.modules.observe.domain.models import ApprovalRequest
+
+    _register_gated_tool(ctx)
+    _as(_keyed(ctx, api_key_daily_request_quota=1))
+    try:
+        await async_client.post(RANDOM, json=ONE)
+        refused = await async_client.post(f"/api/v1/tools/{GATED}/invoke", json={"arguments": {"min": 5, "max": 5}})
+    finally:
+        _as(ctx)
+
+    assert refused.status_code == 429
+    assert (await async_db.exec(select(ApprovalRequest))).all() == []
+    gated = (await async_db.exec(select(RunStepToolCall).where(RunStepToolCall.tool_ref == GATED))).all()
+    assert gated == []
+
+
+async def test_a_refused_tool_or_one_outside_the_keys_list_spends_nothing(async_client, ctx, key_counters) -> None:
+    limited = _keyed(
+        ctx,
+        api_key_rate_limit_per_minute=5,
+        api_key_daily_request_quota=5,
+        allowed_tools=frozenset({"tool:function:time_now"}),
+    )
+    _as(limited)
+    try:
+        outside = await async_client.post(RANDOM, json=ONE)
+        unknown = await async_client.post("/api/v1/tools/tool:none:such/invoke", json={"arguments": {}})
+        listed = await async_client.get("/api/v1/tools")
+    finally:
+        _as(ctx)
+
+    assert (outside.status_code, unknown.status_code, listed.status_code) == (403, 403, 200)
+    assert _key_spend(key_counters) == []
+
+
+async def test_a_session_without_a_key_spends_no_key_budget(async_client, ctx, key_counters) -> None:
+    _as(dataclasses.replace(ctx, api_key_rate_limit_per_minute=1, api_key_daily_request_quota=1))
+    try:
+        first = await async_client.post(RANDOM, json=ONE)
+        second = await async_client.post(RANDOM, json=ONE)
+    finally:
+        _as(ctx)
+
+    assert first.status_code == second.status_code == 200
+    assert _key_spend(key_counters) == []
+
+
+@pytest.mark.usefixtures("key_counters")
+async def test_a_tool_call_spends_the_budget_a_model_call_needs(async_client, ctx) -> None:
+    _as(_keyed(ctx, api_key_rate_limit_per_minute=1))
+    try:
+        tool = await async_client.post(RANDOM, json=ONE)
+        chat = await async_client.post(
+            "/v1/chat/completions",
+            json={"model": "model:test:chat", "messages": [{"role": "user", "content": "hi"}]},
+        )
+    finally:
+        _as(ctx)
+
+    assert tool.status_code == 200, tool.text
+    assert chat.status_code == 429, chat.text
+    assert chat.json()["error"]["code"] == "rate_limit_exceeded"
+    assert chat.headers["retry-after"] == "30"

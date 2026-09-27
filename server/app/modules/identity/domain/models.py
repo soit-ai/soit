@@ -302,10 +302,10 @@ class ApiKey(SQLModel, table=True):
     """Expiry; requests presenting the key after this moment are rejected."""
 
     rate_limit_per_minute: int | None = Field(default=None, nullable=True)
-    """Model calls per minute through this key; None leaves only the member's own limit."""
+    """Model and tool calls per minute through this key; None leaves only the member's own limit."""
 
     daily_request_quota: int | None = Field(default=None, nullable=True)
-    """Model calls through this key in any 24 hours."""
+    """Model and tool calls through this key in any 24 hours."""
 
     daily_token_quota: int | None = Field(default=None, nullable=True)
     """Model tokens this key may consume per UTC day."""

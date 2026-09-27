@@ -421,3 +421,61 @@ async def test_a_priced_tool_called_over_mcp_is_charged_its_price(async_client, 
     run_id = response.json()["result"]["_meta"]["ai.soit/run_id"]
     [cost] = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == run_id))).all()
     assert (cost.amount, cost.currency) == (Decimal("0.002"), "USD")
+
+
+@pytest.fixture
+def key_counters(monkeypatch):
+    """Rate windows kept in memory, so each test starts with fresh ones."""
+    from app.kernel.commons.errors import RateLimitExceededError
+    from app.kernel.ports.common.rate_limiter import RateLimiter
+
+    spent: list[str] = []
+
+    async def check_rate_limit(_self, key: str, limit: int, window_seconds: int) -> bool:
+        spent.append(key)
+        if spent.count(key) > limit:
+            raise RateLimitExceededError(
+                f"Rate limit exceeded: {limit} requests per {window_seconds} seconds",
+                {"limit": limit, "window_seconds": window_seconds, "retry_after": 42.5},
+            )
+        return True
+
+    monkeypatch.setattr(RateLimiter, "check_rate_limit", check_rate_limit)
+    return spent
+
+
+@pytest.mark.usefixtures("key_counters")
+async def test_a_call_over_the_keys_rate_says_when_to_retry(async_client, ctx) -> None:
+    _as(dataclasses.replace(ctx, api_key_id="key_1", api_key_rate_limit_per_minute=1))
+    call = {"name": "function_random_int", "arguments": {"min": 1, "max": 1}}
+
+    first = await _rpc(async_client, "tools/call", call)
+    second = await _rpc(async_client, "tools/call", call)
+
+    assert first.json()["result"]["isError"] is False
+    # A refusal the model can wait out, not a transport failure.
+    assert second.status_code == 200
+    refused = second.json()["result"]
+    assert refused["isError"] is True
+    assert refused["_meta"]["ai.soit/code"] == "RATE_LIMIT_EXCEEDED"
+    assert refused["_meta"]["ai.soit/retry_after"] == 43
+    assert refused["_meta"]["ai.soit/quota"] == "per_minute"
+    assert refused["content"][0]["text"].endswith("Retry after 43 seconds.")
+
+
+async def test_a_gated_call_run_once_approved_spends_no_more_of_the_daily_quota(
+    async_client, ctx, key_counters
+) -> None:
+    _register_gated_tool(ctx)
+    _as(dataclasses.replace(ctx, api_key_id="key_1", api_key_daily_request_quota=1))
+    call = {"name": "function_gated_random", "arguments": {"min": 9, "max": 9}}
+
+    waiting = (await _rpc(async_client, "tools/call", call)).json()["result"]
+    await async_client.post(
+        f"/api/v1/observe/approvals/{waiting['_meta']['ai.soit/approval_id']}/resolve",
+        json={"status": "approved"},
+    )
+    done = (await _rpc(async_client, "tools/call", call)).json()["result"]
+
+    assert (done["isError"], done["structuredContent"]) == (False, {"value": 9})
+    assert [key for key in key_counters if "api_key" in key] == ["quota:llm:api_key:key_1"]

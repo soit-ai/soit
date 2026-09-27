@@ -64,13 +64,17 @@ class RequestContext:
     """
 
     api_key_rate_limit_per_minute: int | None = None
-    """Model calls the authenticating key may make per minute.
+    """Model and tool calls the authenticating key may make per minute.
 
-    Applies on top of the member's own rate; a key cannot exceed either.
+    Applies on top of the member's own rate; a key cannot exceed either. Every
+    direct tool request counts, a poll or a replay included.
     """
 
     api_key_daily_request_quota: int | None = None
-    """Model calls the authenticating key may make in any 24 hours."""
+    """Model and tool calls the authenticating key may make in any 24 hours.
+
+    A tool call counts once, when it starts.
+    """
 
     api_key_daily_token_quota: int | None = None
     """Model tokens the authenticating key may consume per UTC day."""

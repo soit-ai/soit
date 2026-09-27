@@ -17,6 +17,15 @@ caller gets the run, the approval and the key. Once someone has decided, the
 same call with the same key runs the tool, or reports the rejection. Only the
 arguments that were put up for approval can run: the retry must carry them
 unchanged.
+
+Key limits. The API key that authenticated the call spends its limits here,
+the counters its model calls spend too. Every request spends one of its
+per-minute rate, a poll or a replay included, before anything is recorded, so
+a refused request changes nothing and an approved call still runs when sent
+again. A call spends one of its daily request quota when it starts, and a
+refusal then fails that call's run. The tool gateway spends none of the key's
+budget, so a call is not counted twice, and the tool calls an agent or a
+workflow makes inside a run do not spend it.
 """
 
 from __future__ import annotations
@@ -40,6 +49,7 @@ from app.kernel.commons.errors import (
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.approvals.interface import ApprovalRecord, ToolApprovalPort
+from app.kernel.ports.common.api_key_admission import ApiKeyAdmission
 from app.kernel.ports.common.policy import unwrap_retry_error
 from app.kernel.ports.tools.catalog import CatalogTool, ToolCatalogPort
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -105,6 +115,7 @@ class ToolInvocationService:
         trace_writer: TraceWriter,
         approvals: ToolApprovalPort | None = None,
         approval_checkpoint_gateway: Any | None = None,
+        key_admission: ApiKeyAdmission | None = None,
     ) -> None:
         self.db = db
         self.ctx = ctx
@@ -113,6 +124,7 @@ class ToolInvocationService:
         self.trace_writer = trace_writer
         self.approvals = approvals
         self.approval_checkpoint_gateway = approval_checkpoint_gateway
+        self.key_admission = key_admission or ApiKeyAdmission(ctx)
 
     async def list_tools(self) -> list[CatalogTool]:
         """The tools this caller may invoke."""
@@ -151,6 +163,7 @@ class ToolInvocationService:
                     {"param": "idempotency_key"},
                 )
         tool = await self.get_tool(tool_ref)
+        await self.key_admission.admit_rate()
         caller_key = idempotency_key or f"key_{generate_ulid()}"
         stored_key = self._stored_key(caller_key)
         if idempotency_key is not None:
@@ -169,6 +182,7 @@ class ToolInvocationService:
         """
 
         tool = await self.get_tool(tool_ref)
+        await self.key_admission.admit_rate()
         waiting = await self._find_waiting(tool.ref, arguments)
         if waiting is not None:
             return await self._continue(waiting, tool, arguments, caller_key="")
@@ -290,6 +304,15 @@ class ToolInvocationService:
         )
         await self.trace_writer.update_run_status(run.id, "running")
         await self.db.commit()
+        try:
+            await self.key_admission.admit_daily_request()
+        except Exception as exc:
+            await self._fail_run(
+                run.id,
+                getattr(exc, "code", None) or "TOOL_INVOCATION_FAILED",
+                getattr(exc, "message", None) or str(exc),
+            )
+            raise
         tool_call_id = f"call_{generate_ulid()}"
         gate = self._approval_gate(tool, run_id=run.id, tool_call_id=tool_call_id, arguments=arguments)
         if gate is not None:

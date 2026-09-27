@@ -3,8 +3,9 @@
 Direct tool calls: list the tools a caller may invoke and invoke one by
 reference. Authentication is the same as the OpenAI-compatible ``/v1`` entry,
 so an API key that calls models can call tools; ``allowed_tools`` on the key
-narrows which. Each call is a run with ``mode="tool"``, named in the
-``x-soit-run-id`` header, and goes through the governed tool gateway.
+narrows which, and its calls-per-minute and daily limits count these calls
+as they count its model calls. Each call is a run with ``mode="tool"``, named
+in the ``x-soit-run-id`` header, and goes through the governed tool gateway.
 """
 
 from __future__ import annotations

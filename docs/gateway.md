@@ -135,11 +135,16 @@ Limits set on a key apply on top of its owner's own limits; an empty limit
 means none of that kind. Set them in **Settings › API** or with
 `PATCH /api/v1/api-keys/{key_id}`; rotation keeps them.
 
+A key's calls are its model calls and its tool calls through `/api/v1/tools`
+and `/mcp`, counted against one budget. Every tool request spends a call per
+minute, a poll or a replay included; a tool call spends a call per 24 hours
+once, when it starts, so running it once approved spends no more.
+
 | Limit | Refusal |
 | ----- | ------- |
-| Calls per minute | `429`, `Retry-After` |
-| Calls per 24 hours | `429`, `Retry-After` |
-| Tokens per UTC day | `429`, `Retry-After` |
+| Calls per minute (model and tool calls) | `429`, `Retry-After` |
+| Calls per 24 hours (model and tool calls) | `429`, `Retry-After` |
+| Tokens per UTC day (model calls) | `429`, `Retry-After` |
 | Allowed addresses (addresses or CIDR ranges) | `403` |
 | Allowed models (`model:` and `vmodel:` refs) | `403`; `/v1/models` lists only these |
 | Allowed tools (tool refs) | `403`; `/api/v1/tools` lists only these, and runs the key starts cannot call others either |
@@ -254,8 +259,6 @@ same client.
 
 ## Known limitations
 
-- A stream the client abandons ends its run, but the model step stays
-  `running` and its cost is not recorded.
 - Budget reservations expire after about a minute rather than being released,
   and without Redis they are skipped, so concurrent calls can overshoot a
   budget by more than one call.
@@ -264,8 +267,9 @@ same client.
   (`USAGE_RECONCILE_INTERVAL_SECONDS`, hourly by default).
 - Content capture is decided when a run starts; if the workspace setting
   cannot be read, content is withheld.
-- A key's calls-per-minute and daily limits count model calls; tool calls
-  are held by the member's own tool limits, the key's allowed tools and
-  budgets.
+- A key's calls-per-minute and daily limits count the tool calls made with
+  it through `/api/v1/tools` and `/mcp`, but not the tool calls an agent or a
+  workflow makes inside a run; those are held by the member's own tool
+  limits, the key's allowed tools and budgets.
 - A direct tool call that waits for approval runs only when the caller sends
   it again; nothing runs it on the caller's behalf.
