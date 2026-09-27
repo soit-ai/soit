@@ -35,9 +35,10 @@ outcome under the key: a new call's run fails and nothing replays it, and an
 approved call refused as it resumes goes back to waiting, to run when sent
 again.
 
-A request that names a call still running is refused as in flight: each
-request holds the call under a lease of its own, never one a caller could
-name, so a repeated request cannot run the tool a second time.
+Each request holds the call it runs under a lease of its own, never one a
+caller could name: a request that repeats a running call, request id and
+all, finds the lease taken and is refused as in flight. Two approved resumes
+of one call arriving together are not yet serialized.
 """
 
 from __future__ import annotations
