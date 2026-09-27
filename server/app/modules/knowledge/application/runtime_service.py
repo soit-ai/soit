@@ -2106,12 +2106,18 @@ class KnowledgeRuntimeService:
         self,
         knowledge_id: str,
         query_request: QueryRequest,
+        *,
+        parent_run_id: str | None = None,
     ) -> QueryResponse:
         """Query knowledge for relevant documents.
 
         Args:
             knowledge_id: Knowledge ID.
             query_request: Query request schema.
+            parent_run_id: The run this query serves (an agent's, a tool
+                call's), set by trusted callers only. The query's run hangs
+                under it and takes its rehearsal flag, so its usage counts
+                where the caller's does.
 
         Returns:
             QueryResponse instance.
@@ -2148,12 +2154,15 @@ class KnowledgeRuntimeService:
         step_id = None
         if self.trace_writer:
             subject_kind, subject_id, _ = self._resolve_knowledge_trace_subject(knowledge_id)
+            parent = await self._scoped_run(parent_run_id)
             run = await self.trace_writer.create_run(
                 mode="knowledge_query",
                 kind="tool",
                 subject_kind=subject_kind,
                 subject_id=subject_id,
                 input_summary=self._compose_knowledge_run_summary(knowledge_id, f"query={query_request.query}"),
+                parent_run_id=parent.id if parent else None,
+                sandbox=parent.sandbox if parent else None,
             )
             run_id = run.id
             await self.trace_writer.update_run_status(run_id, "running")
@@ -2335,6 +2344,16 @@ class KnowledgeRuntimeService:
                         "Could not close a canceled knowledge query run", exc_info=True, extra={"run_id": run_id}
                     )
             raise
+
+    async def _scoped_run(self, run_id: str | None) -> Run | None:
+        """A run of this workspace, or None."""
+
+        if not run_id:
+            return None
+        run = await self.db.get(Run, run_id)
+        if run is None or run.tenant_id != self.ctx.tenant_id or run.workspace_id != self.ctx.workspace_id:
+            return None
+        return run
 
     async def _settle_query_run(
         self,

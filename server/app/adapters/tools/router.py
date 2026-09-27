@@ -29,7 +29,9 @@ from app.kernel.security.egress import get_egress_policy
 from app.kernel.specs.validator import validate_spec
 
 # Arguments that would say who is calling; a tool learns that from its context.
-_CONTEXT_KEYS = frozenset({"ctx", "tenant_id", "workspace_id", "user_id", "tenant_role", "workspace_role"})
+_CONTEXT_KEYS = frozenset(
+    {"ctx", "parent_run_id", "tenant_id", "workspace_id", "user_id", "tenant_role", "workspace_role"}
+)
 _KNOWLEDGE_QUERY_ENTRYPOINT = "app.modules.knowledge.runtime.tool_entrypoint:knowledge_query"
 
 
@@ -417,6 +419,9 @@ class RegistryToolRouterPort(ToolPort):
             tool_inputs = {
                 **{key: value for key, value in tool_inputs.items() if key not in _CONTEXT_KEYS},
                 "ctx": ctx,
+                # The tool call's own run, so the retrieval's usage hangs
+                # under it.
+                "parent_run_id": kwargs.get("run_id"),
             }
         plugin_info = (payload or {}).get("plugin") or {}
         if plugin_info:

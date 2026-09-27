@@ -25,6 +25,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import aliased
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import (
@@ -88,13 +89,22 @@ def _scope_on_aggregates(budget: Budget) -> list[Any]:
     return []
 
 
+_ParentRun = aliased(Run)
+
+
 def _scope_on_runs(budget: Budget) -> list[Any]:
     if budget.scope_kind == "api_key":
         return [Run.api_key_id == budget.scope_id]
     if budget.scope_kind == "user":
         return [Run.user_id == budget.scope_id]
     if budget.scope_kind == "agent":
-        return [Run.subject_kind == "agent", Run.subject_id == budget.scope_id]
+        # The agent's own runs and the runs they started (its retrieval).
+        return [
+            or_(
+                and_(Run.subject_kind == "agent", Run.subject_id == budget.scope_id),
+                and_(_ParentRun.subject_kind == "agent", _ParentRun.subject_id == budget.scope_id),
+            )
+        ]
     return []
 
 
@@ -110,6 +120,8 @@ async def _ledger_spend(db: AsyncSession, budget: Budget, since: datetime) -> Bu
     run_clauses = _scope_on_runs(budget)
     if run_clauses:
         query = query.join(Run, Run.id == RunCostEntry.run_id)
+        if budget.scope_kind == "agent":
+            query = query.outerjoin(_ParentRun, _ParentRun.id == Run.parent_run_id)
         clauses.extend(run_clauses)
     total, calls = (await db.exec(query.where(and_(*clauses)))).one()
     return BudgetSpend(Decimal(str(total)), int(calls))
@@ -143,6 +155,20 @@ async def budget_spend(db: AsyncSession, budget: Budget, now: datetime) -> Budge
         past = BudgetSpend(Decimal(str(total)), int(calls))
     current = await _ledger_spend(db, budget, today.starts_at)
     return BudgetSpend(past.spent + current.spent, past.calls + current.calls)
+
+
+async def agent_of_run(db: AsyncSession, run: Run | None) -> str | None:
+    """The agent a run's usage counts toward: its own, or the agent run that started it."""
+
+    if run is None:
+        return None
+    if run.subject_kind == "agent":
+        return run.subject_id
+    if run.parent_run_id:
+        parent = await db.get(Run, run.parent_run_id)
+        if parent is not None and parent.subject_kind == "agent" and parent.tenant_id == run.tenant_id:
+            return parent.subject_id
+    return None
 
 
 class BudgetReservations(Protocol):
@@ -191,9 +217,7 @@ class BudgetGuard:
         if not run_id:
             return None
         run = await self.db.get(Run, run_id)
-        if run is not None and run.subject_kind == "agent":
-            return run.subject_id
-        return None
+        return await agent_of_run(self.db, run)
 
     async def applicable(self, run_id: str | None) -> list[Budget]:
         scopes = [Budget.scope_kind == "workspace"]

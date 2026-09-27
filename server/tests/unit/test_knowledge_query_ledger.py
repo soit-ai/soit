@@ -123,3 +123,33 @@ async def test_a_failed_commit_settles_the_query_as_failed_not_as_free(async_db,
     # Its usage was lost with the commit; the run says the query failed
     # rather than that it succeeded and cost nothing.
     assert [run.status for run in runs] == ["failed"]
+
+
+async def test_a_query_hangs_under_the_run_it_serves_and_takes_its_rehearsal_flag(async_db, ctx) -> None:
+    session, service, knowledge_id = await _service_on_its_own_session(async_db, ctx)
+    service.retrieval_service = _PricedRetrieval(service.trace_writer)
+    rehearsal = Run(
+        id="run_rehearsal",
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        mode="agent",
+        subject_kind="agent",
+        subject_id="agent_1",
+        sandbox=True,
+        status="running",
+    )
+    elsewhere = Run(
+        id="run_elsewhere", tenant_id=ctx.tenant_id, workspace_id="another-workspace", mode="agent", status="running"
+    )
+    session.add_all([rehearsal, elsewhere])
+    await session.commit()
+
+    await service.query(knowledge_id, QueryRequest(query="a"), parent_run_id=rehearsal.id)
+    await service.query(knowledge_id, QueryRequest(query="b"), parent_run_id=elsewhere.id)
+    await session.close()
+
+    runs, _ = await _query_runs(async_db)
+    linked = {run.input_summary.rsplit("=", 1)[-1]: (run.parent_run_id, run.sandbox) for run in runs}
+    assert linked["a"] == (rehearsal.id, True)
+    # A run of another workspace is not a parent.
+    assert linked["b"] == (None, False)

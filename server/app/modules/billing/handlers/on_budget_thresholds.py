@@ -23,7 +23,11 @@ from app.kernel.events.outbox_repo import OutboxRepository
 from app.kernel.events.publisher import OutboxPublisher
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry
-from app.modules.billing.application.budgets import budget_period, budget_spend
+from app.modules.billing.application.budgets import (
+    agent_of_run,
+    budget_period,
+    budget_spend,
+)
 from app.modules.billing.domain.models import Budget
 from app.modules.billing.events import BUDGET_THRESHOLD_REACHED
 
@@ -38,8 +42,9 @@ async def _budgets_covering(db: AsyncSession, entry: RunCostEntry, run: Run | No
         scopes.append(and_(Budget.scope_kind == "user", Budget.scope_id == run.user_id))
     if run is not None and run.api_key_id:
         scopes.append(and_(Budget.scope_kind == "api_key", Budget.scope_id == run.api_key_id))
-    if run is not None and run.subject_kind == "agent" and run.subject_id:
-        scopes.append(and_(Budget.scope_kind == "agent", Budget.scope_id == run.subject_id))
+    agent_id = await agent_of_run(db, run)
+    if agent_id:
+        scopes.append(and_(Budget.scope_kind == "agent", Budget.scope_id == agent_id))
     query = select(Budget).where(
         and_(
             Budget.tenant_id == entry.tenant_id,

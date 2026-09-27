@@ -1491,6 +1491,7 @@ class AgentService:
                     query=query,
                     top_k=top_k,
                     ctx=self.ctx,
+                    parent_run_id=run_id,
                 )
                 results = response.get("results") or []
                 response_citations = response.get("citations") or []

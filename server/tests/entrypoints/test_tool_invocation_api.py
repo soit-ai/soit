@@ -342,8 +342,9 @@ async def test_a_failed_knowledge_query_keeps_its_run(async_client, async_db) ->
     assert response.json()["data"]["status"] == "failed"
     async_db.expire_all()
     runs = await _knowledge_query_runs(async_db, knowledge_id)
-    # The tool's own session is never committed by its caller; the run is.
-    assert [run.status for run in runs] == ["failed"]
+    # The tool's own session is never committed by its caller; the run is,
+    # under the tool call's run.
+    assert [(run.status, run.parent_run_id) for run in runs] == [("failed", response.json()["data"]["run_id"])]
 
 
 PRICED = "tool:function:priced_random"

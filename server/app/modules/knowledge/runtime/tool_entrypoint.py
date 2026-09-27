@@ -20,13 +20,15 @@ async def knowledge_query(
     strategy: str | None = None,
     *,
     ctx: RequestContext,
+    parent_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a scoped runtime service and return knowledge retrieval results.
 
     ``ctx`` is the caller's own request context, handed over whole by the
     tool router or the agent: its roles, scopes, API key and content capture
     govern the retrieval. Nothing in the tool's arguments can name a tenant,
-    a workspace, a user or a role.
+    a workspace, a user or a role. ``parent_run_id`` is the run the
+    retrieval serves, also set by the router or the agent, never by arguments.
     """
     if not isinstance(ctx, RequestContext):
         raise TypeError("knowledge_query runs under the caller's RequestContext")
@@ -41,7 +43,7 @@ async def knowledge_query(
             include_snippets=include_snippets,
             strategy=strategy,
         )
-        response = await service.query(knowledge_id, request)
+        response = await service.query(knowledge_id, request, parent_run_id=parent_run_id)
         return response.model_dump()
     finally:
         await db.close()

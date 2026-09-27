@@ -52,6 +52,12 @@ record for operators.
   `usage_estimated`. An AG-UI interaction canceled mid-stream settles its
   model call the same way, and a whole chat answer refused by outbound
   inspection is charged the usage the provider reported.
+- Knowledge retrieval run by an agent's RAG or by the `knowledge_query`
+  tool now hangs under the run it serves (`parent_run_id`) and takes its
+  rehearsal flag, so a rehearsal's retrieval no longer counts as production
+  usage in Observe and the daily aggregates. An agent budget now counts,
+  enforces and announces thresholds for the usage of the runs its agent's
+  runs start, its RAG retrieval included.
 - An agent whose knowledge retrieval meets a spent budget, an empty credit
   balance or a rate limit now ends with that refusal instead of answering
   without its knowledge. Any other refused or failed retrieval is recorded

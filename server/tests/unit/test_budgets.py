@@ -285,3 +285,40 @@ async def test_tool_calls_pass_the_spend_guard(ctx) -> None:
 
     assert refused.value.details == {"operation": "tool"}
     tools.invoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_agent_budget_counts_what_its_runs_started(async_db, ctx) -> None:
+    # The agent's own call, and the retrieval run its RAG started under it.
+    await _cost(async_db, ctx, "3", run_id="run_agent", agent_id="agent_1")
+    async_db.add(
+        Run(
+            id="run_retrieval",
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            user_id=ctx.user_id,
+            mode="knowledge_query",
+            subject_kind="knowledge",
+            subject_id="kb_1",
+            parent_run_id="run_agent",
+            status="succeeded",
+        )
+    )
+    await async_db.commit()
+    retrieval_cost = await _cost(async_db, ctx, "2", run_id="run_retrieval")
+    agent_budget = _budget(ctx, scope_kind="agent", scope_id="agent_1", amount=Decimal("4"), thresholds_json=[100])
+    async_db.add(agent_budget)
+    await async_db.commit()
+
+    spend = await budget_spend(async_db, agent_budget, NOW)
+    guard = BudgetGuard(async_db, ctx, reservations=_Reservations(), recorder=_Recorder())
+    await handle_cost_recorded_budget(async_db, _cost_event(retrieval_cost))
+    await async_db.commit()
+
+    assert spend.spent == 5
+    # The retrieval's next model call meets the agent's budget.
+    assert agent_budget.id in {budget.id for budget in await guard.applicable("run_retrieval")}
+    with pytest.raises(BudgetExhaustedError):
+        await guard.check(operation="embed", run_id="run_retrieval")
+    # Its cost announces the agent budget's threshold too.
+    assert [event.payload_json["budget_id"] for event in await _threshold_events(async_db)] == [agent_budget.id]
