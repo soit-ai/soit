@@ -296,3 +296,57 @@ async def test_failed_stream_marks_its_span_as_an_error() -> None:
     spans = exporter.get_finished_spans()
     assert [span.name for span in spans] == ["soit.llm.stream_chat"]
     assert spans[0].status.status_code.name == "ERROR"
+
+
+class _EchoingFailure:
+    """A provider whose error echoes the prompt, as some do."""
+
+    def __init__(self, secret: str) -> None:
+        self.secret = secret
+
+    async def chat(self, **kwargs):
+        raise RuntimeError(f"bad request: {self.secret}")
+
+    async def stream_chat(self, **kwargs):
+        raise RuntimeError(f"bad request: {self.secret}")
+        yield  # pragma: no cover
+
+
+def _span_text(span) -> str:
+    return " ".join(
+        [str(span.status.description)]
+        + [str(event.attributes) for event in span.events]
+        + [str(span.attributes)]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capture", ["metadata_only", "full"])
+async def test_a_failed_call_span_keeps_error_text_only_where_content_is_kept(capture) -> None:
+    from opentelemetry.trace import StatusCode
+
+    secret = "the launch code is 0451"
+    exporter = InMemorySpanExporter()
+    provider = build_tracer_provider(service_name="soit-test", exporter=exporter, batch=False)
+    ctx = RequestContext(tenant_id="t", workspace_id="w", user_id="u", content_capture=capture)
+    gateway = LLMPolicyGateway(
+        _EchoingFailure(secret),  # type: ignore[arg-type]
+        ctx,
+        max_retries=0,
+        otel_tracer=provider.get_tracer("soit.llm"),
+    )
+
+    with pytest.raises(RuntimeError):
+        await gateway.chat([ChatMessage("user", secret)], "model:openai:gpt-4")
+    with pytest.raises(RuntimeError):
+        async for _chunk in gateway.stream_chat([ChatMessage("user", secret)], "model:openai:gpt-4"):
+            pass
+
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+    assert set(spans) >= {"soit.llm.chat", "soit.llm.stream_chat"}
+    for span in (spans["soit.llm.chat"], spans["soit.llm.stream_chat"]):
+        # Still an error either way; the text only where content is kept.
+        assert span.status.status_code == StatusCode.ERROR
+        assert (secret in _span_text(span)) is (capture == "full")
+    if capture == "metadata_only":
+        assert spans["soit.llm.chat"].status.description == "RuntimeError"

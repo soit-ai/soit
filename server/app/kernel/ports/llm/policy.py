@@ -8,14 +8,14 @@ import contextlib
 import inspect
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypeVar
 
 import anyio
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode, Tracer
+from opentelemetry.trace import Span, Status, StatusCode, Tracer
 
 from app.kernel.commons.errors import (
     ForbiddenError,
@@ -56,6 +56,7 @@ from app.kernel.ports.safety.interface import (
     SafetyDecision,
     SafetyDirection,
 )
+from app.kernel.runtime.runs.content_capture import resolve_content_capture
 from app.kernel.runtime.runs.writer import TraceWriter
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,34 @@ _UNAVAILABLE_ROUTE_CODES = frozenset(
         "MODEL_CAPABILITY_UNAVAILABLE",
     }
 )
+
+
+@contextlib.contextmanager
+def _call_span(
+    tracer: Tracer,
+    name: str,
+    *,
+    attributes: dict[str, Any],
+    keeps_content: bool,
+) -> Iterator[Span]:
+    """A span for one gateway call.
+
+    Under content-free capture a failure is recorded by its label, never by
+    the exception's text, which may echo the input; the span still ends as an
+    error.
+    """
+    with tracer.start_as_current_span(
+        name,
+        attributes=attributes,
+        record_exception=keeps_content,
+        set_status_on_exception=keeps_content,
+    ) as span:
+        try:
+            yield span
+        except Exception as exc:
+            if not keeps_content:
+                span.set_status(Status(StatusCode.ERROR, _failure_label(exc)))
+            raise
 
 
 def _failure_label(exc: Exception) -> str:
@@ -1022,6 +1051,12 @@ class LLMPolicyGateway(LLMPort):
                 {"param": "model", "model": model, "reason": "model_not_allowed"},
             )
 
+    async def _keeps_content(self) -> bool:
+        """Whether spans may carry exception text, which may echo input."""
+        if isinstance(self.trace_writer, TraceWriter):
+            return (await self.trace_writer.content_capture()).keeps_content
+        return (await resolve_content_capture(None, self.ctx)).keeps_content
+
     def _key_admission(self) -> ApiKeyAdmission:
         return ApiKeyAdmission(
             self.ctx, rate_limiter=self.rate_limiter, usage_counter=self.usage_counter
@@ -1121,8 +1156,10 @@ class LLMPolicyGateway(LLMPort):
         try:
             messages = await self._inspect_messages(messages, safety_evidence)
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
-            with self.otel_tracer.start_as_current_span(
+            with _call_span(
+                self.otel_tracer,
                 "soit.llm.chat",
+                keeps_content=await self._keeps_content(),
                 attributes={
                     "gen_ai.operation.name": "chat",
                     "gen_ai.request.model": model,
@@ -1480,6 +1517,7 @@ class LLMPolicyGateway(LLMPort):
         # A stream yields to its consumer between chunks, so this span is kept
         # off the context stack: a span attached across a yield can be resumed
         # and detached in a different task. It still covers the whole stream.
+        keeps_content = await self._keeps_content()
         span = self.otel_tracer.start_span(
             "soit.llm.stream_chat",
             attributes={
@@ -1587,8 +1625,11 @@ class LLMPolicyGateway(LLMPort):
             span.set_attribute("gen_ai.usage.input_tokens", tokens_prompt)
             span.set_attribute("gen_ai.usage.output_tokens", tokens_completion)
         except Exception as e:
-            span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR, str(e)))
+            if keeps_content:
+                span.record_exception(e)
+                span.set_status(Status(StatusCode.ERROR, str(e)))
+            else:
+                span.set_status(Status(StatusCode.ERROR, _failure_label(e)))
             try:
                 await finish(
                     status="failed",
@@ -1674,8 +1715,10 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            with self.otel_tracer.start_as_current_span(
+            with _call_span(
+                self.otel_tracer,
                 "soit.llm.embed",
+                keeps_content=await self._keeps_content(),
                 attributes={
                     "gen_ai.operation.name": "embeddings",
                     "gen_ai.request.model": model,
@@ -1814,8 +1857,10 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
-            with self.otel_tracer.start_as_current_span(
+            with _call_span(
+                self.otel_tracer,
                 "soit.llm.generate_image",
+                keeps_content=await self._keeps_content(),
                 attributes={
                     "gen_ai.operation.name": "image_generation",
                     "gen_ai.request.model": model,
@@ -1972,8 +2017,10 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
-            with self.otel_tracer.start_as_current_span(
+            with _call_span(
+                self.otel_tracer,
                 "soit.llm.edit_image",
+                keeps_content=await self._keeps_content(),
                 attributes={
                     "gen_ai.operation.name": "image_edit",
                     "gen_ai.request.model": model,
@@ -2111,8 +2158,10 @@ class LLMPolicyGateway(LLMPort):
 
         start_time = utc_now()
         try:
-            with self.otel_tracer.start_as_current_span(
+            with _call_span(
+                self.otel_tracer,
                 "soit.llm.rerank",
+                keeps_content=await self._keeps_content(),
                 attributes={
                     "gen_ai.operation.name": "rerank",
                     "gen_ai.request.model": model,

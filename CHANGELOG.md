@@ -221,6 +221,9 @@ record for operators.
 
 ### Security
 
+- Under content-free capture a failed model call's trace span ends as an
+  error named by its code or type, without the provider's message, which
+  can echo the prompt.
 - Under content-free capture a task's status events record only the phase
   and action of its progress, not a copy of the conversation checkpoint a
   task paused for approval keeps, and a finished task no longer keeps that
