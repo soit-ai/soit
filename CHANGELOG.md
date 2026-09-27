@@ -84,8 +84,8 @@ record for operators.
   with `IMAGE_UNDELIVERABLE`, its cost kept, instead of succeeding with fewer
   images than it charged: a synchronous call answers `502`, and an async
   job's run records it as its `error_code`. A failed image run on
-  `/api/v1/images` now records the failure's own code, where it has one,
-  rather than always `IMAGE_ERROR`.
+  `/api/v1/images` now records the failure's SOIT error code, where it has
+  one, rather than always `IMAGE_ERROR`.
 - An image job that returns run artifacts no longer loses the images a
   provider answers with a hosted URL instead of bytes. Each such image is now
   kept on the run as a JSON link artifact (`meta_json.kind` `image_url`,

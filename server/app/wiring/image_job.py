@@ -23,6 +23,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.kernel.commons.errors import KernelError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.images.service import (
     ImageJobRequest,
@@ -84,7 +85,7 @@ async def run_image_job_detached(
                     "failed",
                     # The run is all an async caller sees: it carries the
                     # failure's own code when there is one.
-                    error_code=getattr(exc, "code", None) or "IMAGE_ERROR",
+                    error_code=exc.code if isinstance(exc, KernelError) else "IMAGE_ERROR",
                     error_message=str(exc)[:2000],
                 )
                 await db.commit()

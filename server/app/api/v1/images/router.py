@@ -275,7 +275,8 @@ async def _submit(
         await trace_writer.update_run_status(
             run.id,
             "failed",
-            error_code=getattr(exc, "code", None) or "IMAGE_ERROR",
+            # SOIT's own codes only: a provider's "429" is not one.
+            error_code=exc.code if isinstance(exc, KernelError) else "IMAGE_ERROR",
             error_message=str(exc)[:2000],
         )
         await db.commit()

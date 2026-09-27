@@ -611,3 +611,31 @@ class TestUndeliverableImages:
         await async_db.refresh(run)
         assert (run.status, run.error_code) == ("failed", "IMAGE_UNDELIVERABLE")
         assert len((await async_db.exec(select(RunCostEntry))).all()) == 1
+
+
+
+class _ProviderError(Exception):
+    """What an SDK raises: it carries a code, though not one of SOIT's."""
+
+    code = "429"
+
+
+class _RefusingPort:
+    async def generate_image(self, **kwargs: Any):
+        raise _ProviderError("Rate limited by the provider")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("run_async", [False, True])
+async def test_a_providers_own_error_code_is_not_a_run_code(async_client, async_db, run_async):
+    async def submit():
+        response = await _generate(async_client, **({"async": True} if run_async else {}))
+        if run_async:
+            await _settle(async_client, response.json()["data"]["run_id"], async_db)
+        return response
+
+    await _with_port(_RefusingPort(), submit)
+
+    [run] = (await async_db.exec(select(Run).where(Run.mode == "image"))).all()
+    await async_db.refresh(run)
+    assert (run.status, run.error_code) == ("failed", "IMAGE_ERROR")
