@@ -117,7 +117,8 @@ record for operators.
   virtual model moves on; set `timeout_ms` to keep the old bound. A
   `timeout_ms` that is saved must be a positive number of milliseconds; a
   stored value that is not is ignored with a warning instead of failing
-  calls.
+  calls. A model test call from the console is held to a minute in all,
+  retries included, and reported as failing past it.
 - A streamed chat call that reached the provider is now always charged.
   Before, a `/v1/chat/completions` client that disconnected before the final
   chunk left the model step `running` with no cost, so the call escaped

@@ -1322,3 +1322,48 @@ async def test_a_stored_unusable_timeout_does_not_block_other_edits(async_client
 
     assert renamed.status_code == status.HTTP_200_OK, renamed.text
     assert renamed.json()["data"]["name"] == "OpenAI Renamed"
+
+
+@pytest.mark.asyncio
+async def test_a_console_test_call_is_bounded_whatever_the_runtime_allows(async_db, ctx, monkeypatch):
+    # Test calls go through the runtime gateway, whose timeouts are sized for
+    # real calls; a console test still reports a hung provider promptly.
+    import asyncio
+
+    from app.modules.modelhub.application import service as modelhub_service
+    from app.modules.modelhub.application.schemas import (
+        ModelTestChatRequest,
+        ModelTestEmbeddingRequest,
+    )
+
+    class _Hung(_TestLiteLLMPort):
+        async def chat(self, messages, model, **kwargs):
+            await asyncio.sleep(5)
+
+        async def embed(self, texts, model, **kwargs):
+            await asyncio.sleep(5)
+
+    provider = Provider(
+        id="prov_model_test_hung",
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        slug="model-test-hung",
+        kind="openai",
+        name="Model Test Hung Provider",
+        credential_secret_id="sec_openai",
+        status="active",
+    )
+    async_db.add(provider)
+    await async_db.commit()
+    monkeypatch.setattr(modelhub_service, "DIAGNOSTIC_CALL_SECONDS", 0.05)
+    service = _modelhub_service(async_db, ctx, runtime_llm_port=_Hung())
+
+    chat = await service.test_chat(ModelTestChatRequest(provider_id=provider.id, model_id="m", input="hello"))
+    embedding = await service.test_embeddings(
+        ModelTestEmbeddingRequest(provider_id=provider.id, model_id="m", input="hello")
+    )
+
+    for result in (chat, embedding):
+        assert result["success"] is False
+        assert "did not answer within" in result["message"]
+        assert result["latency_ms"] < 2000

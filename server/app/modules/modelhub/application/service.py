@@ -5,10 +5,11 @@ ModelHub application service.
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 from sqlalchemy import and_, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -68,6 +69,23 @@ from app.modules.modelhub.infra.repository import (
     ProviderRepository,
     SyncJobRepository,
 )
+
+_T = TypeVar("_T")
+
+DIAGNOSTIC_CALL_SECONDS = 60.0
+"""How long a console test call may take, retries included, before it is
+reported as failing. It goes through the runtime gateway, whose timeouts are
+sized for real calls."""
+
+
+async def _within_diagnostic_bound(call: Awaitable[_T]) -> _T:
+    try:
+        return await asyncio.wait_for(call, timeout=DIAGNOSTIC_CALL_SECONDS)
+    except TimeoutError:
+        raise KernelError(
+            "TIMEOUT",
+            f"The provider did not answer within {DIAGNOSTIC_CALL_SECONDS:g} seconds",
+        ) from None
 
 
 class ModelHubService:
@@ -317,8 +335,8 @@ class ModelHubService:
             self._build_litellm_port(provider, credentials),
             self.ctx,
             trace_writer=None,
-            # A health check or a test call answers within a minute or is
-            # reported as failing, whatever the provider allows real calls.
+            # Each attempt gets the provider's own timeout, or a minute when
+            # it sets none, rather than the longer fallback of real calls.
             timeout_seconds=provider_timeout_seconds(connection) or 60.0,
             max_retries=int(retry_policy.get("max_retries", 3)),
             retry_backoff_base_seconds=0.5,
@@ -1566,39 +1584,7 @@ class ModelHubService:
         provider = await self._get_provider(data.provider_id)
         start = utc_now()
         try:
-            if self.runtime_llm_port is not None:
-                response = await self.runtime_llm_port.chat(
-                    [ChatMessage(role="user", content=data.input)],
-                    model=self._provider_model_ref(provider, data.model_id),
-                )
-                result = {
-                    "response": response.text,
-                    "tokens_prompt": response.tokens_prompt,
-                    "tokens_completion": response.tokens_completion,
-                    "request_id": None,
-                }
-            elif provider.adapter_backend == "litellm":
-                credentials = await self._resolve_litellm_credentials(provider)
-                response = await self._build_litellm_diagnostics_port(provider, credentials).chat(
-                    [ChatMessage(role="user", content=data.input)],
-                    model=self._provider_model_ref(provider, data.model_id),
-                )
-                result = {
-                    "response": response.text,
-                    "tokens_prompt": response.tokens_prompt,
-                    "tokens_completion": response.tokens_completion,
-                    "request_id": None,
-                }
-            else:
-                api_key = await self._resolve_credential(provider.credential_secret_id)
-                result = await self.catalog_adapter.test_chat(
-                    ctx=self.ctx,
-                    provider_kind=provider.kind,
-                    api_key=api_key,
-                    base_url=provider.base_url,
-                    model_id=data.model_id,
-                    input_text=data.input,
-                )
+            result = await _within_diagnostic_bound(self._test_chat_result(provider, data))
             elapsed = int((utc_now() - start).total_seconds() * 1000)
             return {
                 "success": True,
@@ -1623,39 +1609,7 @@ class ModelHubService:
         provider = await self._get_provider(data.provider_id)
         start = utc_now()
         try:
-            if self.runtime_llm_port is not None:
-                response = await self.runtime_llm_port.embed(
-                    [data.input],
-                    model=self._provider_model_ref(provider, data.model_id),
-                )
-                result = {
-                    "response": str(response.embeddings[0] if response.embeddings else []),
-                    "tokens_prompt": response.tokens_used,
-                    "tokens_completion": 0,
-                    "request_id": None,
-                }
-            elif provider.adapter_backend == "litellm":
-                credentials = await self._resolve_litellm_credentials(provider)
-                response = await self._build_litellm_diagnostics_port(provider, credentials).embed(
-                    [data.input],
-                    model=self._provider_model_ref(provider, data.model_id),
-                )
-                result = {
-                    "response": str(response.embeddings[0] if response.embeddings else []),
-                    "tokens_prompt": response.tokens_used,
-                    "tokens_completion": 0,
-                    "request_id": None,
-                }
-            else:
-                api_key = await self._resolve_credential(provider.credential_secret_id)
-                result = await self.catalog_adapter.test_embeddings(
-                    ctx=self.ctx,
-                    provider_kind=provider.kind,
-                    api_key=api_key,
-                    base_url=provider.base_url,
-                    model_id=data.model_id,
-                    input_text=data.input,
-                )
+            result = await _within_diagnostic_bound(self._test_embeddings_result(provider, data))
             elapsed = int((utc_now() - start).total_seconds() * 1000)
             return {
                 "success": True,
@@ -1673,6 +1627,55 @@ class ModelHubService:
                 "message": str(exc),
                 "latency_ms": elapsed,
             }
+
+    async def _test_chat_result(self, provider: Provider, data: ModelTestChatRequest) -> dict[str, Any]:
+        messages = [ChatMessage(role="user", content=data.input)]
+        model = self._provider_model_ref(provider, data.model_id)
+        if self.runtime_llm_port is not None or provider.adapter_backend == "litellm":
+            port = self.runtime_llm_port or self._build_litellm_diagnostics_port(
+                provider, await self._resolve_litellm_credentials(provider)
+            )
+            response = await port.chat(messages, model=model)
+            return {
+                "response": response.text,
+                "tokens_prompt": response.tokens_prompt,
+                "tokens_completion": response.tokens_completion,
+                "request_id": None,
+            }
+        api_key = await self._resolve_credential(provider.credential_secret_id)
+        return await self.catalog_adapter.test_chat(
+            ctx=self.ctx,
+            provider_kind=provider.kind,
+            api_key=api_key,
+            base_url=provider.base_url,
+            model_id=data.model_id,
+            input_text=data.input,
+        )
+
+    async def _test_embeddings_result(
+        self, provider: Provider, data: ModelTestEmbeddingRequest
+    ) -> dict[str, Any]:
+        model = self._provider_model_ref(provider, data.model_id)
+        if self.runtime_llm_port is not None or provider.adapter_backend == "litellm":
+            port = self.runtime_llm_port or self._build_litellm_diagnostics_port(
+                provider, await self._resolve_litellm_credentials(provider)
+            )
+            response = await port.embed([data.input], model=model)
+            return {
+                "response": str(response.embeddings[0] if response.embeddings else []),
+                "tokens_prompt": response.tokens_used,
+                "tokens_completion": 0,
+                "request_id": None,
+            }
+        api_key = await self._resolve_credential(provider.credential_secret_id)
+        return await self.catalog_adapter.test_embeddings(
+            ctx=self.ctx,
+            provider_kind=provider.kind,
+            api_key=api_key,
+            base_url=provider.base_url,
+            model_id=data.model_id,
+            input_text=data.input,
+        )
 
     async def _get_provider(self, provider_id: str) -> Provider:
         provider = await self.provider_repo.get_by_id(provider_id)
