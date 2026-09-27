@@ -78,6 +78,15 @@ record for operators.
 
 ### Security
 
+- A knowledge query searched whatever index it named. The query checked the
+  caller's permission on the knowledge base it named, then searched the
+  `index_id` (or, with `strategy: multi_index`, the `index_ids`) it was given
+  without checking that the index belonged to that knowledge base. Anyone
+  who could query one knowledge base could read another's content, private
+  ones included, by naming its index, through the API, the `knowledge_query`
+  tool, MCP or an agent. An index of another knowledge base is now refused
+  as not found, and retrieval returns only chunks of the knowledge base it
+  was asked about.
 - The builtin `knowledge_query` tool took the caller's roles from its own
   arguments: the router handed it only the tenant, workspace and user, and
   the tool filled in `workspace_role` and `tenant_role` from whatever the

@@ -159,6 +159,10 @@ class RetrievalService:
         # Get index
         if index_id:
             index = await self.index_repo.get_by_id(index_id)
+            if index and index.knowledge_id != knowledge_id:
+                # The permission checked was on knowledge_id; another knowledge
+                # base's index is not searched through it.
+                raise KernelError("NOT_FOUND", f"Index {index_id} not found", {"index_id": index_id})
         else:
             index = await self.index_repo.get_primary(knowledge_id)
 
@@ -199,7 +203,7 @@ class RetrievalService:
         query_results = []
         for chunk_id, score in zip(results.ids, results.scores, strict=False):
             chunk = await self.chunk_repo.get_by_id(chunk_id)
-            if not chunk or chunk.index_status != "indexed":
+            if not chunk or chunk.index_status != "indexed" or chunk.knowledge_id != knowledge_id:
                 continue
             document = await self.document_repo.get_by_id(chunk.document_id)
             if not document or not document.is_latest:

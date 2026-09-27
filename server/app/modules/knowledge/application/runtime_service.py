@@ -2135,6 +2135,15 @@ class KnowledgeRuntimeService:
         keyword_min_score = query_request.keyword_min_score or retrieval_config.get("keyword_min_score") or 1
         hybrid_alpha = query_request.hybrid_alpha or retrieval_config.get("hybrid_alpha") or 0.7
 
+        # Indexes named by the caller belong to this knowledge base, the one
+        # whose permission was checked, or the query is refused.
+        named_indexes = [query_request.index_id, *(query_request.index_ids or [])]
+        if strategy == "multi_index" and not query_request.index_ids:
+            named_indexes.extend(retrieval_config.get("index_ids") or [])
+        for named_index in named_indexes:
+            if named_index:
+                await self.get_index(knowledge_id, named_index)
+
         run_id = None
         step_id = None
         if self.trace_writer:
