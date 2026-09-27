@@ -376,3 +376,6 @@ async def test_a_failed_tool_span_keeps_error_text_only_where_content_is_kept(ca
     [span] = [span for span in exporter.get_finished_spans() if span.name == "soit.tool.invoke"]
     assert span.status.status_code == StatusCode.ERROR
     assert (secret in _span_text(span)) is (capture == "full")
+    if capture == "metadata_only":
+        # Named after what failed, not the retry that gave up on it.
+        assert span.status.description == "RuntimeError"

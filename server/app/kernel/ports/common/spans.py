@@ -17,10 +17,17 @@ from typing import Any
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
 
 from app.kernel.commons.errors import KernelError
+from app.kernel.ports.common.policy import unwrap_retry_error
 
 
 def failure_label(exc: BaseException) -> str:
-    """What went wrong, without the message, which may echo input."""
+    """What went wrong, without the message, which may echo input.
+
+    A failure retried to exhaustion is named after what failed, not after the
+    retry that gave up on it.
+    """
+    if isinstance(exc, Exception):
+        exc = unwrap_retry_error(exc)
     if isinstance(exc, KernelError):
         return exc.code
     status_code = getattr(exc, "status_code", None)
