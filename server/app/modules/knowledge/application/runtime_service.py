@@ -16,7 +16,14 @@ from sqlalchemy import and_, desc, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.errors import ForbiddenError, KernelError, ValidationError
+from app.kernel.commons.errors import (
+    BudgetExhaustedError,
+    CreditExhaustedError,
+    ForbiddenError,
+    KernelError,
+    RateLimitExceededError,
+    ValidationError,
+)
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
@@ -80,6 +87,9 @@ logger = logging.getLogger(__name__)
 # How long closing a canceled query's run may take; it runs shielded from
 # the cancellation that ended the query.
 _SETTLE_TIMEOUT_SECONDS = 30.0
+# Refusals by governance that a query passes on to its caller rather than
+# answering from the keyword fallback.
+_GOVERNANCE_REFUSALS = (BudgetExhaustedError, CreditExhaustedError, RateLimitExceededError, ForbiddenError)
 
 
 class KnowledgeRuntimeService:
@@ -2204,6 +2214,11 @@ class KnowledgeRuntimeService:
                         reranker_ref=reranker_ref,
                         run_id=run_id,
                     )
+            except _GOVERNANCE_REFUSALS:
+                # A budget, a credit balance, a rate limit or a policy said
+                # no; the keyword fallback is for a failing index, not a way
+                # around them.
+                raise
             except Exception:
                 results = await self._query_indexed_chunks_fallback(
                     knowledge_id=knowledge_id,

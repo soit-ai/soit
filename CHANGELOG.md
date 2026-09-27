@@ -27,6 +27,10 @@ record for operators.
   `usage_estimated`. An AG-UI interaction canceled mid-stream settles its
   model call the same way, and a whole chat answer refused by outbound
   inspection is charged the usage the provider reported.
+- A knowledge query refused by a budget, the credit balance, a rate limit or
+  a policy now fails with that refusal. It used to answer from keyword
+  matching instead, so a caller got weaker results with no sign that a
+  limit had stopped the embedding call.
 - A knowledge query now commits its run and the usage its model calls
   recorded when the run settles, whether it succeeded, failed or was
   canceled. The `knowledge_query` tool and agent RAG run queries on a
