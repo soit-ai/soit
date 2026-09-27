@@ -743,8 +743,9 @@ class AgentService:
                             step_id=plan_step_id,
                             billing_basis="tokens",
                             billed_quantity=(plan.tokens_prompt or 0) + (plan.tokens_completion or 0),
-                            currency=data.cost_currency,
-                            amount=0,
+                            # The model port priced nothing: the tokens are kept,
+                            # unpriced, rather than read as a free call.
+                            pricing_snapshot_json={"reason": "llm_port_recorded_no_cost"},
                             model_ref=model,
                             source_port="llm",
                             operation="chat",
@@ -1285,8 +1286,9 @@ class AgentService:
                             step_id=verify_step_id,
                             billing_basis="tokens",
                             billed_quantity=(verify_result.tokens_prompt or 0) + (verify_result.tokens_completion or 0),
-                            currency=data.cost_currency,
-                            amount=0,
+                            # The model port priced nothing: the tokens are kept,
+                            # unpriced, rather than read as a free call.
+                            pricing_snapshot_json={"reason": "llm_port_recorded_no_cost"},
                             model_ref=model,
                             source_port="llm",
                             operation="chat",

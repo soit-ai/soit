@@ -1053,3 +1053,29 @@ async def test_agent_does_not_duplicate_llm_policy_cost_entries(async_db, ctx):
     assert len(entries) == 1
     assert entries[0].prompt_tokens == 2
     assert entries[0].completion_tokens == 3
+
+
+@pytest.mark.asyncio
+async def test_tokens_a_model_port_left_unpriced_are_kept_unpriced(async_db, ctx):
+    llm_port = QueueLLMPort([
+        ChatResponse(text="answer", tokens_prompt=4, tokens_completion=6, finish_reason="stop"),
+    ])
+    service = AgentService(
+        db=async_db,
+        ctx=ctx,
+        llm_port=llm_port,
+        tool_port=StubToolPort(ToolResponse(result="done")),
+        tool_resolver=_make_stub_resolver(),
+        trace_writer=TraceWriter(async_db, ctx),
+    )
+
+    result = await service.run(_runtime_request(verify=False))
+
+    entries = (await async_db.exec(
+        select(RunCostEntry).where(RunCostEntry.run_id == result["run_id"], RunCostEntry.billing_basis == "tokens")
+    )).all()
+    entries = [entry if hasattr(entry, "id") else entry[0] for entry in entries]
+    assert [(entry.prompt_tokens, entry.completion_tokens) for entry in entries] == [(4, 6)]
+    # Nothing priced the call: its row says so rather than reading as free.
+    assert (entries[0].amount, entries[0].currency) == (None, None)
+    assert entries[0].pricing_snapshot_json["reason"] == "llm_port_recorded_no_cost"
