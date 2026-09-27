@@ -12,6 +12,19 @@ record for operators.
 
 ## [Unreleased]
 
+### Fixed
+
+- Errors that describe a caller's mistake, or a state the caller can change,
+  answer 4xx instead of 500, so their messages reach callers outside
+  development too:
+  - 400: `EGRESS_INVALID_TARGET`, `STORAGE_INVALID_KEY`
+  - 404: `INDEX_NOT_FOUND`, `NO_CONTENT`, `STORAGE_NOT_FOUND`
+  - 409: `AGENT_RUN_CANCELED`, `INVALID_STATUS`, `NO_INDEX`,
+    `MODEL_PROVIDER_CREDENTIAL_REQUIRED`,
+    `MODEL_PROVIDER_EGRESS_TARGET_REQUIRED`
+  - 422: `CRAWLER_INVALID_REDIRECT`, `CRAWLER_TOO_MANY_REDIRECTS`,
+    `EGRESS_DNS_FAILED`, `NO_FILE`
+
 ### Security
 
 - An unexpected server error no longer puts the exception's text or type in

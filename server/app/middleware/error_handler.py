@@ -24,7 +24,8 @@ from app.middleware.response_envelope import error_envelope
 
 logger = logging.getLogger(__name__)
 
-# Error code to HTTP status code mapping
+# Error code to HTTP status code mapping. A code without an entry answers 500,
+# and outside development its message stays in the server log.
 ERROR_CODE_TO_STATUS: dict[str, int] = {
     "UNAUTHORIZED": 401,
     "FORBIDDEN": 403,
@@ -39,12 +40,26 @@ ERROR_CODE_TO_STATUS: dict[str, int] = {
     "CRAWLER_EMPTY_CONTENT": 422,
     "CRAWLER_CONTENT_TOO_LARGE": 413,
     "CRAWLER_FETCH_FAILED": 502,
+    "CRAWLER_INVALID_REDIRECT": 422,
+    "CRAWLER_TOO_MANY_REDIRECTS": 422,
+    "EGRESS_INVALID_TARGET": 400,
+    "EGRESS_DNS_FAILED": 422,
+    "INVALID_STATUS": 409,
+    "NO_FILE": 422,
+    "NO_CONTENT": 404,
+    "NO_INDEX": 409,
+    "INDEX_NOT_FOUND": 404,
+    "STORAGE_INVALID_KEY": 400,
+    "STORAGE_NOT_FOUND": 404,
+    "AGENT_RUN_CANCELED": 409,
     "MODEL_REF_INVALID": 400,
     "MODEL_CAPABILITY_UNAVAILABLE": 422,
     "MODEL_IMAGE_CAPABILITY_UNAVAILABLE": 422,
     "MODEL_PROVIDER_DISABLED": 409,
     "MODEL_RUNTIME_DISABLED": 409,
     "MODEL_RUNTIME_NOT_FOUND": 404,
+    "MODEL_PROVIDER_CREDENTIAL_REQUIRED": 409,
+    "MODEL_PROVIDER_EGRESS_TARGET_REQUIRED": 409,
     "RATE_LIMIT_EXCEEDED": 429,
     "CREDIT_EXHAUSTED": 402,
     "BUDGET_EXHAUSTED": 402,

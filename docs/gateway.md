@@ -204,8 +204,8 @@ code in lower case.
 | 402 | `insufficient_quota` | a hard-stop budget is spent (`budget_exhausted`), or credit is exhausted |
 | 403 | `permission_error` | the key's scope, model list or address list does not allow the call |
 | 404 | `invalid_request_error` | the model is not configured in the workspace |
-| 409 | `invalid_request_error` | the model or its provider is disabled |
-| 422 | `invalid_request_error` | the model lacks a capability the call needs, such as tools or embeddings |
+| 409 | `invalid_request_error` | the model or its provider is disabled, or the provider has no credential or governed base URL |
+| 422 | `invalid_request_error` | the model lacks a capability the call needs, such as tools or embeddings, or the provider's host does not resolve |
 | 429 | `rate_limit_error` | a rate limit or quota; `Retry-After` says when to try again |
 | 5xx | `api_error` | the provider failed or timed out, and no virtual model target was left to try |
 

@@ -413,3 +413,49 @@ async def test_knowledge_upload_rejects_legacy_source_type(async_client):
         headers=_headers(),
     )
     assert upload_resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_retrying_a_document_that_has_not_failed_answers_409_with_the_reason(
+    async_client, monkeypatch
+):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    create_resp = await async_client.post(
+        "/api/v1/knowledge",
+        json={
+            "name": "knowledge-retry-conflict",
+            "description": "retry conflict",
+            "knowledge_type": "document",
+            "visibility": "private",
+            "default_embedding_model_ref": "model:test:embedding",
+        },
+        headers=_headers(),
+    )
+    assert create_resp.status_code == status.HTTP_201_CREATED
+    knowledge_id = create_resp.json()["data"]["id"]
+    upload_resp = await async_client.post(
+        f"/api/v1/knowledge/{knowledge_id}/documents",
+        data={
+            "doc_key": "queued-doc",
+            "source_kind": "upload",
+            "title": "Queued Doc",
+            "filename": "queued.txt",
+            "mime_type": "text/plain",
+            "async_ingest": "true",
+        },
+        files={"file": ("queued.txt", b"Queued document text", "text/plain")},
+        headers=_headers(),
+    )
+    assert upload_resp.status_code == status.HTTP_201_CREATED
+    document = upload_resp.json()["data"]
+    assert document["status"] == "queued"
+
+    retry_resp = await async_client.post(
+        f"/api/v1/knowledge/{knowledge_id}/documents/{document['id']}/retry-ingest",
+        headers=_headers(),
+    )
+
+    assert retry_resp.status_code == status.HTTP_409_CONFLICT
+    body = retry_resp.json()
+    assert body["code"] == "INVALID_STATUS"
+    assert body["message"] == "Only failed documents can be retried"
