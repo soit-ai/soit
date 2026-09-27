@@ -69,7 +69,9 @@ record for operators.
 - A knowledge query refused by a budget, the credit balance, a rate limit or
   a policy now fails with that refusal. It used to answer from keyword
   matching instead, so a caller got weaker results with no sign that a
-  limit had stopped the embedding call.
+  limit had stopped the embedding call. Through the API it answers with the
+  refusal's status; the `knowledge_query` tool reports it as a failed tool
+  result carrying the refusal's message.
 - A knowledge query now commits its run and the usage its model calls
   recorded when the run settles, whether it succeeded, failed or was
   canceled. The `knowledge_query` tool and agent RAG run queries on a
@@ -111,9 +113,10 @@ record for operators.
   `Owner` and query knowledge bases their own role could not, private ones
   included. The tool now runs under the caller's whole request context
   (roles, scopes, API key, content capture), and an argument that is not in
-  its input schema is refused. Retrieval by the tool and by agent RAG is now
-  also attributed to the calling API key, counts toward its limits, and
-  follows its content capture setting.
+  its input schema is refused with `400`, identity arguments such as
+  `workspace_id` or `workspace_role` included. Retrieval by the tool and by
+  agent RAG is now also attributed to the calling API key, counts toward its
+  limits, and follows its content capture setting.
 - An unexpected server error no longer puts the exception's text or type in
   the response when `ENVIRONMENT=development`; the traceback stays in the
   server log under the request id, as it already did in production.
