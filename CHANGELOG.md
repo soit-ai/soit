@@ -76,9 +76,13 @@ record for operators.
   job now returns its images as run artifacts: without a `response_format` it
   means `artifact`, and `b64_json` or `url` with `async` is refused with
   `VALIDATION_ERROR` before a run opens or anything is billed. An artifact
-  job that cannot keep every image it was billed for now fails with
-  `IMAGE_UNDELIVERABLE` (`502`), its cost kept, instead of succeeding with
-  fewer images than it charged.
+  job that cannot keep every image it was billed for (the provider sent one
+  as neither bytes nor a link, or as bytes that do not decode) now fails
+  with `IMAGE_UNDELIVERABLE`, its cost kept, instead of succeeding with fewer
+  images than it charged: a synchronous call answers `502`, and an async
+  job's run records it as its `error_code`. A failed image run on
+  `/api/v1/images` now records the failure's own code, where it has one,
+  rather than always `IMAGE_ERROR`.
 - An image job that returns run artifacts no longer loses the images a
   provider answers with a hosted URL instead of bytes. Each such image is now
   kept on the run as a JSON link artifact (`meta_json.kind` `image_url`,

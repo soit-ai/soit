@@ -179,7 +179,10 @@ def _decode(b64_json: str) -> bytes:
     try:
         return base64.b64decode(b64_json, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise ValidationError("Provider returned an undecodable image") from exc
+        # The provider's fault, found after it was paid: not a bad request.
+        raise KernelError(
+            "IMAGE_UNDELIVERABLE", "The provider returned an image that could not be decoded"
+        ) from exc
 
 
 def _images_prefix(ctx: RequestContext, run_id: str) -> str:

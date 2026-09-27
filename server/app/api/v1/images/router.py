@@ -275,7 +275,7 @@ async def _submit(
         await trace_writer.update_run_status(
             run.id,
             "failed",
-            error_code="IMAGE_ERROR",
+            error_code=getattr(exc, "code", None) or "IMAGE_ERROR",
             error_message=str(exc)[:2000],
         )
         await db.commit()

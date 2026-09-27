@@ -421,7 +421,7 @@ class TestAsyncDelivery:
         assert response.json()["code"] == "IMAGE_UNDELIVERABLE"
         [run] = (await async_db.exec(select(Run).where(Run.mode == "image"))).all()
         await async_db.refresh(run)
-        assert run.status == "failed"
+        assert (run.status, run.error_code) == ("failed", "IMAGE_UNDELIVERABLE")
         # The provider was paid; the ledger says so.
         assert len((await async_db.exec(select(RunCostEntry))).all()) == 1
 
@@ -572,3 +572,40 @@ def test_a_detached_job_refuses_anything_but_artifacts(requested):
 
     with pytest.raises(ValidationError):
         resolve_response_format(requested, detached=True)
+
+
+class TestUndeliverableImages:
+    """A billed image SOIT cannot keep fails the job under IMAGE_UNDELIVERABLE."""
+
+    @pytest.mark.asyncio
+    async def test_an_async_job_says_so_on_its_run(self, async_client, async_db):
+        from app.kernel.ports.llm.interface import GeneratedImage
+
+        port = _HostedPort([GeneratedImage()])
+
+        async def submit_and_settle():
+            body = (await _generate(async_client, **{"async": True})).json()["data"]
+            return body, await _settle(async_client, body["run_id"], async_db)
+
+        body, run = await _with_port(port, submit_and_settle)
+
+        # Polling the run is all an async caller has.
+        assert (run.status, run.error_code) == ("failed", "IMAGE_UNDELIVERABLE")
+        costs = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.run_id == body["run_id"]))).all()
+        assert len(costs) == 1
+
+    @pytest.mark.asyncio
+    async def test_an_undecodable_image_is_the_providers_fault(self, async_client, async_db):
+        from app.kernel.ports.llm.interface import GeneratedImage
+
+        port = _HostedPort([GeneratedImage(b64_json="!!! not base64 !!!")])
+        response = await _with_port(
+            port, lambda: _generate(async_client, response_format="artifact")
+        )
+
+        assert response.status_code == 502, response.text
+        assert response.json()["code"] == "IMAGE_UNDELIVERABLE"
+        [run] = (await async_db.exec(select(Run).where(Run.mode == "image"))).all()
+        await async_db.refresh(run)
+        assert (run.status, run.error_code) == ("failed", "IMAGE_UNDELIVERABLE")
+        assert len((await async_db.exec(select(RunCostEntry))).all()) == 1
