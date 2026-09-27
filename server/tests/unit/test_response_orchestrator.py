@@ -15,8 +15,16 @@ from app.kernel.ports.llm.interface import (
     HostedToolCall,
     LLMPort,
 )
+from app.kernel.ports.llm.policy import STREAM_ABANDONED, LLMPolicyGateway
+from app.kernel.ports.llm.usage_estimate import estimate_text_tokens
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
-from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunStepToolCall
+from app.kernel.runtime.db.models.runs import (
+    Run,
+    RunArtifact,
+    RunCostEntry,
+    RunStep,
+    RunStepToolCall,
+)
 from app.kernel.runtime.responses.orchestrator import (
     ResponseExecutionService,
     ResponseProjectionCoordinator,
@@ -88,6 +96,24 @@ class CancelingLLMPort(StubLLMPort):
     async def stream_chat(self, messages, model, **kwargs):
         await self.cancel()
         yield ChatStreamChunk(delta="must not be persisted", model=model)
+
+
+class CancelingMidStreamLLMPort(StubLLMPort):
+    """Cancel the response between chunks and note when the stream is closed."""
+
+    def __init__(self, cancel):
+        super().__init__()
+        self.cancel = cancel
+        self.closed = False
+
+    async def stream_chat(self, messages, model, **kwargs):
+        try:
+            yield ChatStreamChunk(delta="first ", model=model)
+            await self.cancel()
+            yield ChatStreamChunk(delta="second ", model=model)
+            yield ChatStreamChunk(delta="never read", model=model)
+        finally:
+            self.closed = True
 
 
 class ReasoningLLMPort(StubLLMPort):
@@ -890,3 +916,113 @@ async def test_interaction_stream_stops_without_success_after_explicit_cancellat
         "RUN_STARTED",
         "CUSTOM",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_canceled_interaction_closes_the_model_stream_it_stopped_reading(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Canceled mid-stream")
+    interaction_id = "interaction_cancel_mid_stream"
+
+    async def cancel_response() -> None:
+        interaction = await response_service.get_interaction(interaction_id)
+        assert interaction is not None
+        await response_service.cancel_response(interaction.response_id, emit_event=False)
+
+    port = CancelingMidStreamLLMPort(cancel_response)
+    coordinator = ResponseProjectionCoordinator(
+        response_service=response_service,
+        llm_port=port,
+        thread_service=thread_service,
+    )
+
+    await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.1",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "cancel later"}]},
+            metadata={"interaction_id": interaction_id, "request_hash": "hash_cancel_mid"},
+        ),
+        interaction_id=interaction_id,
+    )
+
+    # Closed by the interaction itself, in its own task, so the model call
+    # settles its usage; nothing has yielded to the event loop since.
+    assert port.closed is True
+
+
+class _RouteTo:
+    """Routes every model to one port, as the model router does."""
+
+    def __init__(self, port):
+        self.port = port
+
+    def resolve_route(self, model, ctx, required_capabilities):
+        port = self.port
+
+        class Route:
+            target = None
+            timeout_seconds = 5.0
+            max_retries = 0
+            retry_backoff = "none"
+            retryable_status_codes = ()
+            pricing = {"currency": "USD", "input": "1", "output": "2", "unit": "token"}
+
+        route = Route()
+        route.port = port
+        return route
+
+    def stream_chat(self, **kwargs):  # pragma: no cover - routed
+        raise AssertionError("calls go through the resolved route")
+
+
+@pytest.mark.asyncio
+async def test_a_canceled_interaction_leaves_its_model_call_in_the_ledger(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Canceled and charged")
+    interaction_id = "interaction_cancel_charged"
+
+    async def cancel_response() -> None:
+        interaction = await response_service.get_interaction(interaction_id)
+        assert interaction is not None
+        await response_service.cancel_response(interaction.response_id, emit_event=False)
+
+    gateway = LLMPolicyGateway(
+        gateway=_RouteTo(CancelingMidStreamLLMPort(cancel_response)),
+        ctx=ctx,
+        trace_writer=response_service.trace_writer,
+    )
+    coordinator = ResponseProjectionCoordinator(
+        response_service=response_service,
+        llm_port=gateway,
+        thread_service=thread_service,
+    )
+
+    await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.1",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "cancel later"}]},
+            metadata={"interaction_id": interaction_id, "request_hash": "hash_cancel_charged"},
+        ),
+        interaction_id=interaction_id,
+    )
+
+    interaction = await response_service.get_interaction(interaction_id)
+    assert interaction is not None
+    response = await response_service.get_response(interaction.response_id)
+    [step] = (
+        await async_db.exec(
+            select(RunStep).where(RunStep.run_id == response.run_id, RunStep.step_type == "llm")
+        )
+    ).all()
+    assert (step.status, step.error_code) == ("canceled", STREAM_ABANDONED)
+    [cost] = (await async_db.exec(select(RunCostEntry).where(RunCostEntry.step_id == step.id))).all()
+    # The model had produced two chunks when the interaction stopped reading.
+    assert cost.completion_tokens == estimate_text_tokens("first second ")
+    assert cost.pricing_snapshot_json["usage_estimated"] is True
+    assert cost.amount is not None and cost.amount > 0

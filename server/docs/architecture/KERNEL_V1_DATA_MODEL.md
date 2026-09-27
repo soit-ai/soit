@@ -189,7 +189,7 @@ Workspace-scoped.
 - Dedicated measurement columns, `NULL` when the dimension does not apply:
   `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_ms`,
   `request_count`, `embedding_count`, `rerank_count`, `vector_count`, `storage_bytes`
-- `pricing_snapshot_json` immutable source config, normalized rates, billing unit, unit size, measured quantities, and calculated amount
+- `pricing_snapshot_json` immutable source config, normalized rates, billing unit, unit size, measured quantities, and calculated amount; `usage_estimated: true` when the provider never reported usage (see below)
 - `created_at`
 - CHECK `amount IS NULL OR (amount >= 0 AND currency IS NOT NULL)`
 - CHECK `billed_quantity >= 0`
@@ -205,6 +205,23 @@ usage and charge rows, and latency is a column on the invocation row rather than
 a separate observation row. Downstream valuation (credit deduction, billing
 exports) must reference `cost_entry_id` from the `COST_RECORDED` event instead of
 re-recording measurements.
+
+A streamed chat call reports its usage only in its last chunk. Every stream
+that reached the provider still writes exactly one usage row, however it
+ends: finished, failed part way, or abandoned by its consumer (a client
+disconnect, a canceled interaction), in which case the LLM policy gateway
+closes the provider stream and ends the step as `canceled` with
+`STREAM_ABANDONED`. When the provider's usage never arrived, the row's tokens
+are estimated from the prompt and from the text generated (about four ASCII
+characters, or one other character, per token, plus a per-image charge),
+priced like any other row, and flagged `usage_estimated: true` in both the
+pricing snapshot and the step metrics. The estimate is a lower bound for
+large images and for reasoning a provider does not stream. The ledger writes
+run shielded from the consumer's cancellation, with a time bound, and are
+committed as soon as the call settles, so a caller that later rolls its own
+work back (a response worker that lost its lease or is draining) keeps them.
+A stream dropped without being closed is finalized by asyncio from a task of
+its own and records nothing, so consumers close the streams they stop reading.
 
 ### credit_ledger_entries (billing module)
 - `id` PK

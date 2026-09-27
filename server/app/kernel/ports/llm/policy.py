@@ -4,13 +4,16 @@ LLM port policies: timeout/retry/rate-limit/audit.
 """
 
 import asyncio
+import contextlib
 import inspect
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypeVar
 
+import anyio
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, Tracer
 
@@ -43,6 +46,7 @@ from app.kernel.ports.llm.interface import (
     RerankResponse,
 )
 from app.kernel.ports.llm.runtime_config import validate_image_request
+from app.kernel.ports.llm.usage_estimate import GeneratedText, estimate_prompt_tokens
 from app.kernel.ports.llm.virtual_models import (
     VirtualModelResolver,
     is_virtual_model,
@@ -54,6 +58,32 @@ from app.kernel.ports.safety.interface import (
     SafetyDirection,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
+
+logger = logging.getLogger(__name__)
+
+STREAM_ABANDONED = "STREAM_ABANDONED"
+# Bounds on closing a model call once its stream ends, which runs shielded
+# from the consumer's cancellation: closing the provider stream, then writing
+# the ledger (longer than a pooled connection may take to check out).
+_PROVIDER_CLOSE_TIMEOUT_SECONDS = 5.0
+_SETTLE_TIMEOUT_SECONDS = 60.0
+# Marks a cost row whose tokens were estimated because the provider never
+# reported them (see usage_estimate): about right for text, a lower bound
+# for images and for reasoning the provider does not stream.
+_USAGE_ESTIMATE_SNAPSHOT = {"usage_estimated": True, "usage_estimate_basis": "characters"}
+
+
+def _closing_a_dropped_generator() -> bool:
+    """Whether the running task exists only to close an unclosed async generator.
+
+    asyncio closes an async generator that was collected while still open,
+    and every open one at loop shutdown, from a task of its own whose
+    coroutine is the generator's ``aclose()``. That task shares nothing with
+    the code that consumed the stream and must not write through its session.
+    Any other close is the consumer's own, whichever task makes it.
+    """
+    task = asyncio.current_task()
+    return task is not None and type(task.get_coro()).__name__ == "async_generator_athrow"
 
 
 def _provider_from_model(model_ref: str | None) -> str | None:
@@ -1060,6 +1090,7 @@ class LLMPolicyGateway(LLMPort):
 
         # Audit log
         step = None
+        step_id: str | None = None
         if self.trace_writer:
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
@@ -1070,10 +1101,49 @@ class LLMPolicyGateway(LLMPort):
                 input_summary=f"model={model}, messages={len(messages)}",
                 status="running",
             )
+            step_id = step.id
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         safety_evidence: list[dict[str, Any]] = []
+        # Set once the provider has answered: from then on the call is billed,
+        # whatever SOIT then does with the answer.
+        answered: tuple[_ResolvedPolicyRoute, ChatResponse, list[dict[str, Any]]] | None = None
+        recorded = False
+
+        async def record(
+            status: str,
+            *,
+            error_code: str | None = None,
+            error_message: str | None = None,
+            error_details: dict[str, Any] | None = None,
+        ) -> None:
+            nonlocal recorded
+            assert answered is not None
+            recorded = True
+            route, response, attempts = answered
+            if step_id and self.trace_writer:
+                await self._write_chat_ledger(
+                    step_id,
+                    status,
+                    model=model,
+                    route=route,
+                    response=response,
+                    attempts=attempts,
+                    safety_evidence=safety_evidence,
+                    elapsed_ms=int((utc_now() - start_time).total_seconds() * 1000),
+                    run_id=resolve_run_id(kwargs, self.ctx),
+                    error_code=error_code,
+                    error_message=error_message,
+                    error_details=error_details,
+                )
+            # After the ledger: the key's daily total must not keep the ledger
+            # row from being written.
+            try:
+                await self._count_api_key_tokens(response.tokens_prompt + response.tokens_completion)
+            except Exception:
+                logger.warning("Could not add a chat call's tokens to its API key", exc_info=True)
+
         try:
             messages = await self._inspect_messages(messages, safety_evidence)
             required_capabilities = ("chat", "tools") if kwargs.get("tools") else ("chat",)
@@ -1103,6 +1173,7 @@ class LLMPolicyGateway(LLMPort):
                     operation="LLM chat request",
                 )
                 response.runtime_target = response.runtime_target or route.target
+                answered = (route, response, attempts)
                 if self.inspect_outbound:
                     response.text = await self._inspect(
                         response.text,
@@ -1113,76 +1184,107 @@ class LLMPolicyGateway(LLMPort):
                 span.set_attribute("gen_ai.usage.input_tokens", response.tokens_prompt)
                 span.set_attribute("gen_ai.usage.output_tokens", response.tokens_completion)
 
-            await self._count_api_key_tokens(response.tokens_prompt + response.tokens_completion)
-
-            # Update trace
-            if step and self.trace_writer:
-                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                model_used = response.model or model
-                identity = _runtime_cost_fields(
-                    requested_model=model,
-                    upstream_model=response.model,
-                    target=response.runtime_target,
-                )
-                await self.trace_writer.update_step_status(
-                    step.id,
-                    "succeeded",
-                    output_summary=response.text[:100] if response.text else None,
-                    metrics={
-                        "tokens_prompt": response.tokens_prompt,
-                        "tokens_completion": response.tokens_completion,
-                        "latency_ms": elapsed_ms,
-                        **({"attempts": attempts} if attempts else {}),
-                        "model": model_used,
-                        "model_ref": identity["model_ref"],
-                        "provider_id": identity["provider_id"],
-                        "provider_slug": identity["provider_slug"],
-                        "provider_kind": identity["provider_kind"],
-                        "upstream_model": identity["upstream_model"],
-                        **(
-                            {"content_safety": safety_evidence}
-                            if safety_evidence
-                            else {}
-                        ),
-                    },
-                )
-                pricing = _with_runtime_identity(
-                    _chat_pricing(
-                        route.pricing,
-                        prompt_tokens=response.tokens_prompt,
-                        completion_tokens=response.tokens_completion,
-                    ),
-                    requested_model=model,
-                    identity=identity,
-                )
-                await self.trace_writer.record_cost(
-                    run_id=resolve_run_id(kwargs, self.ctx),
-                    step_id=step.id,
-                    billing_basis="tokens",
-                    billed_quantity=response.tokens_prompt + response.tokens_completion,
-                    currency=pricing.currency,
-                    amount=pricing.amount,
-                    pricing_snapshot_json=pricing.snapshot,
-                    **identity,
-                    source_port="llm",
-                    operation="chat",
-                    prompt_tokens=response.tokens_prompt,
-                    completion_tokens=response.tokens_completion,
-                    total_tokens=response.tokens_prompt + response.tokens_completion,
-                    latency_ms=elapsed_ms,
-                )
-
+            await record("succeeded")
             return response
         except Exception as e:
-            if step and self.trace_writer:
+            if answered is not None and not recorded:
+                # The provider answered, and billed for it, before SOIT
+                # refused the answer (an outbound block).
+                try:
+                    await record(
+                        "failed",
+                        error_code="LLM_ERROR",
+                        error_message=str(e),
+                        error_details=error_details(e),
+                    )
+                except Exception:
+                    logger.warning("Could not record a refused chat answer", exc_info=True)
+                    if step_id and self.trace_writer:
+                        with contextlib.suppress(Exception):
+                            await self.trace_writer.update_step_status(
+                                step_id, "failed", error_code="LLM_ERROR", error_message=str(e)
+                            )
+            elif step_id and self.trace_writer:
                 await self.trace_writer.update_step_status(
-                    step.id,
+                    step_id,
                     "failed",
                     error_code="LLM_ERROR",
                     error_message=str(e),
                     error_details=error_details(e),
                 )
             raise
+
+    async def _write_chat_ledger(
+        self,
+        step_id: str,
+        status: str,
+        *,
+        model: str,
+        route: _ResolvedPolicyRoute,
+        response: ChatResponse,
+        attempts: list[dict[str, Any]],
+        safety_evidence: list[dict[str, Any]],
+        elapsed_ms: int,
+        run_id: str | None,
+        error_code: str | None,
+        error_message: str | None,
+        error_details: dict[str, Any] | None,
+    ) -> None:
+        """Close a whole chat call's step and write its one usage row."""
+        assert self.trace_writer is not None
+        model_used = response.model or model
+        identity = _runtime_cost_fields(
+            requested_model=model,
+            upstream_model=response.model,
+            target=response.runtime_target,
+        )
+        await self.trace_writer.update_step_status(
+            step_id,
+            status,
+            # A refused answer is not kept, not even in the summary.
+            output_summary=response.text[:100] if response.text and status == "succeeded" else None,
+            metrics={
+                "tokens_prompt": response.tokens_prompt,
+                "tokens_completion": response.tokens_completion,
+                "latency_ms": elapsed_ms,
+                **({"attempts": attempts} if attempts else {}),
+                "model": model_used,
+                "model_ref": identity["model_ref"],
+                "provider_id": identity["provider_id"],
+                "provider_slug": identity["provider_slug"],
+                "provider_kind": identity["provider_kind"],
+                "upstream_model": identity["upstream_model"],
+                **({"content_safety": safety_evidence} if safety_evidence else {}),
+            },
+            error_code=error_code,
+            error_message=error_message,
+            error_details=error_details,
+        )
+        pricing = _with_runtime_identity(
+            _chat_pricing(
+                route.pricing,
+                prompt_tokens=response.tokens_prompt,
+                completion_tokens=response.tokens_completion,
+            ),
+            requested_model=model,
+            identity=identity,
+        )
+        await self.trace_writer.record_cost(
+            run_id=run_id,
+            step_id=step_id,
+            billing_basis="tokens",
+            billed_quantity=response.tokens_prompt + response.tokens_completion,
+            currency=pricing.currency,
+            amount=pricing.amount,
+            pricing_snapshot_json=pricing.snapshot,
+            **identity,
+            source_port="llm",
+            operation="chat",
+            prompt_tokens=response.tokens_prompt,
+            completion_tokens=response.tokens_completion,
+            total_tokens=response.tokens_prompt + response.tokens_completion,
+            latency_ms=elapsed_ms,
+        )
 
     async def stream_chat(
         self,
@@ -1192,13 +1294,23 @@ class LLMPolicyGateway(LLMPort):
         max_tokens: int | None = None,
         **kwargs: Any,
     ):
-        """Stream chat completion with policy enforcement."""
+        """Stream chat completion with policy enforcement.
+
+        Every stream that reached the provider ends in the ledger, however it
+        ends: finished, failed part way (an idle timeout, a provider error, an
+        outbound block), or abandoned by its consumer (a client that
+        disconnects, an interaction that is canceled). Providers report usage
+        only in their last chunk, so a stream that ends without it is charged
+        an estimate from the prompt and from what the provider generated,
+        flagged as estimated.
+        """
         await self._admit(model=model, family="chat", credit_operation="chat", run_id=resolve_run_id(kwargs, self.ctx))
 
         if not hasattr(self.gateway, "stream_chat"):
             raise ValueError("Streaming not supported by LLM gateway")
 
         step = None
+        step_id: str | None = None
         if self.trace_writer:
             run_id = resolve_run_id(kwargs, self.ctx)
             if not run_id:
@@ -1209,14 +1321,25 @@ class LLMPolicyGateway(LLMPort):
                 input_summary=f"model={model}, messages={len(messages)}",
                 status="running",
             )
+            # Kept as text: after a failed write rolls the session back, the
+            # step instance expires and reading its id would query again.
+            step_id = step.id
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
         tokens_prompt = 0
         tokens_completion = 0
+        # The provider reported its usage with its closing chunk.
+        usage_final = False
+        # The provider stream ran to its end.
+        upstream_done = False
+        settled = False
         model_used = None
         runtime_target: LLMRuntimeTarget | None = None
+        route: _ResolvedPolicyRoute | None = None
+        aiter = None
         output_preview = ""
+        generated = GeneratedText()
         safety_evidence: list[dict[str, Any]] = []
         attempts: list[dict[str, Any]] = []
         outbound = (
@@ -1224,6 +1347,27 @@ class LLMPolicyGateway(LLMPort):
             if self.content_safety is not None and self.inspect_outbound
             else None
         )
+
+        def observe(chunk: ChatStreamChunk) -> None:
+            nonlocal tokens_prompt, tokens_completion, model_used, runtime_target, usage_final
+            if chunk.tokens_prompt:
+                tokens_prompt = chunk.tokens_prompt
+            if chunk.tokens_completion:
+                tokens_completion = chunk.tokens_completion
+            if chunk.model:
+                model_used = chunk.model
+            if chunk.runtime_target is not None:
+                runtime_target = chunk.runtime_target
+            if (chunk.done or chunk.finish_reason) and (chunk.tokens_prompt or chunk.tokens_completion):
+                usage_final = True
+            # Counted before inspection, which may rewrite the text: the
+            # provider bills for what it generated.
+            generated.add(
+                delta=chunk.delta,
+                reasoning_delta=chunk.reasoning_delta,
+                tool_call_deltas=chunk.tool_call_deltas,
+                tool_calls=chunk.tool_calls,
+            )
 
         async def release(chunk: ChatStreamChunk) -> ChatStreamChunk | None:
             # Text reaches the consumer only once it has been inspected; the
@@ -1238,6 +1382,127 @@ class LLMPolicyGateway(LLMPort):
                 return chunk
             return None
 
+        def usage() -> tuple[int, int, bool]:
+            """The call's prompt and completion tokens, and whether they are estimated."""
+            if usage_final or (upstream_done and (tokens_prompt or tokens_completion)):
+                return tokens_prompt, tokens_completion, False
+            prompt = max(tokens_prompt, estimate_prompt_tokens(messages, kwargs.get("tools")))
+            completion = max(tokens_completion, generated.tokens())
+            return prompt, completion, True
+
+        async def settle(
+            *,
+            status: str,
+            error_code: str | None = None,
+            error_message: str | None = None,
+            error_details: dict[str, Any] | None = None,
+        ) -> None:
+            """Close the step, with the call's usage in the ledger, exactly once."""
+            nonlocal settled
+            if settled:
+                return
+            settled = True
+            if route is None:
+                # No chunk arrived, so nothing shows the provider served the call.
+                if step_id and self.trace_writer:
+                    await self.trace_writer.update_step_status(
+                        step_id,
+                        status,
+                        error_code=error_code,
+                        error_message=error_message,
+                        error_details=error_details,
+                    )
+                    await self.trace_writer.release_before_wait()
+                return
+            prompt, completion, estimated = usage()
+            if step_id and self.trace_writer:
+                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                upstream = model_used or model
+                identity = _runtime_cost_fields(
+                    requested_model=model,
+                    upstream_model=upstream,
+                    target=runtime_target,
+                )
+                await self.trace_writer.update_step_status(
+                    step_id,
+                    status,
+                    output_summary=output_preview[:100] if output_preview else None,
+                    metrics={
+                        "tokens_prompt": prompt,
+                        "tokens_completion": completion,
+                        "latency_ms": elapsed_ms,
+                        **({"usage_estimated": True} if estimated else {}),
+                        **({"attempts": attempts} if attempts else {}),
+                        "model": upstream,
+                        "model_ref": identity["model_ref"],
+                        "provider_id": identity["provider_id"],
+                        "provider_slug": identity["provider_slug"],
+                        "provider_kind": identity["provider_kind"],
+                        "upstream_model": identity["upstream_model"],
+                        **({"content_safety": safety_evidence} if safety_evidence else {}),
+                    },
+                    error_code=error_code,
+                    error_message=error_message,
+                    error_details=error_details,
+                )
+                pricing = _with_runtime_identity(
+                    _chat_pricing(
+                        route.pricing,
+                        prompt_tokens=prompt,
+                        completion_tokens=completion,
+                    ),
+                    requested_model=model,
+                    identity=identity,
+                )
+                snapshot = (
+                    {**pricing.snapshot, **_USAGE_ESTIMATE_SNAPSHOT} if estimated else pricing.snapshot
+                )
+                await self.trace_writer.record_cost(
+                    run_id=resolve_run_id(kwargs, self.ctx),
+                    step_id=step_id,
+                    billing_basis="tokens",
+                    billed_quantity=prompt + completion,
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=snapshot,
+                    **identity,
+                    source_port="llm",
+                    operation="chat",
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    total_tokens=prompt + completion,
+                    latency_ms=elapsed_ms,
+                )
+                # The call is over: its step and cost are committed now, so
+                # they outlive a caller that rolls its own work back (a
+                # response worker that lost its lease or is draining).
+                await self.trace_writer.release_before_wait()
+            # After the ledger: the key's daily total must not keep the ledger
+            # row from being written.
+            try:
+                await self._count_api_key_tokens(prompt + completion)
+            except Exception:
+                logger.warning("Could not add a chat stream's tokens to its API key", exc_info=True)
+
+        async def finish(**outcome: Any) -> None:
+            # The consumer may be under cancellation (a client that
+            # disconnected, a task group that is closing); the provider stream
+            # still closes and the ledger writes still finish, each within
+            # its own bound.
+            with anyio.CancelScope(shield=True):
+                close = getattr(aiter, "aclose", None)
+                if close is not None:
+                    # Closing the provider stream ends the generation it bills for.
+                    with anyio.move_on_after(_PROVIDER_CLOSE_TIMEOUT_SECONDS):
+                        try:
+                            await close()
+                        except Exception:
+                            logger.debug("Closing a provider stream failed", exc_info=True)
+                with anyio.move_on_after(_SETTLE_TIMEOUT_SECONDS) as scope:
+                    await settle(**outcome)
+            if scope.cancelled_caught:
+                logger.warning("Recording a chat stream's usage timed out", extra={"step_id": step_id})
+
         # A stream yields to its consumer between chunks, so this span is kept
         # off the context stack: a span attached across a yield can be resumed
         # and detached in a different task. It still covers the whole stream.
@@ -1250,7 +1515,7 @@ class LLMPolicyGateway(LLMPort):
                 "soit.tenant.id": self.ctx.tenant_id,
                 "soit.workspace.id": self.ctx.workspace_id,
                 "soit.run.id": resolve_run_id(kwargs, self.ctx) or "",
-                "soit.step.id": step.id if step else "",
+                "soit.step.id": step_id or "",
                 "soit.llm.streaming": True,
             },
         )
@@ -1264,9 +1529,7 @@ class LLMPolicyGateway(LLMPort):
                 **kwargs,
             }
             targets = await self._targets(model)
-            route: _ResolvedPolicyRoute | None = None
             first_chunk: ChatStreamChunk | None = None
-            aiter = None
             # A stream moves to another target only before its first chunk;
             # after that the consumer has seen output from this one.
             for index, target in enumerate(targets):
@@ -1297,25 +1560,24 @@ class LLMPolicyGateway(LLMPort):
                 raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
             runtime_target = route.target
 
-            if first_chunk is not None:
-                tokens_prompt = first_chunk.tokens_prompt or tokens_prompt
-                tokens_completion = first_chunk.tokens_completion or tokens_completion
-                model_used = first_chunk.model or model_used
+            if first_chunk is None:
+                upstream_done = True
+            else:
+                observe(first_chunk)
                 released = await release(first_chunk)
                 if released is not None:
                     if released.delta and len(output_preview) < 200:
                         output_preview += released.delta
                     yield released
 
-            while True:
-                if aiter is None or first_chunk is None:
-                    break
+            while aiter is not None and not upstream_done:
                 try:
                     chunk: ChatStreamChunk = await asyncio.wait_for(
                         aiter.__anext__(),
                         timeout=route.timeout_seconds,
                     )
                 except StopAsyncIteration:
+                    upstream_done = True
                     break
                 except TimeoutError:
                     raise KernelTimeoutError(
@@ -1324,15 +1586,7 @@ class LLMPolicyGateway(LLMPort):
                     ) from None
 
                 chunk.runtime_target = chunk.runtime_target or route.target
-
-                if chunk.tokens_prompt:
-                    tokens_prompt = chunk.tokens_prompt
-                if chunk.tokens_completion:
-                    tokens_completion = chunk.tokens_completion
-                if chunk.model:
-                    model_used = chunk.model
-                if chunk.runtime_target is not None:
-                    runtime_target = chunk.runtime_target
+                observe(chunk)
 
                 released = await release(chunk)
                 if released is None:
@@ -1340,8 +1594,6 @@ class LLMPolicyGateway(LLMPort):
                 if released.delta and len(output_preview) < 200:
                     output_preview += released.delta
                 yield released
-
-            await self._count_api_key_tokens(tokens_prompt + tokens_completion)
 
             if outbound is not None:
                 # A stream that ends without a closing chunk still releases
@@ -1356,71 +1608,61 @@ class LLMPolicyGateway(LLMPort):
                         runtime_target=runtime_target,
                     )
 
-            if step and self.trace_writer:
-                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
-                model_used = model_used or model
-                identity = _runtime_cost_fields(
-                    requested_model=model,
-                    upstream_model=model_used,
-                    target=runtime_target,
-                )
-                await self.trace_writer.update_step_status(
-                    step.id,
-                    "succeeded",
-                    output_summary=output_preview[:100] if output_preview else None,
-                    metrics={
-                        "tokens_prompt": tokens_prompt,
-                        "tokens_completion": tokens_completion,
-                        "latency_ms": elapsed_ms,
-                        **({"attempts": attempts} if attempts else {}),
-                        "model": model_used,
-                        "model_ref": identity["model_ref"],
-                        "provider_id": identity["provider_id"],
-                        "provider_slug": identity["provider_slug"],
-                        "provider_kind": identity["provider_kind"],
-                        "upstream_model": identity["upstream_model"],
-                        **({"content_safety": safety_evidence} if safety_evidence else {}),
-                    },
-                )
-                pricing = _with_runtime_identity(
-                    _chat_pricing(
-                        route.pricing,
-                        prompt_tokens=tokens_prompt,
-                        completion_tokens=tokens_completion,
-                    ),
-                    requested_model=model,
-                    identity=identity,
-                )
-                await self.trace_writer.record_cost(
-                    run_id=resolve_run_id(kwargs, self.ctx),
-                    step_id=step.id,
-                    billing_basis="tokens",
-                    billed_quantity=tokens_prompt + tokens_completion,
-                    currency=pricing.currency,
-                    amount=pricing.amount,
-                    pricing_snapshot_json=pricing.snapshot,
-                    **identity,
-                    source_port="llm",
-                    operation="chat",
-                    prompt_tokens=tokens_prompt,
-                    completion_tokens=tokens_completion,
-                    total_tokens=tokens_prompt + tokens_completion,
-                    latency_ms=elapsed_ms,
-                )
+            await finish(status="succeeded")
             span.set_attribute("gen_ai.response.model", model_used or model)
             span.set_attribute("gen_ai.usage.input_tokens", tokens_prompt)
             span.set_attribute("gen_ai.usage.output_tokens", tokens_completion)
         except Exception as e:
             span.record_exception(e)
             span.set_status(Status(StatusCode.ERROR, str(e)))
-            if step and self.trace_writer:
-                await self.trace_writer.update_step_status(
-                    step.id,
-                    "failed",
+            try:
+                await finish(
+                    status="failed",
                     error_code="LLM_ERROR",
                     error_message=str(e),
                     error_details=error_details(e),
                 )
+            except Exception:
+                logger.warning(
+                    "Could not record a failed chat stream",
+                    exc_info=True,
+                    extra={"step_id": step_id},
+                )
+            raise
+        except (GeneratorExit, asyncio.CancelledError):
+            span.set_status(Status(StatusCode.ERROR, "stream abandoned"))
+            if _closing_a_dropped_generator():
+                logger.warning(
+                    "A chat stream was dropped without being closed; its usage is not recorded",
+                    extra={"step_id": step_id},
+                )
+            elif upstream_done or usage_final:
+                # The model had finished; only the consumer stopped early.
+                try:
+                    await finish(status="succeeded")
+                except Exception:
+                    logger.warning(
+                        "Could not record a finished chat stream",
+                        exc_info=True,
+                        extra={"step_id": step_id},
+                    )
+            else:
+                try:
+                    await finish(
+                        status="canceled",
+                        error_code=STREAM_ABANDONED,
+                        error_message=(
+                            "The stream was closed before the model finished"
+                            if route is not None
+                            else "The stream was closed before the model answered"
+                        ),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Could not record an abandoned chat stream",
+                        exc_info=True,
+                        extra={"step_id": step_id},
+                    )
             raise
         finally:
             span.end()

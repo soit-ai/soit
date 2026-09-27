@@ -213,6 +213,9 @@ class TraceWriter:
         memory, would cap how many executions can wait at once. Committing
         here makes the running step durable (it is running) and hands the
         connection back until the next write.
+
+        A streamed model call commits the same way once it has settled, so
+        its final step and cost outlive a caller that later rolls back.
         """
         commit = getattr(self.db, "commit", None)
         if commit is not None:

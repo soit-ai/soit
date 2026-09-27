@@ -757,8 +757,8 @@ class ResponseProjectionCoordinator:
             await self.response_service.update_interaction_status(interaction_id, "canceled")
             return True
 
+        stream: AsyncIterator[ChatStreamChunk] | None = None
         try:
-            stream: AsyncIterator[ChatStreamChunk] | None
             try:
                 stream = self.execution_service.stream_chat(response=response, messages=messages)
             except NotImplementedError:
@@ -993,6 +993,12 @@ class ResponseProjectionCoordinator:
                     message=response.error_message or _PUBLIC_EXECUTION_ERROR,
                 )
             )
+        finally:
+            # A canceled interaction stops reading mid-stream; closing the
+            # model stream here records what the call used, in this task.
+            aclose = getattr(stream, "aclose", None)
+            if aclose is not None:
+                await aclose()
 
     async def execute(self, payload: ResponseCreateRequest):
         response = await self.response_service.create_response(payload)

@@ -438,12 +438,19 @@ class GlobalResponseInteractionWorker:
                 protocol=AgUiInteractionProtocolAdapter(),
             )
             iterator = aiter(stream)
-            while True:
-                await self._assert_lease(db, interaction.id, interaction.attempt_count)
-                try:
-                    await anext(iterator)
-                except StopAsyncIteration:
-                    break
+            try:
+                while True:
+                    await self._assert_lease(db, interaction.id, interaction.attempt_count)
+                    try:
+                        await anext(iterator)
+                    except StopAsyncIteration:
+                        break
+            finally:
+                # Stopping early (a lost lease) closes the model stream here,
+                # in this task, rather than whenever the generator is collected.
+                aclose = getattr(stream, "aclose", None)
+                if aclose is not None:
+                    await aclose()
             await db.commit()
             return
         if mode != "agent":
