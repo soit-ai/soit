@@ -36,3 +36,16 @@ def test_kernel_error_4xx_message_is_preserved(monkeypatch):
     resp = client.get("/boom")
     assert resp.status_code == 400
     assert "Provider name already exists" in str(resp.json())
+
+
+def test_an_unexpected_error_keeps_its_text_out_of_the_response_in_development(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    client = _client_for(RuntimeError("could not reach db.internal:5432 as svc_writer"))
+
+    resp = client.get("/boom")
+
+    assert resp.status_code == 500
+    body = str(resp.json())
+    assert "db.internal" not in body and "svc_writer" not in body
+    assert "RuntimeError" not in body
+    assert "Internal server error" in body

@@ -12,6 +12,12 @@ record for operators.
 
 ## [Unreleased]
 
+### Security
+
+- An unexpected server error no longer puts the exception's text or type in
+  the response when `ENVIRONMENT=development`; the traceback stays in the
+  server log under the request id, as it already did in production.
+
 ## [1.3.0] - 2026-09-27
 
 ### Added

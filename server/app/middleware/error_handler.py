@@ -235,24 +235,15 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 }
             )
 
-            # In production, don't expose internal error details
-            error_message = "Internal server error"
-            error_details: dict[str, Any] | None = None
-
-            # In development, include more details
-            import os
-            if os.getenv("ENVIRONMENT", "production").lower() == "development":
-                error_message = f"Internal server error: {str(e)}"
-                error_details = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                }
-
+            # The traceback is in the log line above, under the request id. The
+            # response carries neither the exception's text nor its type, in
+            # development either: an exception from a dependency can name
+            # hosts, paths or queries.
             request_id, run_id = self._resolve_trace_ids(request)
             envelope = error_envelope(
                 code="INTERNAL_ERROR",
-                message=error_message,
-                details=error_details,
+                message="Internal server error",
+                details=None,
                 request_id=request_id,
                 run_id=run_id,
             )
