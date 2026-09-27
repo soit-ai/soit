@@ -83,6 +83,9 @@ record for operators.
   returned (PNG, WebP or JPEG), not after the requested `output_format`. A
   provider that ignored the request no longer leaves PNG bytes labelled
   `image/webp`; `meta_json.requested_format` records what was asked for.
+- `size: auto` on `POST /v1/images/generations` and `/edits` works as
+  documented. The gateway's capability check read it as a malformed size,
+  so the call failed with `Invalid image size: auto` after its run opened.
 - A streamed chat call that reached the provider is now always charged.
   Before, a `/v1/chat/completions` client that disconnected before the final
   chunk left the model step `running` with no cost, so the call escaped

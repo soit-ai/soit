@@ -92,6 +92,10 @@ class TestParseImageSize:
     def test_parses_pixels(self):
         assert parse_image_size("1024x768") == (1024, 768)
 
+    def test_auto_is_left_to_the_provider(self):
+        assert parse_image_size("auto") is None
+        validate_image_request({"max_dimension": 1024}, model="m", size="auto")
+
     def test_absent_size_is_none(self):
         assert parse_image_size(None) is None
         assert parse_image_size("") is None

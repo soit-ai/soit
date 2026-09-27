@@ -338,8 +338,12 @@ def normalize_image_capabilities(
 
 
 def parse_image_size(size: str | None) -> tuple[int, int] | None:
-    """Parse a ``WxH`` size hint into pixels, or None when unset."""
-    if not size:
+    """Parse a ``WxH`` size hint into pixels, or None when unset or ``auto``.
+
+    ``auto`` is OpenAI's way of leaving the size to the provider, so it names
+    no dimension a model could have ruled out.
+    """
+    if not size or size == "auto":
         return None
     width, _, height = str(size).partition("x")
     try:

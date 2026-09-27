@@ -844,3 +844,12 @@ async def test_image_formats_it_cannot_label_are_refused(async_client) -> None:
 
     assert generation.status_code == 400
     assert edit.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_an_auto_size_is_left_to_the_provider(async_client) -> None:
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        response = await _generate(async_client, size="auto")
+
+    assert response.status_code == 200, response.text
