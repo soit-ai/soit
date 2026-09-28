@@ -19,6 +19,8 @@ from app.kernel.runtime.db.models.usage import UsageDailyAggregate
 from app.modules.billing.application.budgets import (
     BudgetGuard,
     CompositeCreditGuard,
+    HoldGrant,
+    HoldRequest,
     budget_period,
     budget_spend,
 )
@@ -27,20 +29,21 @@ from app.modules.billing.events import BUDGET_THRESHOLD_REACHED
 from app.modules.billing.handlers.on_budget_thresholds import (
     handle_cost_recorded_budget,
 )
+from app.modules.billing.infra.reservations import LocalBudgetReservations
 
 NOW = utc_now()
 
 
-class _Reservations:
-    def __init__(self, in_flight: int = 0) -> None:
-        self.count = in_flight
-        self.reserved: list[str] = []
+class _Reservations(LocalBudgetReservations):
+    def __init__(self) -> None:
+        super().__init__()
+        self.granted: list[HoldGrant] = []
 
-    async def in_flight(self, budget_id: str) -> int:
-        return self.count
-
-    async def reserve(self, budget_id: str) -> None:
-        self.reserved.append(budget_id)
+    async def acquire(self, requests, *, ttl_seconds):  # type: ignore[no-untyped-def]
+        outcome = await super().acquire(requests, ttl_seconds=ttl_seconds)
+        if isinstance(outcome, HoldGrant):
+            self.granted.append(outcome)
+        return outcome
 
 
 class _Recorder:
@@ -168,10 +171,12 @@ async def test_a_spent_hard_budget_refuses_with_a_readable_reason(async_db, ctx)
 
 @pytest.mark.asyncio
 async def test_calls_in_flight_hold_the_rest_of_a_budget(async_db, ctx) -> None:
-    async_db.add(_budget(ctx))
+    budget = _budget(ctx)
+    async_db.add(budget)
     for _ in range(4):
         await _cost(async_db, ctx, "2")  # 8 spent, 2 per call on average
-    busy = _Reservations(in_flight=1)
+    busy = _Reservations()
+    await busy.acquire([HoldRequest(budget.id, None)], ttl_seconds=60)  # one call already in flight
     free = _Reservations()
 
     with pytest.raises(BudgetExhaustedError) as refused:
@@ -179,7 +184,8 @@ async def test_calls_in_flight_hold_the_rest_of_a_budget(async_db, ctx) -> None:
     await BudgetGuard(async_db, ctx, reservations=free).check(operation="chat")
 
     assert refused.value.details["reason"] == "reserved"
-    assert len(free.reserved) == 1
+    assert len(free.granted) == 1
+    assert free.granted[0].budget_ids == (budget.id,)
 
 
 @pytest.mark.asyncio

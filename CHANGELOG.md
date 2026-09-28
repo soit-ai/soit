@@ -63,6 +63,14 @@ record for operators.
 
 ### Changed
 
+- A budget hold is released as soon as the call's cost is committed instead
+  of lasting a minute, so a busy workspace is no longer refused near its
+  limit for calls that already finished. Checking a budget and holding it
+  are now one Redis step, so two concurrent callers can no longer both take
+  the last slot; a hold that nothing releases lasts the call's timeout and a
+  minute, so a long image call keeps its budget held to the end; and while
+  Redis is unreachable, holds are kept in the process instead of skipped.
+
 - The content-free runs documentation, README and settings copy now say
   what `metadata_only` capture covers: the run records (runs, steps, step
   metrics, audit, tool calls, trace spans), and so every `/v1`,

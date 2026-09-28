@@ -9,16 +9,18 @@ returns. An agent budget reads its whole period from the ledger, joined to the
 runs the agent executed, because aggregates are not kept per agent.
 
 A hard-stop budget refuses a call when it is spent. Calls admitted but not yet
-finished have no cost recorded, so each admitted call also holds a short
-reservation of the period's average call cost; a call is refused when the
-reservations already in flight would carry spend past the limit. That keeps
-concurrent callers from overshooting a limit by more than about one call.
+finished have no cost recorded, so each admitted call also holds the budget
+for the period's average call cost; a call is refused when the holds already
+in flight would carry spend past the limit. Checking and holding are one step,
+so concurrent callers overshoot a limit by about one call at most. A hold is
+released once the call's cost is committed, and otherwise expires after the
+call's timeout.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -37,8 +39,10 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry
 from app.kernel.runtime.db.models.usage import UsageDailyAggregate
+from app.modules.billing.application.budget_holds import track_hold
 from app.modules.billing.application.schemas import BudgetCreate, BudgetUpdate
 from app.modules.billing.domain.models import BUDGET_PERIODS, BUDGET_SCOPES, Budget
+from app.settings.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -168,11 +172,59 @@ async def agent_of_run(db: AsyncSession, run: Run | None) -> str | None:
     return None
 
 
-class BudgetReservations(Protocol):
-    """Short-lived holds on a budget for calls admitted but not yet costed."""
+@dataclass(frozen=True)
+class HoldRequest:
+    budget_id: str
+    capacity: int | None
+    """Calls in flight the budget can pay for, this one included; None when unbounded."""
 
-    async def in_flight(self, budget_id: str) -> int: ...
-    async def reserve(self, budget_id: str) -> None: ...
+
+@dataclass(frozen=True)
+class HoldGrant:
+    token: str
+    budget_ids: tuple[str, ...]
+    backend: str
+    """Where the hold is kept, so it is released there."""
+
+
+@dataclass(frozen=True)
+class HoldRefusal:
+    budget_id: str
+    held: int
+
+
+class BudgetReservations(Protocol):
+    """Holds on budgets for calls admitted but not yet costed."""
+
+    async def acquire(
+        self, requests: Sequence[HoldRequest], *, ttl_seconds: float
+    ) -> HoldGrant | HoldRefusal:
+        """Hold every budget at once, or none when one is already full."""
+        ...
+
+    async def release(self, grant: HoldGrant) -> None: ...
+
+
+def hold_capacity(headroom: Decimal, estimate: Decimal) -> int | None:
+    """How many calls of ``estimate`` fit in ``headroom``; None without an estimate."""
+    if estimate <= 0:
+        return None
+    return max(0, int(headroom // estimate))
+
+
+_IMAGE_OPERATIONS = frozenset({"generate_image", "edit_image"})
+_HOLD_MARGIN_SECONDS = 60.0
+
+
+def hold_ttl_seconds(operation: str) -> float:
+    """How long a hold lasts when nothing releases it: the call's timeout and a margin.
+
+    A call releases its hold when its cost is committed, so this only bounds
+    holds for calls that fail or never finish. It must outlast a call that is
+    still running, or concurrent callers would stop seeing it.
+    """
+    timeout = settings.llm_image_timeout_seconds if operation in _IMAGE_OPERATIONS else settings.llm_timeout_seconds
+    return float(timeout) + _HOLD_MARGIN_SECONDS
 
 
 class BudgetBlockRecorder(Protocol):
@@ -264,18 +316,24 @@ class BudgetGuard:
         if not budgets:
             return
         now = self.clock()
+        spends: dict[str, BudgetSpend] = {}
+        requests: list[HoldRequest] = []
         for budget in budgets:
             spend = await budget_spend(self.db, budget, now)
             if spend.spent >= budget.amount:
                 await self._refuse(budget, spend, operation=operation, reason="spent", now=now)
-            estimate = spend.average_call
-            if estimate > 0 and self.reservations is not None:
-                in_flight = await self.reservations.in_flight(budget.id)
-                if spend.spent + estimate * (in_flight + 1) > budget.amount:
-                    await self._refuse(budget, spend, operation=operation, reason="reserved", now=now)
-        if self.reservations is not None:
-            for budget in budgets:
-                await self.reservations.reserve(budget.id)
+            spends[budget.id] = spend
+            requests.append(
+                HoldRequest(budget.id, hold_capacity(budget.amount - spend.spent, spend.average_call))
+            )
+        if self.reservations is None:
+            return
+        outcome = await self.reservations.acquire(requests, ttl_seconds=hold_ttl_seconds(operation))
+        if isinstance(outcome, HoldRefusal):
+            budget = next(budget for budget in budgets if budget.id == outcome.budget_id)
+            await self._refuse(budget, spends[budget.id], operation=operation, reason="reserved", now=now)
+            return
+        track_hold(self.db, outcome, self.reservations, run_id=run_id)
 
 
 class CompositeCreditGuard:

@@ -255,8 +255,10 @@ remainder, percentage and forecast for the current period.
   `402` (`insufficient_quota`, code `budget_exhausted`) naming the budget,
   what it spent and when it resets. The refusal is written to the audit
   ledger.
-- Admitted calls hold a short reservation of the average call cost, so
-  concurrent callers overshoot a limit by about one call at most.
+- Each admitted call holds its budgets for the period's average call cost
+  until its cost is committed. Checking a budget and holding it are one step,
+  so concurrent callers overshoot a limit by about one call at most. Holds
+  live in Redis; while Redis is unreachable each process keeps its own.
 - Crossing a threshold (50, 80 and 100 percent by default) notifies workspace
   owners and admins once per budget, period and threshold, in their inboxes,
   on their own endpoints as their preferences allow, and on the workspace's
@@ -369,9 +371,12 @@ same client.
 
 ## Known limitations
 
-- Budget reservations expire after about a minute rather than being released,
-  and without Redis they are skipped, so concurrent calls can overshoot a
-  budget by more than one call.
+- A call that fails, or records no cost, keeps its budget hold until its
+  timeout (`LLM_TIMEOUT_SECONDS`, or `LLM_IMAGE_TIMEOUT_SECONDS` for images)
+  and a minute have passed, so near a limit it can refuse other calls until
+  then. A call still running after that, such as a very long stream, no
+  longer holds its budget. While Redis is unreachable, replicas do not see
+  each other's holds and can each overshoot a budget by about one call.
 - Budget spend reads the daily aggregates for finished days and the cost
   ledger for today; a day's aggregate is rebuilt by the reconciler
   (`USAGE_RECONCILE_INTERVAL_SECONDS`, hourly by default).

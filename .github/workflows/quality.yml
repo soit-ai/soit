@@ -30,10 +30,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       ENVIRONMENT: test
       SOIT_TESTING: "1"
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/soit_test
+      # Only tests that need a real Redis read this (budget holds).
+      SOIT_TEST_REDIS_URL: redis://localhost:6379/15
     defaults:
       run:
         working-directory: server
