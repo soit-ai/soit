@@ -3,6 +3,7 @@
 Health check and monitoring endpoints.
 """
 
+import asyncio
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -63,6 +64,40 @@ async def health_check():
     return HealthResponse(status="healthy")
 
 
+VECTOR_READY_TIMEOUT_SECONDS = 2.0
+"""How long readiness waits for the vector store before reporting it unavailable.
+
+The compose healthcheck gives the whole probe a few seconds; a vector store
+that does not answer must not hold readiness past that.
+"""
+
+_vector_probe: asyncio.Task[None] | None = None
+
+
+def _collect(task: asyncio.Task[None]) -> None:
+    # A probe that finishes after readiness stopped waiting is still collected.
+    if not task.cancelled():
+        task.exception()
+
+
+async def _vector_status(vector: VectorPort) -> str:
+    """``connected`` or ``unavailable``, answered within the timeout.
+
+    One probe runs at a time: a probe still waiting on an unreachable host is
+    waited on again rather than joined by another.
+    """
+    global _vector_probe
+    probe = _vector_probe
+    if probe is None or probe.done() or probe.get_loop() is not asyncio.get_running_loop():
+        _vector_probe = asyncio.ensure_future(vector.check_ready())
+        _vector_probe.add_done_callback(_collect)
+    try:
+        await asyncio.wait_for(asyncio.shield(_vector_probe), timeout=VECTOR_READY_TIMEOUT_SECONDS)
+    except Exception:
+        return "unavailable"
+    return "connected"
+
+
 @router.get("/health/ready", response_model=ReadyResponse)
 async def readiness_check(
     db: AsyncSession = Depends(get_async_db),
@@ -99,11 +134,7 @@ async def readiness_check(
             detail="Object storage is unavailable",
         )
 
-    try:
-        await vector.check_ready()
-        vector_status = "connected"
-    except Exception:
-        vector_status = "unavailable"
+    vector_status = await _vector_status(vector)
 
     return ReadyResponse(
         status="ready",

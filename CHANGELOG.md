@@ -206,6 +206,13 @@ record for operators.
 
 ### Fixed
 
+- `/health/ready` answers within about two seconds when the vector store
+  cannot be reached, reporting `vector: unavailable`. The Milvus probe used to
+  block the event loop for as long as DNS and the connection took, over thirty
+  seconds for a host that does not exist, so a compose healthcheck never
+  passed and `web`, which waits for a healthy `api`, never started. The probe
+  now runs off the event loop and one runs at a time.
+
 - A model server, tool or MCP server on a private or loopback address can be
   reached once its network is listed in `EGRESS_PRIVATE_NETWORKS` (CIDR) and
   the target is allowlisted. Before, every non-public address was refused

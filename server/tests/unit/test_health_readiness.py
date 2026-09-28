@@ -1,9 +1,18 @@
 """Tests for readiness failure semantics."""
 
+import asyncio
+import time
+
 import pytest
 from fastapi import HTTPException
 
+from app.api.v1.health import router as health
 from app.api.v1.health.router import readiness_check
+
+
+@pytest.fixture(autouse=True)
+def _no_probe_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(health, "_vector_probe", None)
 
 
 class _UnavailableDatabase:
@@ -37,6 +46,17 @@ class _ReadyVector:
 class _DownVector:
     async def check_ready(self) -> None:
         raise RuntimeError("vector store unavailable")
+
+
+class _UnreachableVector:
+    """A host that does not exist: the client waits out DNS and the connection."""
+
+    def __init__(self) -> None:
+        self.probes = 0
+
+    async def check_ready(self) -> None:
+        self.probes += 1
+        await asyncio.sleep(30)
 
 
 @pytest.mark.asyncio
@@ -74,6 +94,23 @@ async def test_readiness_stays_ready_but_reports_vector_unavailable() -> None:
     )
     assert resp.status == "ready"
     assert resp.vector == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_vector_store_does_not_hold_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(health, "VECTOR_READY_TIMEOUT_SECONDS", 0.05)
+    vector = _UnreachableVector()
+
+    started = time.monotonic()
+    first = await readiness_check(db=_AvailableDatabase(), storage=_AvailableStorage(), vector=vector)
+    second = await readiness_check(db=_AvailableDatabase(), storage=_AvailableStorage(), vector=vector)
+
+    assert time.monotonic() - started < 2
+    assert (first.status, first.vector) == ("ready", "unavailable")
+    assert second.vector == "unavailable"
+    # The second check waits on the probe already in flight instead of starting another.
+    assert vector.probes == 1
+    health._vector_probe.cancel()  # type: ignore[union-attr]
 
 
 def test_metrics_open_by_default(client) -> None:

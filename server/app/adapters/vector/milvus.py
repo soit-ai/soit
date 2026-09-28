@@ -3,6 +3,7 @@
 Milvus vector gateway adapter implementation.
 """
 
+import asyncio
 import hashlib
 import json
 import re
@@ -110,7 +111,15 @@ class MilvusVectorPort(VectorPort):
         return {"index_type": "IVF_FLAT", "metric_type": metric_type, "params": {"nlist": 1024}}
 
     async def check_ready(self) -> None:
-        """Probe vector-store connectivity; raise if unreachable (for readiness checks)."""
+        """Probe vector-store connectivity; raise if unreachable (for readiness checks).
+
+        The client blocks for as long as DNS and the connection take, over
+        thirty seconds for a host that does not exist, so it runs off the event
+        loop and the caller can stop waiting.
+        """
+        await asyncio.to_thread(self._check_ready)
+
+    def _check_ready(self) -> None:
         self._ensure_connected()
         utility.get_server_version()
 
