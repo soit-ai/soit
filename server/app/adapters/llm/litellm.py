@@ -448,11 +448,6 @@ class LiteLLMPort(LLMPort):
         if body:
             params["extra_body"] = body
 
-    # Providers that read the mask's alpha channel, where transparent marks
-    # the region to replace. Everything else is sent SOIT's own convention:
-    # white marks the region to edit.
-    _ALPHA_MASK_PROVIDERS = {"openai", "openai_compatible", "azure_openai"}
-
     def _apply_response_format(
         self,
         params: dict[str, Any],
@@ -482,8 +477,42 @@ class LiteLLMPort(LLMPort):
                 {"param": "response_format"},
             )
 
-    def _mask_for_provider(self, mask: bytes) -> bytes:
-        if self.provider_kind in self._ALPHA_MASK_PROVIDERS:
+    @staticmethod
+    def _reads_alpha_mask(model: str) -> bool:
+        """Whether this model's edit mask reaches an endpoint that reads its alpha.
+
+        LiteLLM routes on the model's prefix, not on the provider kind: an
+        OpenAI-compatible provider configured with litellm_provider stability
+        sends its edits to Stability. OpenAI, Azure and every provider whose
+        LiteLLM edit request reuses the OpenAI one (Azure AI's FLUX, a LiteLLM
+        proxy) pass the mask file untouched to an OpenAI-style endpoint,
+        where transparent marks the region to replace. Stability, direct or
+        on Bedrock, Black Forest Labs and Vertex's Imagen read the mask's
+        luminance with white as the region to edit, SOIT's own convention,
+        so they are sent the mask as it is.
+        """
+        prefix, _, name = model.partition("/")
+        if prefix in ("openai", "azure"):
+            return True
+        try:
+            from litellm.llms.openai.image_edit.transformation import (
+                OpenAIImageEditConfig,
+            )
+            from litellm.types.utils import LlmProviders
+            from litellm.utils import ProviderConfigManager
+
+            config = ProviderConfigManager.get_provider_image_edit_config(
+                model=name,
+                provider=LlmProviders(prefix),
+            )
+        except (ImportError, ValueError):
+            # Not a LiteLLM provider, or not a model it can edit with.
+            return False
+        return isinstance(config, OpenAIImageEditConfig)
+
+    @classmethod
+    def _mask_for_provider(cls, mask: bytes, model: str) -> bytes:
+        if cls._reads_alpha_mask(model):
             return mask_to_openai_alpha(mask)
         return mask
 
@@ -507,7 +536,7 @@ class LiteLLMPort(LLMPort):
             **self._connection_params(),
         }
         if mask is not None:
-            params["mask"] = self._mask_for_provider(mask)
+            params["mask"] = self._mask_for_provider(mask, params["model"])
         if size is not None:
             params["size"] = size
         self._apply_response_format(params, kwargs.get("response_format"), operation="edit")

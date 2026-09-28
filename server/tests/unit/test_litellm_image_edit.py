@@ -41,9 +41,14 @@ class _Recorder:
         }
 
 
-def _port(provider_kind: str, recorder: _Recorder) -> LiteLLMPort:
+def _port(
+    provider_kind: str,
+    recorder: _Recorder,
+    litellm_provider: str | None = None,
+) -> LiteLLMPort:
     return LiteLLMPort(
         provider_kind=provider_kind,
+        litellm_provider=litellm_provider,
         api_key="test-key",
         completion_fn=_Recorder(),
         embedding_fn=_Recorder(),
@@ -84,6 +89,65 @@ class TestMaskConversion:
             model="model:bedrock:stability",
             mask=original,
         )
+        assert recorder.params["mask"] == original
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("provider_kind", "litellm_provider", "model"),
+        [
+            ("openai_compatible", None, "model:gateway:gpt-image-1"),
+            ("azure_openai", None, "model:azure:gpt-image-1"),
+            # LiteLLM's edit request for these reuses its OpenAI one, which
+            # passes the mask to an OpenAI-style endpoint untouched.
+            ("openai_compatible", "azure_ai", "model:foundry:flux.1-kontext-pro"),
+            ("openai_compatible", "litellm_proxy", "model:proxy:gpt-image-1"),
+        ],
+    )
+    async def test_openai_style_routes_receive_an_alpha_mask(
+        self, provider_kind, litellm_provider, model
+    ):
+        recorder = _Recorder()
+        await _port(provider_kind, recorder, litellm_provider).edit_image(
+            image=b"image-bytes",
+            prompt="a red dot",
+            model=model,
+            mask=_mask_png(),
+        )
+
+        with Image.open(io.BytesIO(recorder.params["mask"])) as sent:
+            assert sent.mode == "RGBA"
+            alpha = sent.getchannel("A")
+            assert alpha.getpixel((0, 0)) == 0
+            assert alpha.getpixel((7, 0)) == 255
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("provider_kind", "litellm_provider", "model"),
+        [
+            # The kind says OpenAI, but LiteLLM routes on the prefix and sends
+            # the edit to Stability. Stability reads luminance, so an alpha
+            # mask, black in every pixel, would select nothing.
+            ("openai_compatible", "stability", "model:stability:inpaint"),
+            ("openai", "stability", "model:stability:sd3-large"),
+            ("bedrock", None, "model:bedrock:stability.stable-image-inpaint-v1:0"),
+            ("openai_compatible", "black_forest_labs", "model:bfl:flux-pro-1.0-fill"),
+            ("openai_compatible", "vertex_ai", "model:vertex:imagen-3.0-capability-001"),
+            # A prefix LiteLLM has no edit request for keeps SOIT's convention.
+            ("openai_compatible", "in_house", "model:in_house:painter"),
+        ],
+    )
+    async def test_luminance_routes_receive_the_white_is_edit_mask(
+        self, provider_kind, litellm_provider, model
+    ):
+        recorder = _Recorder()
+        original = _mask_png()
+        await _port(provider_kind, recorder, litellm_provider).edit_image(
+            image=b"image-bytes",
+            prompt="a red dot",
+            model=model,
+            mask=original,
+        )
+
         assert recorder.params["mask"] == original
 
     @pytest.mark.asyncio

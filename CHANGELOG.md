@@ -115,6 +115,15 @@ record for operators.
   `output_format`; Stability reads the first three and is always asked for
   PNG; Black Forest Labs reads `seed` and `output_format`; Nova Canvas reads
   `seed`.
+- An image edit's mask selects the region the caller drew on a provider
+  routed to Stability through `runtime_config_json.litellm_provider`. The
+  mask was converted for the provider kind rather than for where LiteLLM
+  sends the edit, so an `openai` or `openai_compatible` provider set to
+  `stability` sent OpenAI's alpha mask, which Stability reads as all black,
+  selecting nothing. The mask now follows the LiteLLM route: OpenAI, Azure,
+  Azure AI and LiteLLM proxy routes get the alpha mask (transparent marks the
+  edit); Stability, Bedrock's Stability models, Black Forest Labs and Vertex
+  Imagen get SOIT's white-is-edit mask.
 - An image artifact is named and typed after the bytes the provider
   returned (PNG, WebP or JPEG), not after the requested `output_format`. A
   provider that ignored the request no longer leaves PNG bytes labelled
