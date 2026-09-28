@@ -68,6 +68,13 @@ record for operators.
   The assistant-ui packages stay at 0.14, where the pinned internals keep a
   failed attachment's retry working, and `@hookform/resolvers` stays at 5.4
   until its optional peers resolve.
+- The server moves to SQLAlchemy 2.0.54, pandas 2.3.3, PyYAML 6.0.3, Apprise
+  1.13.1, ag-ui-protocol 0.1.22 and Docling 2.123.1. SQLModel stays at 0.0.24,
+  since 0.0.4x stores every datetime field as a timezone-enforcing column and
+  needs a migration of its own; pymilvus stays at 2.5 to match the Milvus
+  2.5 server the compose files run; bcrypt stays at 4.0.1 for passlib; and
+  LiteLLM and the OpenAI SDK keep their pins until the image route table is
+  checked against a newer LiteLLM.
 
 - A budget hold is released as soon as the call's cost is committed instead
   of lasting a minute, so a busy workspace is no longer refused near its

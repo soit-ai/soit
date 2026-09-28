@@ -36,10 +36,10 @@ dependencies = [
     "openai==2.20.0",
     "aiofiles>=23.2.1,<24.0.0",
     "python-magic==0.4.27",
-    "pandas==2.1.4",
+    "pandas==2.3.3",
     "openpyxl>=3.1.5,<4.0.0",
     "beautifulsoup4>=4.12.3,<5.0.0",
-    "PyYAML==6.0.1",
+    "PyYAML==6.0.3",
     "google-cloud-storage>=2.14.0,<3.0.0",
     "oss2>=2.18.3,<3.0.0",
     "cos-python-sdk-v5>=1.9.25,<2.0.0",
@@ -47,7 +47,7 @@ dependencies = [
     "prometheus-client>=0.21.1,<1.0.0",
     "setuptools>=83.0.0,<84.0.0",
     "sqlmodel==0.0.24",
-    "sqlalchemy==2.0.31",
+    "sqlalchemy==2.0.54",
     "tiktoken>=0.9.0",
     "pytz>=2025.2",
     "jsonschema>=4.0.0,<5.0.0",
@@ -67,8 +67,8 @@ dependencies = [
     # v2 (2026-07-28 spec, stateless core, no initialize handshake) out until
     # the adapter is migrated, while still admitting v1 security patches.
     "mcp>=1.28.1,<2",
-    "apprise==1.12.0",
-    "ag-ui-protocol==0.1.19",
+    "apprise==1.13.1",
+    "ag-ui-protocol==0.1.22",
     "litellm==1.91.1",
     "orjson>=3.11.9",
 ]
@@ -86,7 +86,7 @@ operations = [
     "flower>=2.0.1",
 ]
 knowledge-worker = [
-    "docling[rapidocr]==2.113.0",
+    "docling[rapidocr]==2.123.1",
 ]
 
 [build-system]
