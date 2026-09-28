@@ -63,6 +63,12 @@ record for operators.
 
 ### Changed
 
+- The web console moves to React 19.3, React Router 8.4, Vite 8.3, Tailwind
+  CSS 4.3.3, Playwright 1.63 and current releases of its other libraries.
+  The assistant-ui packages stay at 0.14, where the pinned internals keep a
+  failed attachment's retry working, and `@hookform/resolvers` stays at 5.4
+  until its optional peers resolve.
+
 - A budget hold is released as soon as the call's cost is committed instead
   of lasting a minute, so a busy workspace is no longer refused near its
   limit for calls that already finished. Checking a budget and holding it

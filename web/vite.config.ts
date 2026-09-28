@@ -7,7 +7,7 @@ import path from 'path'
 import { readFileSync } from 'fs'
 
 const packageVersion = JSON.parse(
-  readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
+  readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'),
 ).version as string
 
 export default defineConfig(({ command, mode }) => ({
@@ -22,7 +22,7 @@ export default defineConfig(({ command, mode }) => ({
   resolve: {
     tsconfigPaths: true,
     alias: {
-      '@dagrejs/dagre': path.resolve(__dirname, 'node_modules/@dagrejs/dagre/dist/dagre.cjs.js'),
+      '@dagrejs/dagre': path.resolve(import.meta.dirname, 'node_modules/@dagrejs/dagre/dist/dagre.cjs'),
     },
   },
   server: {
