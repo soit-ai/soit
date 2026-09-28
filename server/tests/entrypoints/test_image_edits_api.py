@@ -304,7 +304,7 @@ class TestPassThroughParameters:
         await _edit(async_client)
 
         passed = port.last_edit["kwargs"]
-        for name in ("seed", "strength", "negative_prompt", "background"):
+        for name in ("seed", "strength", "negative_prompt", "background", "output_format"):
             assert name not in passed
 
     @pytest.mark.asyncio

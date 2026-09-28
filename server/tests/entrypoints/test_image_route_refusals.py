@@ -144,9 +144,16 @@ class TestNativeImages:
 
     @pytest.mark.asyncio
     async def test_an_edit_asking_for_no_format_is_sent_none(self, async_client, litellm_calls) -> None:
+        # Black Forest Labs' edit carries a format, so one would be sent.
+        get_container().get("llm_port").litellm_provider = "black_forest_labs"
+
         response = await async_client.post(
             "/api/v1/images/edits",
-            json={"model": MODEL, "prompt": "a red dot", "image_b64": _b64(_png())},
+            json={
+                "model": "model:black_forest_labs:flux-kontext-pro",
+                "prompt": "a red dot",
+                "image_b64": _b64(_png()),
+            },
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.text
@@ -171,6 +178,19 @@ class TestOpenAICompatibleImages:
         assert "x-soit-run-id" not in response.headers
         assert litellm_calls.calls == []
         await _nothing_opened(async_db)
+
+    @pytest.mark.asyncio
+    async def test_an_edit_naming_no_format_is_sent_none(self, async_client, litellm_calls) -> None:
+        get_container().get("llm_port").litellm_provider = "black_forest_labs"
+
+        response = await async_client.post(
+            "/v1/images/edits",
+            files={"image": ("source.png", _png(), "image/png")},
+            data={"model": "model:black_forest_labs:flux-kontext-pro", "prompt": "fill it"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.text
+        assert "output_format" not in litellm_calls.calls[0]
 
     @pytest.mark.asyncio
     async def test_a_background_the_generation_carries_goes_through(self, async_client, litellm_calls) -> None:

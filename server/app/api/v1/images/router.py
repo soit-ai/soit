@@ -135,7 +135,7 @@ class ImageEditCreate(BaseModel):
     seed: int | None = Field(default=None, ge=0)
     negative_prompt: str | None = Field(default=None, max_length=4000)
     background: str | None = Field(default=None, pattern="^(transparent|opaque)$")
-    output_format: str = Field(default="png", pattern="^(png|webp)$")
+    output_format: str | None = Field(default=None, pattern="^(png|webp)$")
     response_format: str | None = Field(
         default=None, pattern="^(b64_json|url|artifact)$"
     )

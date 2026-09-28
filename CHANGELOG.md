@@ -128,6 +128,12 @@ record for operators.
   `202` for an asynchronous job too. A virtual model is judged against the
   target the call would take. docs/gateway.md lists what each route carries.
 
+- An image edit that names no `output_format` is no longer sent `png` on
+  `/api/v1/images/edits` or `/v1/images/edits`: the provider answers in its
+  default format, the routes that carry a format still answer in PNG, and
+  the OpenAPI default is now null. `meta_json.requested_format` is recorded
+  only when the caller asked for a format.
+
 ### Fixed
 
 - An asynchronous image job (`async: true` on `/api/v1/images/generations`

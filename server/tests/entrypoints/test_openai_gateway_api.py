@@ -965,3 +965,14 @@ async def test_a_field_outside_openais_image_api_is_still_ignored(async_client) 
     assert edit.status_code == 200, edit.text
     assert "steps" not in port.generate_kwargs
     assert "steps" not in port.edit_kwargs
+
+
+@pytest.mark.asyncio
+async def test_an_edit_that_names_no_format_is_sent_none(async_client) -> None:
+    # The provider answers in its own format; SOIT does not ask for png.
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        response = await _edit(async_client)
+
+    assert response.status_code == 200, response.text
+    assert "output_format" not in port.edit_kwargs

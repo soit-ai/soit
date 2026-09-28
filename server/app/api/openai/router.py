@@ -713,7 +713,7 @@ async def edit_image(
     n: Annotated[int, Form(ge=1, le=4)] = 1,
     size: Annotated[str | None, Form()] = None,
     response_format: Annotated[Literal["b64_json", "url"], Form()] = "b64_json",
-    output_format: Annotated[Literal["png", "jpeg", "webp"], Form()] = "png",
+    output_format: Annotated[Literal["png", "jpeg", "webp"] | None, Form()] = None,
     background: Annotated[Literal["transparent", "opaque", "auto"] | None, Form()] = None,
     quality: Annotated[str | None, Form()] = None,
     input_fidelity: Annotated[str | None, Form()] = None,
