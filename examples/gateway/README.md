@@ -46,6 +46,8 @@ chat-completions model, as `openai_agents.py` shows.
 - Image parameters SOIT does not send (`quality`, `style`, `moderation`,
   `output_compression`, `input_fidelity`, `partial_images`, `stream`) are
   refused with `400` unless they carry OpenAI's default, rather than ignored.
+  An image option the model's route cannot carry, such as a `webp` edit on
+  OpenAI, is refused with `422` (`UnprocessableEntityError` in the SDK).
 - A model is named by its SOIT ref, not the provider's bare model name.
 - Refusals use OpenAI's error shape with SOIT's reasons: `402`
   (`insufficient_quota`, code `budget_exhausted`) when a budget with a hard

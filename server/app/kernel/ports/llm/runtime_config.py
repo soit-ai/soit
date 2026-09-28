@@ -488,21 +488,21 @@ def validate_image_request(
         raise KernelError(
             "MODEL_IMAGE_CAPABILITY_UNAVAILABLE",
             "The routed model does not accept an edit mask",
-            {"model": model, "capability": "mask"},
+            {"model": model, "capability": "mask", "reason": "declared"},
         )
 
     if background == "transparent" and traits.get("transparent_background") is False:
         raise KernelError(
             "MODEL_IMAGE_CAPABILITY_UNAVAILABLE",
             "The routed model cannot return a transparent background",
-            {"model": model, "capability": "transparent_background"},
+            {"model": model, "capability": "transparent_background", "reason": "declared"},
         )
 
     if seed is not None and traits.get("supports_seed") is False:
         raise KernelError(
             "MODEL_IMAGE_CAPABILITY_UNAVAILABLE",
             "The routed model does not accept a seed",
-            {"model": model, "capability": "supports_seed"},
+            {"model": model, "capability": "supports_seed", "reason": "declared"},
         )
 
     max_dimension = traits.get("max_dimension")
@@ -519,6 +519,7 @@ def validate_image_request(
                 {
                     "model": model,
                     "capability": "max_dimension",
+                    "reason": "declared",
                     "max_dimension": max_dimension,
                     "requested": size,
                 },

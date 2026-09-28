@@ -36,6 +36,7 @@ from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.images.service import (
     ImageJobRequest,
     ImageResult,
+    check_image_job,
     execute_image_job,
     resolve_response_format,
 )
@@ -240,6 +241,7 @@ async def _submit(
     # as run artifacts, whoever built the request.
     resolve_response_format(request.response_format, detached=run_async)
     container = get_container()
+    await check_image_job(container.get_llm_port(ctx=ctx), request)
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
 
     run = await trace_writer.create_run("image", input_summary=request.summary)

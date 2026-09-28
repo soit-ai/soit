@@ -148,23 +148,6 @@ async def test_an_edit_sends_background():
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="LiteLLM's OpenAI-style edit request has no field for a seed",
-)
-async def test_an_edit_sends_its_seed():
-    wire = _Wire()
-    await _port(wire).edit_image(
-        image=_png(),
-        prompt="a red dot",
-        model="model:openai:gpt-image-1",
-        seed=42,
-    )
-
-    assert wire.form["seed"] == "42"
-
-
-@pytest.mark.asyncio
 async def test_an_edit_sends_its_seed_where_litellm_reads_it():
     # LiteLLM's Stability edit takes the options as plain arguments; an edit
     # never sends extra_body.

@@ -36,7 +36,7 @@ or rotation.
 | `GET /v1/models` | Active models and virtual models the key may call. |
 | `POST /v1/embeddings` | `encoding_format` `float` or `base64` (the SDKs' default). |
 | `POST /v1/images/generations` | `n`, `size` (64 to 4096 pixels a side, or `auto`), `response_format`, `background`, `output_format` (`png`, `jpeg`, `webp`). `background: auto` is the provider's default and is not sent; a transparent background with `jpeg` is refused. `quality`, `style`, `moderation`, `output_compression`, `partial_images` and `stream` are not sent: their defaults (`quality` `auto` or `standard`, `style` `vivid`, `moderation` `auto`, `output_compression` `100`, `partial_images` `0`, `stream` `false`) are accepted, and any other value is refused with `400` naming the parameter. |
-| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. Takes the same `n`, `size`, `response_format`, `background` and `output_format` as generations; an edit's `output_format` does not yet reach OpenAI-compatible providers, which answer in their default format. `quality`, `input_fidelity`, `output_compression`, `partial_images` and `stream` are treated as on generations (`input_fidelity`'s default is `low`). |
+| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. Takes the same `n`, `size`, `response_format`, `background` and `output_format` as generations. Whether each reaches the provider depends on the model's route; see [Image options by route](#image-options-by-route). `quality`, `input_fidelity`, `output_compression`, `partial_images` and `stream` are treated as on generations (`input_fidelity`'s default is `low`). |
 
 Fields SOIT does not know are ignored rather than refused, so clients that
 send parameters newer than SOIT, or vendor extensions, keep working. OpenAI
@@ -51,6 +51,78 @@ not served.
 On models reached through OpenAI's Responses API (the GPT-5.5 family on an
 `openai` provider), `stop` is refused because that API cannot honour it, and
 `seed` is not sent.
+
+## Image options by route
+
+Image calls, through `/v1/images` and `/api/v1/images` alike, go through
+LiteLLM, whose request for each provider has a place for some options and
+not others. SOIT records which of `background`, `output_format`, `seed`,
+`strength`, `negative_prompt`, `mask`, `size`, `response_format` and more
+than one image (`n` above 1) each LiteLLM image route carries, and CI checks
+the record against the requests LiteLLM sends. An option counts as carried
+where LiteLLM maps it to a field of the provider's API or, for a provider
+that takes OpenAI's image request, sends it under OpenAI's name.
+
+An option the model's route does not carry is refused with `422`
+`MODEL_IMAGE_CAPABILITY_UNAVAILABLE` before a run opens, for an asynchronous
+job as for a synchronous call, and nothing is admitted or billed. On `/v1`
+the error names the option in `param`. On `/api/v1`, `details` names it in
+`param` and `capability`, gives `reason` `route_cannot_carry`, and `route`,
+LiteLLM's name for the route, which may change with LiteLLM; a refused `n`
+adds `max_n`. A refusal because the model declared a trait in
+`capabilities_json.image` says `reason` `declared`; declaring a trait, such
+as `supports_seed: true`, cannot make a route carry an option.
+`response_format` is the exception: see below.
+
+Two values ask for nothing a route could drop, and are accepted and not sent
+where it has no place for them: `size` `auto`, which leaves the size to the
+provider and is sent only where the route reads OpenAI's sizes, and
+`output_format` `png`. The provider then answers in its own format, PNG on
+most routes but JPEG on several fal models, and a stored image is typed
+from its bytes.
+
+`response_format` is sent where the route takes it, and not to the
+gpt-image and chatgpt-image families, which refuse it; a `url` that cannot
+then be promised is refused with `400` `VALIDATION_ERROR`. A model's
+declared `capabilities_json.image.response_format_param` overrides both:
+`true` sends it, `false` does not.
+
+A provider's row is decided by the provider LiteLLM resolves for the model:
+its `litellm_provider`, or else its kind's preset, so a provider of kind
+`openai_compatible` uses the OpenAI row whatever model it serves. LiteLLM
+moves an Azure AI model it knows as an OpenAI image model, such as
+`gpt-image-1` or `dall-e-3`, to the Azure OpenAI row, edits included. A
+DALL-E entry applies to a model or deployment whose name contains `dall-e-2`
+or `dall-e-3` (on Azure, with or without the hyphens), which is how LiteLLM tells them
+from gpt-image.
+
+| Route | Generation carries | Edit carries |
+| ----- | ------------------ | ------------ |
+| OpenAI, Azure OpenAI | `background`, `output_format`, `n`, `size`; DALL-E also `response_format` | `background`, `n`, `mask`, `size`, `response_format` |
+| LiteLLM proxy | `background`, `output_format`, `n`, `size` | `background`, `n`, `mask`, `size`, `response_format` |
+| Azure AI gpt-image and DALL-E deployments under other names | `background`, `output_format`, `n`, `size`; DALL-E also `response_format` | not supported by LiteLLM |
+| Azure AI FLUX 1 / FLUX 2 / MAI | FLUX 1: `background`, `output_format`, `n`, `size`; FLUX 2: none; MAI: `size` | FLUX 1: `background`, `n`, `mask`, `size`, `response_format`; FLUX 2 and MAI: `n`, `size` |
+| Providers LiteLLM treats as OpenAI-compatible without an image config of their own (Volcengine, vLLM, Together), Xinference, CometAPI, ModelScope | `background`, `output_format`, `n`, `size`, `response_format` | not supported by LiteLLM |
+| Recraft | `background`, `output_format`, `n`, `size`, `response_format` | `n`, `response_format` |
+| Gemini: Imagen / image models | Imagen: `background`, `output_format`, `n`, `size`; image models: `n`, `size` | Imagen: `n`; image models: `n`, `size` |
+| Vertex AI: Imagen / Gemini image models | `n`, `size` | Imagen: `n`, `mask`; Gemini: `size` |
+| OpenRouter | `size` | `n`, `size` |
+| DashScope | `n`, `size` | not supported by LiteLLM |
+| Bedrock | SDXL: `size`; SD3 and Stable Image: none; Titan and Nova Canvas: `n`, `size` | Nova Canvas: `seed`, `n`, `mask`, `size`; Stability edit models (inpaint, outpaint, search-and-replace and the like): `output_format`, `seed`, `strength`, `negative_prompt`, `mask`, `size`; SDXL, SD3, Stable Image and Titan: not supported by LiteLLM |
+| Stability | `output_format`, `size` | `seed`, `strength`, `negative_prompt`, `mask`, `size` |
+| Black Forest Labs | `size`; ultra models also `n` | `output_format`, `seed`; no mask |
+| fal | `n`, `size` for Imagen 4, Nano Banana, FLUX Pro 1.1 and Ultra, FLUX Schnell, Seedream, Dreamina, Ideogram and Stable Diffusion; `size` for Recraft V3 and Bria; none for other models | not supported by LiteLLM |
+| AI/ML API, RunwayML | AI/ML API: `n`, `size`, `response_format`; RunwayML: `size` | not supported by LiteLLM |
+
+A route LiteLLM cannot generate or edit with at all, or a provider on the
+native adapter, which serves no images, is refused as a missing capability
+(`MODEL_CAPABILITY_UNAVAILABLE`, `reason` `no_litellm_route` or
+`native_adapter`) when the route is chosen, so a virtual model moves on to
+its next target. Otherwise a virtual model is judged against the target the
+call would take. A provider's `drop_params` setting no longer decides what
+an image provider receives: what a route cannot carry is refused either
+way, and Bedrock's SDXL and SD3 generations, Black Forest Labs edits and
+Vertex AI Gemini edits no longer need it.
 
 ## Every call is a run
 
@@ -283,7 +355,7 @@ code in lower case.
 | 403 | `permission_error` | the key's scope, model list or address list does not allow the call |
 | 404 | `invalid_request_error` | the model is not configured in the workspace |
 | 409 | `invalid_request_error` | the model or its provider is disabled, or the provider has no credential or governed base URL |
-| 422 | `invalid_request_error` | the model lacks a capability the call needs, such as tools or embeddings, or the provider's host does not resolve |
+| 422 | `invalid_request_error` | the model lacks a capability the call needs, such as tools or embeddings, its route cannot carry an image option asked for, or the provider's host does not resolve |
 | 429 | `rate_limit_error` | a rate limit or quota; `Retry-After` says when to try again |
 | 5xx | `api_error` | the provider failed or timed out, and no virtual model target was left to try |
 

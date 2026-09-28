@@ -38,26 +38,26 @@ record for operators.
   already did, and sends them to the provider only when set. A model whose
   `capabilities_json.image` declares `transparent_background: false` refuses
   a transparent request before anything is billed; a model that declares
-  nothing is sent both. OpenAI, Azure and the providers LiteLLM treats as
-  OpenAI-compatible receive them; others are sent them as provider
-  parameters, which they may ignore, and through LiteLLM DashScope receives
-  them nested where it does not read them.
+  nothing is sent both where its route carries them, and refused where it
+  does not (see Changed).
 
 - `POST /v1/images/generations` honours OpenAI's `background` and
   `output_format` (`png`, `jpeg`, `webp`), which it ignored, and
   `POST /v1/images/edits` accepts `background: auto` and `output_format:
-  jpeg`, which it refused although the OpenAI SDKs send them. `background:
-  auto` is the provider's default and is not sent; a transparent background
-  with `jpeg` output is refused before a run opens.
+  jpeg` in its form, which it refused although the OpenAI SDKs send them;
+  whether an edit's format reaches the provider depends on its route (see
+  Changed). `background: auto` is the provider's default and is not sent; a
+  transparent background with `jpeg` output is refused before a run opens.
 
 - A model's `capabilities_json.image.response_format_param` declares whether
   its image endpoints take `response_format`: one value for both, or
   `{"generate": ..., "edit": ...}`, since the constraint is the endpoint's.
   An endpoint declared `false` is sent none, and a caller asking it for `url`
   is refused with `VALIDATION_ERROR` before the provider is called.
-  Undeclared models behave as before: the gpt-image and chatgpt-image
-  families are sent none and every other model is sent it. Only those name
-  prefixes decided before, so an endpoint that refuses the parameter under
+  Undeclared, the gpt-image and chatgpt-image families are sent none, and
+  any other model is sent it where its LiteLLM route takes it (see Fixed).
+  Only those name prefixes decided before, so an endpoint that refuses the
+  parameter under
   another name failed at the provider on every call with nothing to
   configure.
 
@@ -87,8 +87,9 @@ record for operators.
 - `POST /api/v1/images/generations` and `/edits` now answer `400`
   `VALIDATION_ERROR` to a field they do not take, naming each one in
   `details.errors`, where they answered `201` (`202` with `async`) and
-  ignored it; nothing opens a run or bills. A `seed`, `strength`, `negative_prompt`, `quality` or
-  `steps` sent to generations, or a `quality` or `steps` sent to an edit,
+  ignored it; nothing opens a run or bills. A `seed`, `strength`,
+  `negative_prompt`, `quality` or `steps` sent to generations, or a
+  `quality` or `steps` sent to an edit,
   was dropped while the image was billed as if it had been honoured.
   Generations does not take the first three yet. An OpenAI-shaped body is
   refused for fields such as `user` and `style` too, which `/v1` handles by
@@ -105,6 +106,27 @@ record for operators.
   expected events. Each parameter's OpenAI default, and `quality`
   `standard`, is still accepted and not sent. Fields outside OpenAI's image
   API are still ignored.
+
+- An image option the model's route cannot deliver is refused with `422`
+  `MODEL_IMAGE_CAPABILITY_UNAVAILABLE` on `/api/v1/images` and `/v1/images`,
+  for an asynchronous job too, before a run opens or anything is admitted
+  or billed, where the call answered `201` or `202` while LiteLLM dropped
+  it, or failed with `500`. SOIT now records which of `background`,
+  `output_format`, `seed`, `strength`, `negative_prompt`, `mask`, `size` and
+  more than one image each LiteLLM image route carries, and CI checks the
+  record against the requests LiteLLM sends. The `/v1` error names the
+  option in `param`; on `/api/v1`, `details` name it in `param` and
+  `capability`, with `reason` `route_cannot_carry` and the LiteLLM `route`,
+  which is informational. On an OpenAI edit, for example, `seed`,
+  `strength`, `negative_prompt` and a `webp` or `jpeg` `output_format` are
+  refused. `size` `auto` and `output_format` `png` are accepted and not
+  sent where a route has no place for them, and the provider answers in its
+  own format. This supersedes, for what a route can carry, the 1.1.0 note that
+  only declared traits are enforced: declaring a trait such as
+  `supports_seed: true` cannot make a route carry it, and a refusal of a
+  declared trait now says `reason` `declared`, and is answered before the
+  `202` for an asynchronous job too. A virtual model is judged against the
+  target the call would take. docs/gateway.md lists what each route carries.
 
 ### Fixed
 
@@ -136,7 +158,8 @@ record for operators.
   Stability models read `seed`, `strength`, `negative_prompt` and
   `output_format`; Stability reads the first three and is always asked for
   PNG; Black Forest Labs reads `seed` and `output_format`; Nova Canvas reads
-  `seed`.
+  `seed`. An option the routed edit does not read is now refused (see
+  Changed).
 - An image edit's mask selects the region the caller drew on a provider
   routed to Stability through `runtime_config_json.litellm_provider`. The
   mask was converted for the provider kind rather than for where LiteLLM
@@ -144,8 +167,9 @@ record for operators.
   `stability` sent OpenAI's alpha mask, which Stability reads as all black,
   selecting nothing. The mask now follows the LiteLLM route: OpenAI, Azure,
   Azure AI and LiteLLM proxy routes get the alpha mask (transparent marks the
-  edit); Stability, Bedrock's Stability models, Black Forest Labs and Vertex
-  Imagen get SOIT's white-is-edit mask.
+  edit); Stability, Bedrock's Stability models and Vertex Imagen get SOIT's
+  white-is-edit mask. Black Forest Labs' LiteLLM edit carries no mask, so a
+  masked edit there is refused (see Changed).
 - An image artifact is named and typed after the bytes the provider
   returned (PNG, WebP or JPEG), not after the requested `output_format`. A
   provider that ignored the request no longer leaves PNG bytes labelled
@@ -153,6 +177,18 @@ record for operators.
 - `size: auto` on `POST /v1/images/generations` and `/edits` works as
   documented. The gateway's capability check read it as a malformed size,
   so the call failed with `Invalid image size: auto` after its run opened.
+- Image calls no longer fail with `500` on routes where LiteLLM refuses a
+  parameter SOIT always sent. `n` now goes only to routes that take a
+  count, so Bedrock's SDXL and SD3 generations, Black Forest Labs edits and
+  Vertex AI Gemini edits work without `drop_params`; `response_format` goes
+  only where the route takes it, so DashScope, Gemini, OpenRouter, Vertex
+  AI, Bedrock, Black Forest Labs, Azure AI and LiteLLM proxy generations
+  work without declaring `response_format_param: false`. A model whose
+  route LiteLLM cannot generate or edit with at all, or a provider on the
+  native adapter, which serves no images, is refused as a missing
+  capability (`MODEL_CAPABILITY_UNAVAILABLE`, `reason` `no_litellm_route`
+  or `native_adapter`) when its route is chosen, so a virtual model moves
+  on to its next target instead of failing.
 - A file download that is JSON is returned as the file. Run artifacts,
   attachments and knowledge documents of type `application/json` were
   wrapped in the API's `{success, code, message, data}` envelope on

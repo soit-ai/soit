@@ -60,7 +60,11 @@ from app.kernel.ports.llm.image_mask import (
 from app.kernel.ports.llm.interface import ChatMessage, ChatStreamChunk
 from app.kernel.ports.llm.virtual_models import virtual_model_ref
 from app.kernel.runtime.attachments.service import AttachmentService
-from app.kernel.runtime.images.service import ImageJobRequest, execute_image_job
+from app.kernel.runtime.images.service import (
+    ImageJobRequest,
+    check_image_job,
+    execute_image_job,
+)
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.middleware.error_handler import ERROR_CODE_TO_STATUS
 from app.middleware.openai_errors import openai_error_body
@@ -566,6 +570,7 @@ async def _image_response(
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
     llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
+    await check_image_job(llm_port, request)
     run_id = await _open_run(trace_writer, ctx, kind="image", summary=summary)
     await db.commit()
     response.headers[RUN_ID_HEADER] = run_id

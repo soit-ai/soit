@@ -407,6 +407,27 @@ class LLMPort(ABC):
             f"{type(self).__name__} does not support image editing"
         )
 
+    async def check_image_request(
+        self,
+        model: str,
+        *,
+        operation: str,
+        n: int = 1,
+        size: str | None = None,
+        has_mask: bool = False,
+        **options: Any,
+    ) -> None:
+        """Refuse an image request this port could not serve as asked.
+
+        Called before a run opens, so a request that could never be served
+        as asked is refused without anything being opened, admitted or
+        billed. ``operation`` is ``generate`` or ``edit``; ``options`` are
+        the image options the call would be given, such as ``background``,
+        ``output_format`` or ``seed``. The default refuses nothing: a port
+        that cannot tell leaves it to the call.
+        """
+        del model, operation, n, size, has_mask, options
+
     @abstractmethod
     async def rerank(
         self,

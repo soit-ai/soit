@@ -374,7 +374,9 @@ async def test_litellm_image_generation_maps_params_and_results():
     assert kwargs["prompt"] == "a red dot"
     assert kwargs["n"] == 2
     assert kwargs["size"] == "1024x1024"
-    assert kwargs["response_format"] == "b64_json"
+    # LiteLLM's OpenAI image request refuses response_format for a model it
+    # does not know as DALL-E, so the route is sent none.
+    assert "response_format" not in kwargs
 
 
 @pytest.mark.asyncio

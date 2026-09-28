@@ -12,7 +12,7 @@ import pytest
 from PIL import Image
 
 from app.adapters.llm.litellm import LiteLLMPort
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.runtime_config import image_takes_response_format
 
 
@@ -86,7 +86,7 @@ class TestMaskConversion:
         await _port("bedrock", recorder).edit_image(
             image=b"image-bytes",
             prompt="a red dot",
-            model="model:bedrock:stability",
+            model="model:bedrock:stability.stable-image-inpaint-v1:0",
             mask=original,
         )
         assert recorder.params["mask"] == original
@@ -130,10 +130,7 @@ class TestMaskConversion:
             ("openai_compatible", "stability", "model:stability:inpaint"),
             ("openai", "stability", "model:stability:sd3-large"),
             ("bedrock", None, "model:bedrock:stability.stable-image-inpaint-v1:0"),
-            ("openai_compatible", "black_forest_labs", "model:bfl:flux-pro-1.0-fill"),
             ("openai_compatible", "vertex_ai", "model:vertex:imagen-3.0-capability-001"),
-            # A prefix LiteLLM has no edit request for keeps SOIT's convention.
-            ("openai_compatible", "in_house", "model:in_house:painter"),
         ],
     )
     async def test_luminance_routes_receive_the_white_is_edit_mask(
@@ -149,6 +146,36 @@ class TestMaskConversion:
         )
 
         assert recorder.params["mask"] == original
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("litellm_provider", "model", "code", "reason"),
+        [
+            # LiteLLM's Black Forest Labs edit maps its options through a list
+            # without the mask, so even its fill model is sent none.
+            (
+                "black_forest_labs",
+                "model:bfl:flux-pro-1.0-fill",
+                "MODEL_IMAGE_CAPABILITY_UNAVAILABLE",
+                "route_cannot_carry",
+            ),
+            # A prefix LiteLLM has no edit request for cannot edit at all.
+            ("in_house", "model:in_house:painter", "MODEL_CAPABILITY_UNAVAILABLE", "no_litellm_route"),
+        ],
+    )
+    async def test_a_mask_no_route_carries_is_refused(self, litellm_provider, model, code, reason):
+        recorder = _Recorder()
+        with pytest.raises(KernelError) as refused:
+            await _port("openai_compatible", recorder, litellm_provider).edit_image(
+                image=b"image-bytes",
+                prompt="a red dot",
+                model=model,
+                mask=_mask_png(),
+            )
+
+        assert refused.value.code == code
+        assert refused.value.details["reason"] == reason
+        assert recorder.params is None
 
     @pytest.mark.asyncio
     async def test_no_mask_sends_no_mask(self):
@@ -183,13 +210,12 @@ class TestRequestShape:
     @pytest.mark.asyncio
     async def test_non_standard_parameters_are_plain_arguments(self):
         # LiteLLM sends no edit's extra_body; its Bedrock, Stability and BFL
-        # edits read plain arguments. OpenAI-style edits drop them, which
-        # test_litellm_image_wire records.
+        # edits read plain arguments.
         recorder = _Recorder()
-        await _port("openai", recorder).edit_image(
+        await _port("openai_compatible", recorder, "stability").edit_image(
             image=b"image-bytes",
             prompt="a red dot",
-            model="model:openai:gpt-image-1",
+            model="model:stability:sd3-large",
             seed=42,
             strength=0.5,
             negative_prompt="blurry",
@@ -198,6 +224,33 @@ class TestRequestShape:
         assert recorder.params["strength"] == 0.5
         assert recorder.params["negative_prompt"] == "blurry"
         assert "extra_body" not in recorder.params
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", ["seed", "strength", "negative_prompt"])
+    async def test_an_option_the_openai_edit_drops_is_refused(self, name):
+        # LiteLLM's OpenAI-style edit request has no field for it, so the
+        # provider would never see it while the edit was billed.
+        recorder = _Recorder()
+        value = {"seed": 42, "strength": 0.5, "negative_prompt": "blurry"}[name]
+        with pytest.raises(KernelError) as refused:
+            await _port("openai", recorder).edit_image(
+                image=b"image-bytes",
+                prompt="a red dot",
+                model="model:openai:gpt-image-1",
+                **{name: value},
+            )
+
+        assert refused.value.code == "MODEL_IMAGE_CAPABILITY_UNAVAILABLE"
+        assert refused.value.details == {
+            "model": "model:openai:gpt-image-1",
+            "capability": name,
+            "param": name,
+            "reason": "route_cannot_carry",
+            "route": "OpenAIImageEditConfig",
+        }
+        # The message names the option, never the value.
+        assert "blurry" not in refused.value.message
+        assert recorder.params is None
 
     @pytest.mark.asyncio
     async def test_background_is_a_plain_argument(self):
@@ -294,10 +347,12 @@ class TestGenerationOptions:
 
     @pytest.mark.asyncio
     async def test_other_providers_take_them_as_plain_arguments(self):
-        # Elsewhere LiteLLM forwards extra_body as a field of that name.
+        # Elsewhere LiteLLM forwards extra_body as a field of that name, so
+        # a route that maps the options, such as Gemini's Imagen, takes them
+        # as plain arguments.
         recorder = _Recorder()
         port = LiteLLMPort(
-            provider_kind="openrouter",
+            provider_kind="gemini",
             api_key="test-key",
             completion_fn=_Recorder(),
             embedding_fn=_Recorder(),
@@ -307,7 +362,7 @@ class TestGenerationOptions:
         )
         await port.generate_image(
             prompt="a red dot",
-            model="model:openrouter:google/gemini-2.5-flash-image",
+            model="model:gemini:imagen-4.0-generate-001",
             background="transparent",
             output_format="webp",
         )

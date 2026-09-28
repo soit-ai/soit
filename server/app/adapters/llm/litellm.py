@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, cast
 
 from app.adapters.llm.content_parts import openai_chat_content
-from app.kernel.commons.errors import ValidationError
+from app.adapters.llm.litellm_image_routes import (
+    EDIT,
+    EDIT_OPTIONS,
+    GENERATE,
+    GENERATE_OPTIONS,
+    carried_options,
+    image_route,
+    is_listed,
+    takes_openai_sizes,
+)
+from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.image_mask import mask_to_openai_alpha
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -31,6 +42,8 @@ from app.kernel.ports.llm.runtime_config import (
 )
 
 SDKCall = Callable[..., Awaitable[Any]]
+
+logger = logging.getLogger(__name__)
 
 
 def _value(obj: Any, name: str, default: Any = None) -> Any:
@@ -61,6 +74,21 @@ def _azure_ad_token_provider(token: str) -> Callable[[], str]:
         return token
 
     return provide
+
+
+def litellm_model_name(model: str, *, provider_kind: str, litellm_provider: str | None) -> str:
+    """LiteLLM's ``prefix/model`` for a SOIT model ref served by this provider."""
+    model_id = model
+    if model.startswith("model:"):
+        parts = model.split(":", 2)
+        if len(parts) == 3:
+            model_id = parts[2]
+    prefix = litellm_provider or LITELLM_PROVIDER_PRESETS.get(provider_kind)
+    if not prefix:
+        raise ValidationError(f"LiteLLM provider kind is unsupported: {provider_kind}")
+    if model_id.startswith(f"{prefix}/"):
+        return model_id
+    return f"{prefix}/{model_id}"
 
 
 class LiteLLMPort(LLMPort):
@@ -133,17 +161,9 @@ class LiteLLMPort(LLMPort):
         self._image_edit = image_edit_fn
 
     def _model_name(self, model: str) -> str:
-        model_id = model
-        if model.startswith("model:"):
-            parts = model.split(":", 2)
-            if len(parts) == 3:
-                model_id = parts[2]
-        prefix = self.litellm_provider or self._PROVIDER_PREFIXES.get(self.provider_kind)
-        if not prefix:
-            raise ValidationError(f"LiteLLM provider kind is unsupported: {self.provider_kind}")
-        if model_id.startswith(f"{prefix}/"):
-            return model_id
-        return f"{prefix}/{model_id}"
+        return litellm_model_name(
+            model, provider_kind=self.provider_kind, litellm_provider=self.litellm_provider
+        )
 
     def _connection_params(self) -> dict[str, Any]:
         params: dict[str, Any] = {
@@ -435,12 +455,16 @@ class LiteLLMPort(LLMPort):
         if self._image_generation is None:
             raise ValidationError("LiteLLM image generation capability is unavailable")
         model_name = self._model_name(model)
+        route, carried = self._check_image_route(
+            model, model_name, operation=GENERATE, n=n, size=size, has_mask=False, options=kwargs
+        )
         params: dict[str, Any] = {
             "model": model_name,
             "prompt": prompt,
-            "n": n,
             **self._body_safe_connection_params(model_name, headers_param="headers"),
         }
+        if "n" in carried:
+            params["n"] = n
         # LiteLLM's generic image handler ignores the headers parameter and
         # sends only the extra_headers keyword as headers. Gemini and Stability
         # also keep that keyword out of the body; the others it serves, such as
@@ -448,15 +472,20 @@ class LiteLLMPort(LLMPort):
         # are sent no custom headers.
         if "headers" in params and model_name.split("/", 1)[0] in self._GENERATION_EXTRA_HEADERS_PROVIDERS:
             params["extra_headers"] = params["headers"]
-        if size is not None:
+        if self._sends_size(size, route, carried, GENERATE):
             params["size"] = size
-        # Prefer inline bytes so callers own storage; providers without
-        # b64 support ignore the hint and return URLs instead.
-        self._apply_response_format(params, kwargs.get("response_format"), operation="generate")
+        self._apply_response_format(
+            params,
+            kwargs.get("response_format"),
+            operation=GENERATE,
+            takes=self._takes_response_format(model_name, GENERATE, route),
+        )
+        # What the route does not carry was refused or, a png or an auto size
+        # it cannot carry, is not sent.
         self._forward_image_options(
             params,
             kwargs,
-            ("background", "output_format"),
+            tuple(name for name in ("background", "output_format") if name in carried),
             in_extra_body=self._merges_extra_body(params["model"]),
         )
         response = await self._image_generation(**params)
@@ -521,34 +550,165 @@ class LiteLLMPort(LLMPort):
         if body:
             params["extra_body"] = body
 
+    async def check_image_request(
+        self,
+        model: str,
+        *,
+        operation: str,
+        n: int = 1,
+        size: str | None = None,
+        has_mask: bool = False,
+        **options: Any,
+    ) -> None:
+        """Refuse what this model's LiteLLM route cannot deliver, before any call."""
+        model_name = self._model_name(model)
+        route, _carried = self._check_image_route(
+            model, model_name, operation=operation, n=n, size=size, has_mask=has_mask, options=options
+        )
+        self._refuse_unreturnable_url(
+            model_name,
+            options.get("response_format"),
+            operation=operation,
+            takes=self._takes_response_format(model_name, operation, route),
+        )
+
+    @staticmethod
+    def _check_image_route(
+        model: str,
+        model_name: str,
+        *,
+        operation: str,
+        n: int,
+        size: str | None,
+        has_mask: bool,
+        options: Mapping[str, Any],
+    ) -> tuple[str, frozenset[str]]:
+        """Refuse an option LiteLLM's request for this route has no place for.
+
+        LiteLLM drops such an option, or fails with an error of its own, and
+        the call would answer and bill for an image that ignored it. What each
+        route carries is recorded in ``litellm_image_routes``; a route it does
+        not list carries none of the options. Two values ask for nothing a
+        route could drop and are taken unsent where it carries no such
+        option: a ``size`` of ``auto``, which leaves the size to the
+        provider, and is sent only where the route reads OpenAI's sizes;
+        and an ``output_format`` of png. The provider then answers
+        in its own format, PNG on most routes though not on all (fal's
+        default is JPEG), and the artifact is typed from the bytes that come
+        back. ``response_format`` is not refused here: a route that does not
+        carry it is not sent it. Returns the route and what it carries.
+        """
+        route = image_route(model_name, operation)
+        if route is None:
+            capability = "image_edit" if operation == EDIT else "image_generation"
+            raise KernelError(
+                "MODEL_CAPABILITY_UNAVAILABLE",
+                f"LiteLLM has no image {operation} route for {model_name}",
+                {"model": model, "capability": capability, "reason": "no_litellm_route"},
+            )
+        if not is_listed(route, operation):
+            logger.warning(
+                "LiteLLM image %s route %s is not in SOIT's route table; its options are refused",
+                operation,
+                route,
+            )
+        carried = carried_options(route, operation)
+        for name in EDIT_OPTIONS if operation == EDIT else GENERATE_OPTIONS:
+            if name == "response_format":
+                continue
+            if name == "n":
+                requested = n > 1
+            elif name == "mask":
+                requested = has_mask
+            elif name == "size":
+                requested = size is not None and size != "auto"
+            else:
+                requested = options.get(name) is not None
+            if not requested or name in carried:
+                continue
+            if name == "output_format" and options.get(name) == "png":
+                continue
+            what = "more than one image" if name == "n" else name
+            details: dict[str, Any] = {
+                "model": model,
+                "capability": name,
+                "param": name,
+                "reason": "route_cannot_carry",
+                "route": route,
+            }
+            if name == "n":
+                details["max_n"] = 1
+            raise KernelError(
+                "MODEL_IMAGE_CAPABILITY_UNAVAILABLE",
+                f"LiteLLM's image {operation} request for {model_name} has no place "
+                f"for {what}, so the provider would never receive it; omit it or "
+                "route the call to a model whose request carries it",
+                details,
+            )
+        return route, carried
+
+    @staticmethod
+    def _sends_size(size: str | None, route: str, carried: frozenset[str], operation: str) -> bool:
+        if size is None or "size" not in carried:
+            return False
+        return size != "auto" or takes_openai_sizes(route, operation)
+
+    def _takes_response_format(self, model_name: str, operation: str, route: str) -> bool:
+        """Whether this call is sent ``response_format``.
+
+        A model's declared ``response_format_param`` decides. Otherwise a
+        model the kernel knows refuses it, the gpt-image family, is not sent
+        it, although LiteLLM would carry it; and any other model is sent it
+        only where its route carries it, since LiteLLM refuses the parameter
+        outright on many routes. A route the table does not list keeps the
+        kernel's default.
+        """
+        if not image_takes_response_format(
+            self.image_capabilities, model=model_name, operation=operation
+        ):
+            return False
+        declared = (self.image_capabilities or {}).get("response_format_param")
+        if isinstance(declared, Mapping) and isinstance(
+            cast("Mapping[str, Any]", declared).get(operation), bool
+        ):
+            return True
+        if is_listed(route, operation):
+            return "response_format" in carried_options(route, operation)
+        return True
+
+    @staticmethod
+    def _refuse_unreturnable_url(
+        model_name: str, requested: str | None, *, operation: str, takes: bool
+    ) -> None:
+        if (requested or "b64_json") != "url" or takes:
+            return
+        raise ValidationError(
+            f"Model {model_name} takes no response_format on image "
+            f"{operation}s, so it cannot be asked for a URL; "
+            "request response_format=b64_json",
+            {"param": "response_format"},
+        )
+
     def _apply_response_format(
         self,
         params: dict[str, Any],
         requested: str | None,
         *,
         operation: str,
+        takes: bool,
     ) -> None:
         """Ask for inline bytes where the endpoint takes the parameter, and say so where not.
 
-        Whether it does is the routed model's declared trait, per endpoint,
-        or the kernel's default for models known to refuse it. An endpoint
-        that is sent no response_format answers in its own format, so a
-        caller asking it for URLs is told rather than quietly handed base64,
-        which would break the response shape they coded against.
+        An endpoint that is sent no response_format answers in its own
+        format, bytes or a link, so a caller asking it for URLs is told
+        rather than quietly handed base64, which would break the response
+        shape they coded against.
         """
         resolved = requested or "b64_json"
-        if image_takes_response_format(
-            self.image_capabilities, model=params["model"], operation=operation
-        ):
+        if takes:
             params["response_format"] = resolved
             return
-        if resolved == "url":
-            raise ValidationError(
-                f"Model {params['model']} takes no response_format on image "
-                f"{operation}s, so it cannot be asked for a URL; "
-                "request response_format=b64_json",
-                {"param": "response_format"},
-            )
+        self._refuse_unreturnable_url(params["model"], resolved, operation=operation, takes=takes)
 
     @staticmethod
     def _reads_alpha_mask(model: str) -> bool:
@@ -560,9 +720,9 @@ class LiteLLMPort(LLMPort):
         LiteLLM edit request reuses the OpenAI one (Azure AI's FLUX, a LiteLLM
         proxy) pass the mask file untouched to an OpenAI-style endpoint,
         where transparent marks the region to replace. Stability, direct or
-        on Bedrock, Black Forest Labs and Vertex's Imagen read the mask's
-        luminance with white as the region to edit, SOIT's own convention,
-        so they are sent the mask as it is.
+        on Bedrock, and Vertex's Imagen read the mask's luminance with white
+        as the region to edit, SOIT's own convention, so they are sent the
+        mask as it is. Black Forest Labs' edit carries no mask at all.
         """
         prefix, _, name = model.partition("/")
         if prefix in ("openai", "azure"):
@@ -602,26 +762,39 @@ class LiteLLMPort(LLMPort):
         if self._image_edit is None:
             raise ValidationError("LiteLLM image editing capability is unavailable")
         model_name = self._model_name(model)
+        route, carried = self._check_image_route(
+            model, model_name, operation=EDIT, n=n, size=size, has_mask=mask is not None, options=kwargs
+        )
         params: dict[str, Any] = {
             "model": model_name,
             "image": image,
             "prompt": prompt,
-            "n": n,
             # An asynchronous edit drops the extra_headers keyword; every edit
             # route sends the headers parameter.
             **self._body_safe_connection_params(model_name, headers_param="headers"),
         }
+        if "n" in carried:
+            params["n"] = n
         if mask is not None:
             params["mask"] = self._mask_for_provider(mask, params["model"])
-        if size is not None:
+        if self._sends_size(size, route, carried, EDIT):
             params["size"] = size
-        self._apply_response_format(params, kwargs.get("response_format"), operation="edit")
-        # OpenAI-style providers receive only background of these: LiteLLM's
-        # edit request there has no field for the rest.
+        self._apply_response_format(
+            params,
+            kwargs.get("response_format"),
+            operation=EDIT,
+            takes=self._takes_response_format(model_name, EDIT, route),
+        )
+        # What the route does not carry was refused or, a png or an auto size
+        # it cannot carry, is not sent.
         self._forward_image_options(
             params,
             kwargs,
-            ("background", "seed", "strength", "negative_prompt", "output_format"),
+            tuple(
+                name
+                for name in ("background", "seed", "strength", "negative_prompt", "output_format")
+                if name in carried
+            ),
             in_extra_body=False,
         )
 

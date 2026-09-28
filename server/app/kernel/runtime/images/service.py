@@ -137,17 +137,37 @@ class ImageJobOutcome:
     """What the content check found, recorded as run evidence."""
 
 
-def _gateway_kwargs(request: ImageJobRequest, run_id: str) -> dict[str, Any]:
-    kwargs = dict(request.extra)
-    kwargs["run_id"] = run_id
+def _image_options(request: ImageJobRequest) -> dict[str, Any]:
+    options = dict(request.extra)
     # Providers know nothing about artifacts: that is SOIT's own return shape,
     # so the wire request always asks for inline bytes we can store ourselves.
-    kwargs["response_format"] = (
+    options["response_format"] = (
         "b64_json" if request.response_format == "artifact" else request.response_format
     )
     if request.output_format is not None:
-        kwargs["output_format"] = request.output_format
-    return kwargs
+        options["output_format"] = request.output_format
+    return options
+
+
+def _gateway_kwargs(request: ImageJobRequest, run_id: str) -> dict[str, Any]:
+    return {**_image_options(request), "run_id": run_id}
+
+
+async def check_image_job(llm_port: LLMPort, request: ImageJobRequest) -> None:
+    """Refuse a job its model or route cannot serve as asked, before its run opens.
+
+    The call makes the same checks, but by then the run is open and an
+    asynchronous job has already been accepted; checked here, the caller is
+    told at once and nothing is opened, admitted or billed.
+    """
+    await llm_port.check_image_request(
+        request.model,
+        operation=request.kind,
+        n=request.n,
+        size=request.size,
+        has_mask=request.mask is not None,
+        **_image_options(request),
+    )
 
 
 async def _call_gateway(

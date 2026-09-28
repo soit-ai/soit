@@ -352,11 +352,76 @@ class LLMRouterPort(LLMPort):
             credentials[parameter] = await secrets.get_secret(secret_id=secret_id)
         return credentials
 
+    @staticmethod
+    def _validate_image_route(
+        config: RuntimeProviderConfig,
+        model: str,
+        required_capabilities: tuple[str, ...],
+    ) -> None:
+        """Refuse an image call no adapter of this provider could make.
+
+        No native adapter serves images, and LiteLLM has no image request for
+        some providers and models; the capability flags cannot tell either.
+        Refused while the route resolves, like a missing capability, so a
+        virtual model moves on to its next target instead of failing.
+        """
+        for capability, operation in (("image_generation", "generate"), ("image_edit", "edit")):
+            if capability not in required_capabilities:
+                continue
+            if config.adapter_backend == "litellm":
+                from app.adapters.llm.litellm import litellm_model_name
+                from app.adapters.llm.litellm_image_routes import image_route
+
+                name = litellm_model_name(
+                    model, provider_kind=config.kind, litellm_provider=config.litellm_provider
+                )
+                if image_route(name, operation) is not None:
+                    continue
+                reason = "no_litellm_route"
+            else:
+                reason = "native_adapter"
+            raise KernelError(
+                "MODEL_CAPABILITY_UNAVAILABLE",
+                f"Model capability is unavailable: {capability}",
+                {
+                    "provider_slug": config.slug,
+                    "model_id": config.model_id,
+                    "capability": capability,
+                    "reason": reason,
+                },
+            )
+
     async def resolve_route(
         self,
         model: str,
         ctx: RequestContext | None,
         required_capabilities: tuple[str, ...] = (),
+    ) -> ResolvedLLMRoute:
+        return await self._route(model, ctx, required_capabilities, connect=True)
+
+    async def describe_route(
+        self,
+        model: str,
+        ctx: RequestContext | None,
+        required_capabilities: tuple[str, ...] = (),
+    ) -> ResolvedLLMRoute:
+        """The route ``resolve_route`` would take, without connecting anything.
+
+        For a check before a call: it reads the provider's configuration and
+        applies its capability rules, but resolves no secret, runs no egress
+        or DNS check, and returns a port that holds no credential, so the
+        check neither writes secret-resolution audit rows nor reaches the
+        network. The call resolves its route again, in full.
+        """
+        return await self._route(model, ctx, required_capabilities, connect=False)
+
+    async def _route(
+        self,
+        model: str,
+        ctx: RequestContext | None,
+        required_capabilities: tuple[str, ...],
+        *,
+        connect: bool,
     ) -> ResolvedLLMRoute:
         if (
             ctx is not None
@@ -382,16 +447,22 @@ class LLMRouterPort(LLMPort):
                 )
             if config is not None:
                 self._validate_runtime_config(config, required_capabilities)
-                await self._authorize_provider_target(
-                    ctx,
-                    provider_slug=config.slug,
-                    provider_kind=config.kind,
-                    base_url=config.base_url,
-                    provider_params=config.litellm_params,
-                )
+                if connect:
+                    await self._authorize_provider_target(
+                        ctx,
+                        provider_slug=config.slug,
+                        provider_kind=config.kind,
+                        base_url=config.base_url,
+                        provider_params=config.litellm_params,
+                    )
+                self._validate_image_route(config, model, required_capabilities)
                 if config.adapter_backend == "native":
-                    credentials = await self._resolve_credentials(ctx, config)
-                    port = self.native_factory(config, credentials)
+                    # Unconnected, the router stands in: it checks nothing itself.
+                    port = (
+                        self.native_factory(config, await self._resolve_credentials(ctx, config))
+                        if connect
+                        else self
+                    )
                     return ResolvedLLMRoute(
                         port=port,
                         target=self._runtime_target(
@@ -410,7 +481,7 @@ class LLMRouterPort(LLMPort):
                         image_capabilities=config.image_capabilities,
                     )
                 if config.adapter_backend == "litellm":
-                    credentials = await self._resolve_credentials(ctx, config)
+                    credentials = await self._resolve_credentials(ctx, config) if connect else {}
                     return ResolvedLLMRoute(
                         port=self.litellm_factory(config, credentials),
                         target=self._runtime_target(
@@ -437,7 +508,7 @@ class LLMRouterPort(LLMPort):
         if port is None:
             raise ValidationError(f"Unsupported LLM provider: {static_key}")
         egress_base_url = getattr(port, "egress_base_url", None)
-        if ctx is not None and egress_base_url:
+        if connect and ctx is not None and egress_base_url:
             await self._authorize_provider_target(
                 ctx,
                 provider_slug=static_key,
