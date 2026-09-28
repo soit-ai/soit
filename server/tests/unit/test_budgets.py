@@ -252,6 +252,23 @@ async def test_each_threshold_is_announced_once_per_period(async_db, ctx) -> Non
 
 
 @pytest.mark.asyncio
+async def test_a_dispatcher_that_lags_still_announces_each_threshold(async_db, ctx) -> None:
+    async_db.add(_budget(ctx, thresholds_json=[50, 80, 100], hard_stop=False))
+    await async_db.commit()
+    # All four costs exist before any of their events is handled.
+    entries = [await _cost(async_db, ctx, "3") for _ in range(4)]
+
+    for entry in entries:
+        await handle_cost_recorded_budget(async_db, _cost_event(entry))
+        await async_db.commit()
+
+    events = await _threshold_events(async_db)
+    crossed = {event.payload_json["threshold"]: event.payload_json["spent"] for event in events}
+    assert sorted(crossed) == [50, 80, 100]
+    assert (crossed[50], crossed[80], crossed[100]) == ("6.000000", "9.000000", "12.000000")
+
+
+@pytest.mark.asyncio
 async def test_unpriced_usage_raises_no_threshold(async_db, ctx) -> None:
     async_db.add(_budget(ctx, amount=Decimal("1"), thresholds_json=[50]))
     entry = await _cost(async_db, ctx, "0")

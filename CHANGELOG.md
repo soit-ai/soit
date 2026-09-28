@@ -206,6 +206,12 @@ record for operators.
 
 ### Fixed
 
+- A budget threshold is announced even when the outbox dispatcher runs
+  behind. A threshold was judged against the spend when the cost event was
+  handled, so costs recorded meanwhile could carry spend past a lower
+  threshold before its event was read, and that threshold was never
+  announced. Each cost is now judged against the spend as of that cost.
+
 - `/health/ready` answers within about two seconds when the vector store
   cannot be reached, reporting `vector: unavailable`. The Milvus probe used to
   block the event loop for as long as DNS and the connection took, over thirty

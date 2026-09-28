@@ -1,7 +1,9 @@
 """Budget threshold alerts for COST_RECORDED outbox events.
 
 After each priced usage fact, every active budget whose scope covers it is
-measured; a threshold the fact carried spend across raises one
+measured as of that fact, so a dispatcher that lags behind later spending
+still sees the threshold this fact crossed; a threshold the fact carried
+spend across raises one
 BUDGET_THRESHOLD_REACHED event. The event id is derived from the budget, the
 period and the threshold, and outbox event ids are unique, so concurrent
 consumers that both see the crossing publish it once.
@@ -69,7 +71,7 @@ async def handle_cost_recorded_budget(db: AsyncSession, row: EventOutbox) -> Non
         return
     run = await db.get(Run, entry.run_id)
     for budget in await _budgets_covering(db, entry, run):
-        spend = await budget_spend(db, budget, entry.created_at)
+        spend = await budget_spend(db, budget, entry.created_at, as_of=True)
         after = spend.spent / budget.amount * 100
         before = (spend.spent - entry.amount) / budget.amount * 100
         period = budget_period(budget.period, entry.created_at)

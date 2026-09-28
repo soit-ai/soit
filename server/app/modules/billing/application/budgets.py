@@ -109,7 +109,9 @@ def _agent_run_ids(budget: Budget) -> Any:
     return own.union_all(started)
 
 
-async def _ledger_spend(db: AsyncSession, budget: Budget, since: datetime) -> BudgetSpend:
+async def _ledger_spend(
+    db: AsyncSession, budget: Budget, since: datetime, until: datetime | None = None
+) -> BudgetSpend:
     clauses = [
         RunCostEntry.tenant_id == budget.tenant_id,
         RunCostEntry.workspace_id == budget.workspace_id,
@@ -124,15 +126,24 @@ async def _ledger_spend(db: AsyncSession, budget: Budget, since: datetime) -> Bu
     elif run_clauses:
         query = query.join(Run, Run.id == RunCostEntry.run_id)
         clauses.extend(run_clauses)
+    if until is not None:
+        clauses.append(RunCostEntry.created_at <= until)
     total, calls = (await db.exec(query.where(and_(*clauses)))).one()
     return BudgetSpend(Decimal(str(total)), int(calls))
 
 
-async def budget_spend(db: AsyncSession, budget: Budget, now: datetime) -> BudgetSpend:
-    """What the budget's scope has spent in its current period, up to now."""
+async def budget_spend(
+    db: AsyncSession, budget: Budget, now: datetime, *, as_of: bool = False
+) -> BudgetSpend:
+    """What the budget's scope has spent in its current period, up to now.
+
+    ``as_of`` counts nothing recorded after ``now``, for judging a cost that
+    was recorded earlier than it is looked at.
+    """
+    until = now if as_of else None
     period = budget_period(budget.period, now)
     if budget.scope_kind == "agent":
-        return await _ledger_spend(db, budget, period.starts_at)
+        return await _ledger_spend(db, budget, period.starts_at, until)
     today = budget_period("day", now)
     past = BudgetSpend(ZERO, 0)
     if period.start < today.start:
@@ -154,7 +165,7 @@ async def budget_spend(db: AsyncSession, budget: Budget, now: datetime) -> Budge
             )
         ).one()
         past = BudgetSpend(Decimal(str(total)), int(calls))
-    current = await _ledger_spend(db, budget, today.starts_at)
+    current = await _ledger_spend(db, budget, today.starts_at, until)
     return BudgetSpend(past.spent + current.spent, past.calls + current.calls)
 
 
