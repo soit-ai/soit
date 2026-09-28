@@ -76,6 +76,17 @@ def _log(message: str) -> None:
     print(message, flush=True)
 
 
+_SECRET_FLAGS = frozenset({"--password"})
+
+
+def _shown(command: list[str]) -> str:
+    """A command line for the log, with the values of secret flags masked."""
+    shown: list[str] = []
+    for index, part in enumerate(command):
+        shown.append("***" if index and command[index - 1] in _SECRET_FLAGS else part)
+    return " ".join(shown)
+
+
 def _request(
     ctx: SmokeContext,
     method: str,
@@ -311,11 +322,11 @@ def _run_enterprise_mvp_smoke(args: argparse.Namespace) -> int:
     ]
     failures = 0
     for command in commands:
-        _log(f"[RUN] {' '.join(command)}")
+        _log(f"[RUN] {_shown(command)}")
         result = subprocess.run(command, cwd=server_root, check=False)
         if result.returncode:
             failures += 1
-            _log(f"[FAIL] {' '.join(command)} exited with {result.returncode}")
+            _log(f"[FAIL] {_shown(command)} exited with {result.returncode}")
     if failures:
         _log(f"[FAIL] Enterprise MVP smoke completed with {failures} failures.")
     else:
