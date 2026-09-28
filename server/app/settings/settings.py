@@ -457,6 +457,12 @@ class Settings(BaseSettings):
     platform_edition: str = "community"
     """Current product edition: community, enterprise, or cloud."""
 
+    telemetry_enabled: bool = False
+    """Send one anonymous usage report a day (``docs/telemetry.md``). Off unless set."""
+
+    telemetry_endpoint: str = "https://soit.ai/api/telemetry"
+    """Where the daily report goes when telemetry is on."""
+
     soit_role: str = "all"
     """What this process serves (``SOIT_ROLE``).
 

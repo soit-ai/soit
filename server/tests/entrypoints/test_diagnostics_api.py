@@ -152,3 +152,39 @@ async def test_diagnostics_reports_probe_failure_without_hiding_the_snapshot(asy
     storage = next(item for item in payload["dependencies"] if item["name"] == "object_storage")
     assert storage["status"] == "unavailable"
     assert storage["message"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_admin_previews_the_telemetry_report(async_client) -> None:
+    response = await async_client.get("/api/v1/diagnostics/telemetry")
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()["data"]
+    # Off unless an operator turns it on.
+    assert payload["enabled"] is False
+    assert set(payload["report"]) == {
+        "schema",
+        "installation_id",
+        "version",
+        "edition",
+        "day",
+        "deployment",
+        "usage",
+        "features",
+    }
+
+
+@pytest.mark.asyncio
+async def test_only_a_tenant_admin_previews_the_telemetry_report(async_client) -> None:
+    owner = RequestContext(
+        tenant_id="test-tenant",
+        workspace_id="test-workspace",
+        user_id="owner-user",
+        tenant_role="Member",
+        workspace_role="Owner",
+    )
+
+    with _as_context(owner):
+        response = await async_client.get("/api/v1/diagnostics/telemetry")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN

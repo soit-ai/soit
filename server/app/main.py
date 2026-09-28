@@ -251,6 +251,14 @@ async def lifespan(app: FastAPI):
 
     background_tasks: list[asyncio.Task] = []
     try:
+        if runs_background and app_settings.telemetry_enabled:
+            from app.infra.db.session import get_async_session_local
+            from app.wiring.telemetry import run_telemetry_loop
+
+            logger.info("Anonymous telemetry is on: one report a day to %s", app_settings.telemetry_endpoint)
+            background_tasks.append(
+                asyncio.create_task(run_telemetry_loop(app_settings, get_async_session_local()))
+            )
         if runs_background and app_settings.enterprise_license_path:
             from app.infra.db.session import get_async_session_local
             from app.wiring.edition import run_license_heartbeat

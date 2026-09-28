@@ -1,381 +1,162 @@
-"""Tests for real OpenTelemetry provider configuration."""
+"""Opt-in anonymous telemetry: one report a day, with only the documented fields."""
 
-from unittest.mock import AsyncMock
+from __future__ import annotations
+
+import json
+from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-    InMemorySpanExporter,
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.kernel.entitlements.edition import EditionState
+from app.kernel.entitlements.license import LicenseState, LicenseStatus
+from app.kernel.observe.telemetry import build_report, daily_usage, installation_id
+from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.db.models.usage import UsageDailyAggregate
+from app.wiring.telemetry import preview_report, report_day, send_daily_report
+
+NOW = datetime(2026, 9, 29, 3, 0, tzinfo=UTC)
+DAY = date(2026, 9, 28)
+SETTINGS = SimpleNamespace(
+    platform_version="1.3.0",
+    environment="Production",
+    soit_role="all",
+    vector_backend="pgvector",
+    storage_url="file:///data/storage",
+    secrets_backend="sealed",
+    telemetry_enabled=True,
+    telemetry_endpoint="https://soit.ai/api/telemetry",
+)
+EDITION = EditionState(
+    edition="community",
+    license=LicenseState(LicenseStatus.ABSENT),
+    enabled_features=frozenset({"workflow.runtime", "agent.runtime"}),
 )
 
-from app.infra.telemetry import build_tracer_provider
-from app.kernel.contracts.context import RequestContext
-from app.kernel.observe.tracing import OpenTelemetryTracer
-from app.kernel.ports.llm.interface import (
-    ChatMessage,
-    ChatResponse,
-    ChatStreamChunk,
-    EmbeddingResponse,
-    GeneratedImage,
-    ImageGenerationResponse,
-    RerankResponse,
-)
-from app.kernel.ports.llm.policy import LLMPolicyGateway
-from app.kernel.ports.tools.interface import ToolResponse
-from app.kernel.ports.tools.policy import ToolPolicyGateway
-from app.kernel.runtime.db.models.runs import Run, RunStep
+
+class _Sink:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.reports: list[dict[str, Any]] = []
+
+    async def send(self, report: dict[str, Any]) -> None:
+        if self.error is not None:
+            raise self.error
+        self.reports.append(report)
 
 
-def test_tracer_provider_exports_real_spans_with_service_resource() -> None:
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(
-        service_name="soit-test",
-        exporter=exporter,
-        batch=False,
-    )
-
-    with provider.get_tracer("test").start_as_current_span("unit-span"):
-        pass
-
-    spans = exporter.get_finished_spans()
-    assert [span.name for span in spans] == ["unit-span"]
-    assert spans[0].resource.attributes["service.name"] == "soit-test"
+def _factory(async_db: AsyncSession) -> Any:
+    return async_sessionmaker(bind=async_db.bind, class_=AsyncSession, expire_on_commit=False)
 
 
-def test_execution_tracer_links_product_ids_to_spans() -> None:
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(
-        service_name="soit-test",
-        exporter=exporter,
-        batch=False,
-    )
-    execution_tracer = OpenTelemetryTracer(
-        otel_tracer=provider.get_tracer("soit.execution"),
-        emit=lambda _event, _payload: None,
-    )
-    run = Run(
-        id="run-1",
-        tenant_id="tenant-1",
-        workspace_id="workspace-1",
-        mode="agent",
-        kind="agent",
-        status="running",
-    )
-    step = RunStep(
-        id="step-1",
-        tenant_id="tenant-1",
-        workspace_id="workspace-1",
-        run_id=run.id,
-        step_type="tool",
-        status="succeeded",
-    )
-
-    execution_tracer.trace_run(run, {"event": "status"})
-    execution_tracer.trace_step(step, {"event": "status"})
-
-    spans = exporter.get_finished_spans()
-    assert [span.name for span in spans] == ["soit.run.status", "soit.step.status"]
-    assert spans[0].attributes["soit.run.id"] == "run-1"
-    assert spans[0].attributes["soit.tenant.id"] == "tenant-1"
-    assert spans[1].attributes["soit.run.id"] == "run-1"
-    assert spans[1].attributes["soit.step.id"] == "step-1"
-
-
-@pytest.mark.asyncio
-async def test_llm_and_tool_gateways_emit_linked_dependency_spans() -> None:
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(
-        service_name="soit-test",
-        exporter=exporter,
-        batch=False,
-    )
-    ctx = RequestContext(
-        tenant_id="tenant-1",
-        workspace_id="workspace-1",
-        user_id="user-1",
-    )
-    llm_port = AsyncMock()
-    llm_port.chat.return_value = ChatResponse(
-        text="done",
-        model="gpt-4",
-        tokens_prompt=3,
-        tokens_completion=5,
-    )
-    tool_port = AsyncMock()
-    tool_port.invoke.return_value = ToolResponse(success=True, result={"ok": True})
-
-    await LLMPolicyGateway(
-        llm_port,
-        ctx,
-        max_retries=0,
-        otel_tracer=provider.get_tracer("soit.llm"),
-    ).chat([ChatMessage("user", "hello")], "model:openai:gpt-4", run_id="run-1")
-    await ToolPolicyGateway(
-        tool_port,
-        ctx,
-        max_retries=0,
-        enable_egress_check=False,
-        otel_tracer=provider.get_tracer("soit.tools"),
-    ).invoke("tool:builtin:demo", {}, run_id="run-1")
-
-    spans = exporter.get_finished_spans()
-    assert [span.name for span in spans] == ["soit.llm.chat", "soit.tool.invoke"]
-    assert spans[0].attributes["soit.run.id"] == "run-1"
-    assert spans[0].attributes["gen_ai.usage.input_tokens"] == 3
-    assert spans[1].attributes["soit.run.id"] == "run-1"
-    assert spans[1].attributes["soit.tool.success"] is True
-
-
-@pytest.mark.asyncio
-async def test_image_generation_emits_a_linked_dependency_span() -> None:
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(
-        service_name="soit-test",
-        exporter=exporter,
-        batch=False,
-    )
-    ctx = RequestContext(
-        tenant_id="tenant-1",
-        workspace_id="workspace-1",
-        user_id="user-1",
-    )
-    llm_port = AsyncMock()
-    llm_port.generate_image.return_value = ImageGenerationResponse(
-        images=[GeneratedImage(b64_json="aW1n"), GeneratedImage(b64_json="aW1n")],
-        model="seedream-4",
-    )
-
-    await LLMPolicyGateway(
-        llm_port,
-        ctx,
-        max_retries=0,
-        otel_tracer=provider.get_tracer("soit.llm"),
-    ).generate_image(
-        "a red dot",
-        "model:volcengine:seedream-4",
-        n=2,
-        run_id="run-1",
-    )
-
-    spans = exporter.get_finished_spans()
-    assert [span.name for span in spans] == ["soit.llm.generate_image"]
-    attributes = spans[0].attributes
-    assert attributes["soit.run.id"] == "run-1"
-    assert attributes["soit.tenant.id"] == "tenant-1"
-    assert attributes["gen_ai.operation.name"] == "image_generation"
-    assert attributes["gen_ai.provider.name"] == "volcengine"
-    assert attributes["gen_ai.response.model"] == "seedream-4"
-    assert attributes["soit.llm.image.requested_count"] == 2
-    assert attributes["soit.llm.image.generated_count"] == 2
-
-
-class _StreamingLLMPort:
-    """Minimal streaming port; AsyncMock cannot stand in for an async iterator."""
-
-    async def stream_chat(self, **kwargs):
-        del kwargs
-        yield ChatStreamChunk(delta="he", model="gpt-4", tokens_prompt=3)
-        yield ChatStreamChunk(delta="llo", model="gpt-4", tokens_completion=5, done=True)
-
-
-@pytest.mark.asyncio
-async def test_stream_embed_and_rerank_emit_linked_dependency_spans() -> None:
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(
-        service_name="soit-test",
-        exporter=exporter,
-        batch=False,
-    )
-    ctx = RequestContext(
-        tenant_id="tenant-1",
-        workspace_id="workspace-1",
-        user_id="user-1",
-    )
-
-    stream_gateway = LLMPolicyGateway(
-        _StreamingLLMPort(),
-        ctx,
-        max_retries=0,
-        otel_tracer=provider.get_tracer("soit.llm"),
-    )
-    chunks = [
-        chunk
-        async for chunk in stream_gateway.stream_chat(
-            [ChatMessage("user", "hello")],
-            "model:openai:gpt-4",
-            run_id="run-1",
+async def _seed(async_db: AsyncSession) -> None:
+    moment = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
+    for index, (source, parent) in enumerate(
+        [("platform", None), ("gateway", None), ("gateway", None), ("platform", "run_parent")]
+    ):
+        async_db.add(
+            Run(
+                id=f"run_t{index}",
+                tenant_id="tenant-secret-name",
+                workspace_id="ws_1",
+                user_id="u1",
+                mode="gateway",
+                status="succeeded",
+                source=source,
+                parent_run_id=parent,
+                created_at=moment,
+            )
         )
-    ]
-    assert [chunk.delta for chunk in chunks] == ["he", "llo"]
+    async_db.add(Run(id="run_other_day", tenant_id="t", workspace_id="ws_1", user_id="u1", mode="agent", status="succeeded", created_at=moment - timedelta(days=1)))
+    for workspace, user, calls in (("ws_1", "u1", 7), ("ws_2", "u2", 3), ("ws_2", "", 1)):
+        async_db.add(
+            UsageDailyAggregate(tenant_id="t", workspace_id=workspace, day=DAY, user_id=user, call_count=calls)
+        )
+    await async_db.commit()
 
-    llm_port = AsyncMock()
-    llm_port.embed.return_value = EmbeddingResponse(
-        embeddings=[[0.1, 0.2]],
-        tokens_used=7,
-        model="text-embedding-3-small",
-    )
-    llm_port.rerank.return_value = RerankResponse(
-        results=[{"index": 0, "score": 0.9}],
-        tokens_used=11,
-        model="rerank-v1",
-    )
-    gateway = LLMPolicyGateway(
-        llm_port,
-        ctx,
-        max_retries=0,
-        otel_tracer=provider.get_tracer("soit.llm"),
-    )
-    await gateway.embed(
-        ["first", "second"],
-        "model:openai:text-embedding-3-small",
-        run_id="run-1",
-    )
-    await gateway.rerank(
-        "query",
-        ["doc-1", "doc-2", "doc-3"],
-        "model:cohere:rerank-v1",
-        top_n=2,
-        run_id="run-1",
-    )
 
-    spans = exporter.get_finished_spans()
-    assert [span.name for span in spans] == [
-        "soit.llm.stream_chat",
-        "soit.llm.embed",
-        "soit.llm.rerank",
-    ]
-    stream_span, embed_span, rerank_span = spans
-    assert stream_span.attributes["soit.run.id"] == "run-1"
-    assert stream_span.attributes["soit.llm.streaming"] is True
-    assert stream_span.attributes["gen_ai.response.model"] == "gpt-4"
-    assert stream_span.attributes["gen_ai.usage.input_tokens"] == 3
-    assert stream_span.attributes["gen_ai.usage.output_tokens"] == 5
-    assert embed_span.attributes["gen_ai.operation.name"] == "embeddings"
-    assert embed_span.attributes["soit.llm.embed.input_count"] == 2
-    assert embed_span.attributes["gen_ai.usage.input_tokens"] == 7
-    assert rerank_span.attributes["gen_ai.operation.name"] == "rerank"
-    assert rerank_span.attributes["gen_ai.provider.name"] == "cohere"
-    assert rerank_span.attributes["soit.llm.rerank.document_count"] == 3
-    assert rerank_span.attributes["soit.llm.rerank.top_n"] == 2
-    assert rerank_span.attributes["gen_ai.usage.input_tokens"] == 11
+def test_the_report_covers_the_last_complete_utc_day() -> None:
+    assert report_day(NOW) == DAY
 
 
 @pytest.mark.asyncio
-async def test_failed_stream_marks_its_span_as_an_error() -> None:
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(
-        service_name="soit-test",
-        exporter=exporter,
-        batch=False,
-    )
-    ctx = RequestContext(
-        tenant_id="tenant-1",
-        workspace_id="workspace-1",
-        user_id="user-1",
-    )
-
-    class _FailingStreamPort:
-        async def stream_chat(self, **kwargs):
-            del kwargs
-            raise RuntimeError("upstream is unavailable")
-            yield  # pragma: no cover - makes this an async generator
-
-    gateway = LLMPolicyGateway(
-        _FailingStreamPort(),
-        ctx,
-        max_retries=0,
-        otel_tracer=provider.get_tracer("soit.llm"),
-    )
-    with pytest.raises(RuntimeError):
-        async for _ in gateway.stream_chat(
-            [ChatMessage("user", "hello")],
-            "model:openai:gpt-4",
-            run_id="run-1",
-        ):
-            pass
-
-    spans = exporter.get_finished_spans()
-    assert [span.name for span in spans] == ["soit.llm.stream_chat"]
-    assert spans[0].status.status_code.name == "ERROR"
-
-
-class _EchoingFailure:
-    """A provider whose error echoes the prompt, as some do."""
-
-    def __init__(self, secret: str) -> None:
-        self.secret = secret
-
-    async def chat(self, **kwargs):
-        raise RuntimeError(f"bad request: {self.secret}")
-
-    async def stream_chat(self, **kwargs):
-        raise RuntimeError(f"bad request: {self.secret}")
-        yield  # pragma: no cover
-
-
-def _span_text(span) -> str:
-    return " ".join(
-        [str(span.status.description)]
-        + [str(event.attributes) for event in span.events]
-        + [str(span.attributes)]
-    )
+async def test_the_installation_id_is_random_and_kept(async_db) -> None:
+    first = await installation_id(async_db)
+    assert len(first) == 36
+    assert await installation_id(async_db) == first
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("capture", ["metadata_only", "full"])
-async def test_a_failed_call_span_keeps_error_text_only_where_content_is_kept(capture) -> None:
-    from opentelemetry.trace import StatusCode
+async def test_the_days_counts(async_db) -> None:
+    await _seed(async_db)
 
-    secret = "the launch code is 0451"
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(service_name="soit-test", exporter=exporter, batch=False)
-    ctx = RequestContext(tenant_id="t", workspace_id="w", user_id="u", content_capture=capture)
-    gateway = LLMPolicyGateway(
-        _EchoingFailure(secret),  # type: ignore[arg-type]
-        ctx,
-        max_retries=0,
-        otel_tracer=provider.get_tracer("soit.llm"),
-    )
-
-    with pytest.raises(RuntimeError):
-        await gateway.chat([ChatMessage("user", secret)], "model:openai:gpt-4")
-    with pytest.raises(RuntimeError):
-        async for _chunk in gateway.stream_chat([ChatMessage("user", secret)], "model:openai:gpt-4"):
-            pass
-
-    spans = {span.name: span for span in exporter.get_finished_spans()}
-    assert set(spans) >= {"soit.llm.chat", "soit.llm.stream_chat"}
-    for span in (spans["soit.llm.chat"], spans["soit.llm.stream_chat"]):
-        # Still an error either way; the text only where content is kept.
-        assert span.status.status_code == StatusCode.ERROR
-        assert (secret in _span_text(span)) is (capture == "full")
-    if capture == "metadata_only":
-        assert spans["soit.llm.chat"].status.description == "RuntimeError"
+    assert await daily_usage(async_db, DAY) == {
+        "governed_runs": 3,  # top-level runs only; the child run is part of its parent
+        "gateway_calls": 2,
+        "metered_calls": 11,
+        "active_workspaces": 2,
+        "active_principals": 2,
+    }
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("capture", ["metadata_only", "full"])
-async def test_a_failed_tool_span_keeps_error_text_only_where_content_is_kept(capture) -> None:
-    from opentelemetry.trace import StatusCode
+async def test_the_report_holds_only_the_documented_fields(async_db) -> None:
+    await _seed(async_db)
 
-    secret = "https://api.example.com/search?q=the-launch-code"
-    exporter = InMemorySpanExporter()
-    provider = build_tracer_provider(service_name="soit-test", exporter=exporter, batch=False)
-    ctx = RequestContext(tenant_id="t", workspace_id="w", user_id="u", content_capture=capture)
-    tool_port = AsyncMock()
-    tool_port.invoke.side_effect = RuntimeError(f"could not reach {secret}")
+    report = await build_report(async_db, settings=SETTINGS, edition=EDITION, day=DAY)
 
-    with pytest.raises(Exception):  # noqa: B017 - the gateway wraps it for retries
-        await ToolPolicyGateway(
-            tool_port,
-            ctx,
-            max_retries=0,
-            enable_egress_check=False,
-            otel_tracer=provider.get_tracer("soit.tools"),
-        ).invoke("tool:builtin:demo", {"url": secret})
+    assert set(report) == {"schema", "installation_id", "version", "edition", "day", "deployment", "usage", "features"}
+    assert report["schema"] == 1
+    assert report["deployment"] == {
+        "environment": "production",
+        "role": "all",
+        "vector_backend": "pgvector",
+        "storage": "file",
+        "secrets_backend": "sealed",
+    }
+    assert report["features"] == ["agent.runtime", "workflow.runtime"]
+    # Nothing identifying the tenants, workspaces or users leaves.
+    serialized = json.dumps(report)
+    for private in ("tenant-secret-name", "ws_1", "ws_2", "u1", "u2", "/data/storage"):
+        assert private not in serialized
 
-    [span] = [span for span in exporter.get_finished_spans() if span.name == "soit.tool.invoke"]
-    assert span.status.status_code == StatusCode.ERROR
-    assert (secret in _span_text(span)) is (capture == "full")
-    if capture == "metadata_only":
-        # Named after what failed, not the retry that gave up on it.
-        assert span.status.description == "RuntimeError"
+
+@pytest.mark.asyncio
+async def test_a_day_is_sent_once_whatever_the_number_of_processes(async_db, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.wiring.telemetry.current_edition", lambda: EDITION)
+    sink = _Sink()
+    factory = _factory(async_db)
+
+    assert await send_daily_report(SETTINGS, factory, sink, now=NOW) is True
+    assert await send_daily_report(SETTINGS, factory, sink, now=NOW) is False
+    assert await send_daily_report(SETTINGS, factory, sink, now=NOW + timedelta(days=1)) is True
+
+    assert [report["day"] for report in sink.reports] == ["2026-09-28", "2026-09-29"]
+    assert sink.reports[0]["installation_id"] == sink.reports[1]["installation_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_report_that_fails_to_go_out_is_tried_again(async_db, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.wiring.telemetry.current_edition", lambda: EDITION)
+    factory = _factory(async_db)
+
+    with pytest.raises(ConnectionError):
+        await send_daily_report(SETTINGS, factory, _Sink(ConnectionError("offline")), now=NOW)
+    sink = _Sink()
+    assert await send_daily_report(SETTINGS, factory, sink, now=NOW) is True
+    assert len(sink.reports) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_preview_shows_the_report_and_whether_it_is_sent(async_db, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.wiring.telemetry.current_edition", lambda: EDITION)
+    settings = SimpleNamespace(**{**vars(SETTINGS), "telemetry_enabled": False})
+
+    preview = await preview_report(settings, async_db, now=NOW)
+
+    assert preview["enabled"] is False
+    assert preview["endpoint"] == "https://soit.ai/api/telemetry"
+    assert preview["report"]["day"] == "2026-09-28"

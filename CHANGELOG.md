@@ -14,6 +14,14 @@ record for operators.
 
 ### Added
 
+- Opt-in anonymous telemetry, off unless `TELEMETRY_ENABLED` is set: the API
+  process sends one report a day about the day before (a random
+  installation id, version, edition, how the deployment is built, counts of
+  governed runs, gateway calls, metered calls, active workspaces and
+  principals, and the enabled feature keys) to `TELEMETRY_ENDPOINT`, once
+  across replicas. `GET /api/v1/diagnostics/telemetry` shows a tenant admin
+  the exact report. See `docs/telemetry.md`.
+
 - Gemini providers can use a native adapter (`adapter_backend: native`) that
   calls the Gemini API directly: chat, streaming, tool calls declared with
   their JSON Schema and returned with their thought signatures, structured
