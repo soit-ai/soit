@@ -254,6 +254,22 @@ record for operators.
 
 ### Security
 
+- An image generation through the LiteLLM adapter sent a provider's
+  `azure_ad_token`, `extra_headers` and `project` from its `litellm_params`
+  as fields of the request body, the Azure AD token in clear: LiteLLM copies
+  a keyword it does not know into the body for OpenAI, Azure and the
+  providers it treats as OpenAI-compatible, and OpenRouter, DashScope and
+  Vertex AI did the same. An Azure generation was sent no `Authorization`
+  header, so an AD token could not authenticate it. The adapter now hands
+  these settings over in a form LiteLLM never puts in a body: the headers as
+  request headers, `organization` and `project` as the `OpenAI-Organization`
+  and `OpenAI-Project` headers on routes that speak OpenAI's API, and the AD
+  token as a token provider, which LiteLLM turns into the `Authorization`
+  header when the provider has no API key. An image edit, which dropped the
+  headers, organization and project, now sends them as headers too. A
+  generation through LiteLLM's generic image handler for a provider other
+  than Gemini or Stability, such as OpenRouter or DashScope, is sent no
+  custom headers, since there LiteLLM would copy them into the body.
 - A tool call whose URL was injected from a secret, such as a webhook URL
   kept as one, put that secret into the evidence of its refusal when egress
   policy refused it, in every capture mode: the `security.egress.blocked`

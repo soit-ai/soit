@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from typing import Any, cast
 
 from app.adapters.llm.content_parts import openai_chat_content
 from app.kernel.commons.errors import ValidationError
@@ -47,10 +48,29 @@ def _reasoning_value(obj: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+@functools.lru_cache(maxsize=64)
+def _azure_ad_token_provider(token: str) -> Callable[[], str]:
+    """A provider that hands LiteLLM one configured Azure AD token.
+
+    The same token always gets the same provider: LiteLLM keys the Azure
+    clients it caches on the provider's identity, so a new one per call would
+    build and keep a new client every time.
+    """
+
+    def provide() -> str:
+        return token
+
+    return provide
+
+
 class LiteLLMPort(LLMPort):
     """Provider-scoped LiteLLM adapter without process-global environment mutation."""
 
     _PROVIDER_PREFIXES = LITELLM_PROVIDER_PRESETS
+
+    # Image generation routes whose only header channel is the extra_headers
+    # keyword, and which keep it out of the request body.
+    _GENERATION_EXTRA_HEADERS_PROVIDERS = frozenset({"gemini", "stability"})
 
     def __init__(
         self,
@@ -138,6 +158,49 @@ class LiteLLMPort(LLMPort):
             params["api_key"] = self.api_key
         if self.api_base:
             params["api_base"] = self.api_base
+        return params
+
+    def _body_safe_connection_params(self, model: str, *, headers_param: str) -> dict[str, Any]:
+        """Connection settings handed over so that none can become a body field.
+
+        LiteLLM takes a keyword as a connection setting only when it is one of
+        the call's own parameters or LiteLLM's; an image generation copies any
+        other into the provider request, for OpenAI, Azure and the providers
+        LiteLLM treats as OpenAI-compatible into the JSON body. An
+        extra_headers, project or azure_ad_token passed as it is therefore
+        reached the provider as a body field, the Azure AD token in clear and
+        never as the Authorization header, while an image edit dropped the
+        headers.
+
+        So the headers go in ``headers_param``, the parameter the call sends as
+        request headers, with OpenAI's organization and project as its
+        OpenAI-Organization and OpenAI-Project headers on the routes that speak
+        OpenAI's API. An Azure AD token goes as a token provider, from which
+        LiteLLM builds the Authorization header when no API key is set. Both
+        are LiteLLM's own parameters. The organization is passed as well, as
+        LiteLLM applies it itself where it can.
+        """
+        params = self._connection_params()
+        project = params.pop("project", None)
+        extra_headers = params.pop("extra_headers", None)
+        if extra_headers is not None and not isinstance(extra_headers, Mapping):
+            raise ValidationError(
+                "Provider litellm_params.extra_headers must be an object",
+                {"param": "litellm_params.extra_headers"},
+            )
+        headers: dict[str, Any] = {}
+        if self._merges_extra_body(model):
+            if params.get("organization"):
+                headers["OpenAI-Organization"] = params["organization"]
+            if project:
+                headers["OpenAI-Project"] = project
+        if extra_headers:
+            headers.update(cast("Mapping[str, Any]", extra_headers))
+        if headers:
+            params[headers_param] = headers
+        token = params.pop("azure_ad_token", None)
+        if token:
+            params["azure_ad_token_provider"] = _azure_ad_token_provider(str(token))
         return params
 
     @staticmethod
@@ -369,12 +432,20 @@ class LiteLLMPort(LLMPort):
     ) -> ImageGenerationResponse:
         if self._image_generation is None:
             raise ValidationError("LiteLLM image generation capability is unavailable")
+        model_name = self._model_name(model)
         params: dict[str, Any] = {
-            "model": self._model_name(model),
+            "model": model_name,
             "prompt": prompt,
             "n": n,
-            **self._connection_params(),
+            **self._body_safe_connection_params(model_name, headers_param="headers"),
         }
+        # LiteLLM's generic image handler ignores the headers parameter and
+        # sends only the extra_headers keyword as headers. Gemini and Stability
+        # also keep that keyword out of the body; the others it serves, such as
+        # OpenRouter, DashScope and Vertex AI, copy it in, so their generations
+        # are sent no custom headers.
+        if "headers" in params and model_name.split("/", 1)[0] in self._GENERATION_EXTRA_HEADERS_PROVIDERS:
+            params["extra_headers"] = params["headers"]
         if size is not None:
             params["size"] = size
         # Prefer inline bytes so callers own storage; providers without
@@ -528,12 +599,15 @@ class LiteLLMPort(LLMPort):
     ) -> ImageGenerationResponse:
         if self._image_edit is None:
             raise ValidationError("LiteLLM image editing capability is unavailable")
+        model_name = self._model_name(model)
         params: dict[str, Any] = {
-            "model": self._model_name(model),
+            "model": model_name,
             "image": image,
             "prompt": prompt,
             "n": n,
-            **self._connection_params(),
+            # An asynchronous edit drops the extra_headers keyword; every edit
+            # route sends the headers parameter.
+            **self._body_safe_connection_params(model_name, headers_param="headers"),
         }
         if mask is not None:
             params["mask"] = self._mask_for_provider(mask, params["model"])
