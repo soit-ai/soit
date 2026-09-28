@@ -12,6 +12,8 @@ record for operators.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-29
+
 ### Added
 
 - Opt-in anonymous telemetry, off unless `TELEMETRY_ENABLED` is set: the API
@@ -1482,7 +1484,8 @@ compatibility and known limitations: [docs/releases/v1.0.0.md](./docs/releases/v
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
   differ from the development value.
 
-[Unreleased]: https://github.com/soit-ai/soit/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/soit-ai/soit/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/soit-ai/soit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/soit-ai/soit/compare/7f7b8dc72e3503cf6457de5bbf2e3f68fbc3c9c5...v1.3.0
 [1.2.0]: https://github.com/soit-ai/soit/compare/b07b6ec8a08caa918b922ad3ddb6fc34de8cbdad...7f7b8dc72e3503cf6457de5bbf2e3f68fbc3c9c5
 [1.1.0]: https://github.com/soit-ai/soit/compare/v1.0.0...b07b6ec8a08caa918b922ad3ddb6fc34de8cbdad
