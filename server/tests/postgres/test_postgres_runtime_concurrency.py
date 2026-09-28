@@ -15,6 +15,7 @@ import os
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import TypeVar
 from uuid import uuid4
 
@@ -34,7 +35,7 @@ from app.kernel.runtime.db.models.responses import (
     ResponseEvent,
     ResponseInteraction,
 )
-from app.kernel.runtime.db.models.runs import Run
+from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
 from app.kernel.runtime.responses.repository import (
     ResponseEventRepository,
     ResponseRepository,
@@ -47,6 +48,10 @@ from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.reaper import (
     ORPHANED_ERROR_CODE,
     reap_orphaned_workflow_runs,
+)
+from app.wiring.image_job import (
+    INTERRUPTED_ERROR_CODE,
+    reap_interrupted_image_runs,
 )
 from app.wiring.response_interaction_worker import GlobalResponseInteractionWorker
 
@@ -115,6 +120,10 @@ async def scope_token(postgres_engine: AsyncEngine):
             )
         )
         await db.exec(delete(WorkflowRun).where(WorkflowRun.tenant_id == tenant_id))
+        await db.exec(
+            delete(RunCostEntry).where(RunCostEntry.tenant_id == tenant_id)
+        )
+        await db.exec(delete(RunStep).where(RunStep.tenant_id == tenant_id))
         await db.exec(delete(Run).where(Run.tenant_id == tenant_id))
         await db.exec(delete(EventOutbox).where(EventOutbox.tenant_id == tenant_id))
         await db.commit()
@@ -498,6 +507,125 @@ async def test_orphaned_workflow_run_is_reaped_once_under_concurrency(
         assert row.lease_expires_at is None
         assert run.status == "failed"
         assert run.error_code == ORPHANED_ERROR_CODE
+
+
+async def _lost_image_run(engine: AsyncEngine, token: str, tenant_id: str, workspace_id: str) -> tuple[str, str]:
+    """An image run no process has marked alive, with a model call in flight."""
+
+    run_id = f"run-image-lost-{token}"
+    step_id = f"step-image-lost-{token}"
+    async with _session(engine) as db:
+        db.add(
+            Run(
+                id=run_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                user_id="pg-user",
+                trace_id=f"tr-{token}",
+                mode="image",
+                kind="image",
+                status="running",
+                updated_at=utc_now() - timedelta(hours=1),
+            )
+        )
+        db.add(
+            RunStep(
+                id=step_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                step_type="llm",
+                status="running",
+                metrics_json={
+                    "requested_images": 2,
+                    "image_edit": False,
+                    "model": "model:painter:gpt-image-1",
+                    "model_ref": "model:painter:gpt-image-1",
+                    "provider_id": "prov_painter",
+                    "provider_slug": "painter",
+                    "provider_kind": "openai",
+                },
+            )
+        )
+        await db.commit()
+    return run_id, step_id
+
+
+async def _priced_route(*_args: object) -> SimpleNamespace:
+    return SimpleNamespace(pricing={"currency": "USD", "image": "0.04"}, target=None)
+
+
+@pytest.mark.asyncio
+async def test_lost_image_call_is_charged_once_under_concurrent_sweeps(
+    postgres_engine: AsyncEngine,
+    scope_token,
+) -> None:
+    """Concurrent sweeps fail a lost image run and charge its call exactly once."""
+
+    token, tenant_id, workspace_id = scope_token
+    run_id, step_id = await _lost_image_run(
+        postgres_engine, token, tenant_id, workspace_id
+    )
+
+    async def sweep(db: AsyncSession) -> int:
+        try:
+            return await reap_interrupted_image_runs(
+                db, orphan_after_seconds=600, describe_route=_priced_route
+            )
+        except Exception:
+            await db.rollback()
+            return 0
+
+    reaped = await _race(postgres_engine, [sweep, sweep, sweep])
+
+    assert sum(reaped) == 1
+    async with _session(postgres_engine) as db:
+        run = await db.get(Run, run_id)
+        step = await db.get(RunStep, step_id)
+        charges = (
+            await db.exec(select(RunCostEntry).where(RunCostEntry.step_id == step_id))
+        ).scalars().all()
+        assert run is not None and step is not None
+        assert run.status == "failed"
+        assert run.error_code == INTERRUPTED_ERROR_CODE
+        assert step.status == "failed"
+        assert len(charges) == 1
+        assert charges[0].billed_quantity == 2
+
+
+@pytest.mark.asyncio
+async def test_image_run_with_a_step_held_by_a_live_process_is_not_reaped(
+    postgres_engine: AsyncEngine,
+    scope_token,
+) -> None:
+    """A step another session is writing means the job is alive: leave the run."""
+
+    token, tenant_id, workspace_id = scope_token
+    run_id, step_id = await _lost_image_run(
+        postgres_engine, token, tenant_id, workspace_id
+    )
+
+    async with _session(postgres_engine) as holder:
+        await holder.exec(
+            select(RunStep).where(RunStep.id == step_id).with_for_update()
+        )
+        async with _session(postgres_engine) as db:
+            async with asyncio.timeout(RACE_TIMEOUT_SECONDS):
+                reaped = await reap_interrupted_image_runs(
+                    db, orphan_after_seconds=600, describe_route=_priced_route
+                )
+        await holder.rollback()
+
+    assert reaped == 0
+    async with _session(postgres_engine) as db:
+        run = await db.get(Run, run_id)
+        charged = (
+            await db.exec(
+                select(RunCostEntry.id).where(RunCostEntry.step_id == step_id)
+            )
+        ).first()
+        assert run is not None and run.status == "running"
+        assert charged is None
 
 
 @pytest.mark.asyncio

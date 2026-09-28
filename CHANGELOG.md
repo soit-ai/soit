@@ -213,6 +213,20 @@ record for operators.
   model asked for and the provider serving it (`requested_images`,
   `model`, `model_ref` and `provider_*` in its metrics), so the charge
   can be told even if the process making the call is lost.
+- An image job lost with the process that ran it no longer stays `queued`
+  or `running` for good. An image call in progress, asynchronous or not,
+  now marks its run alive every `IMAGE_JOB_HEARTBEAT_SECONDS` (30), and the
+  image job reaper, off by default and enabled with
+  `IMAGE_JOB_REAPER_ENABLED` (set in the shipped compose files and
+  `.env.example`), fails a run left unmarked for
+  `IMAGE_JOB_ORPHAN_AFTER_SECONDS` (600) with `IMAGE_JOB_INTERRUPTED`. A
+  provider call the job left in flight is charged the images it asked for
+  as an estimate, at its route's price when the reaper runs, or unpriced
+  (`route_not_resolved`) if the route is gone; a job lost before it asked
+  the provider is not charged. Its first sweep also fails image runs left
+  open by earlier versions, without a charge. During a rolling upgrade,
+  enable it only once every replica is upgraded: earlier versions send no
+  heartbeat.
 - A file download that is JSON is returned as the file. Run artifacts,
   attachments and knowledge documents of type `application/json` were
   wrapped in the API's `{success, code, message, data}` envelope on

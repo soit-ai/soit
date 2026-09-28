@@ -116,6 +116,7 @@ def test_execution_never_runs_inside_the_api_request() -> None:
     assert env["RESPONSE_INTERACTION_INLINE_EXECUTION"] == "false"
     assert env["RESPONSE_INTERACTION_WORKER_ENABLED"] == "true"
     assert env["WORKFLOW_ORPHAN_REAPER_ENABLED"] == "true"
+    assert env["IMAGE_JOB_REAPER_ENABLED"] == "true"
 
 
 def test_the_ingest_worker_is_not_bounded_by_task_count() -> None:

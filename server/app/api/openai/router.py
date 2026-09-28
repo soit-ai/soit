@@ -71,6 +71,7 @@ from app.middleware.openai_errors import openai_error_body
 from app.modules.modelhub.application.service import ModelHubService
 from app.modules.modelhub.application.virtual_models import VirtualModelService
 from app.wiring import get_container
+from app.wiring.image_job import keep_image_run_alive
 
 logger = logging.getLogger(__name__)
 
@@ -577,14 +578,15 @@ async def _image_response(
     try:
         # The job the /api/v1/images routes run, so a gateway image passes the
         # same content check before it is returned.
-        outcome = await execute_image_job(
-            request,
-            run_id=run_id,
-            ctx=ctx,
-            llm_port=llm_port,
-            trace_writer=trace_writer,
-            content_safety=container.get_content_safety_port(ctx, trace_writer),
-        )
+        async with keep_image_run_alive(db.bind, run_id):
+            outcome = await execute_image_job(
+                request,
+                run_id=run_id,
+                ctx=ctx,
+                llm_port=llm_port,
+                trace_writer=trace_writer,
+                content_safety=container.get_content_safety_port(ctx, trace_writer),
+            )
         await trace_writer.update_run_status(
             run_id, "succeeded", output_summary=f"images={len(outcome.results)}"
         )

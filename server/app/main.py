@@ -139,6 +139,19 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("workflow orphan reaper", exc)
 
+    image_reaper_coro = None
+    if getattr(app_settings, "image_job_reaper_enabled", False):
+        try:
+            from app.infra.db.session import get_async_session_local
+            from app.wiring.image_job import run_image_reaper_loop
+
+            image_reaper_coro = run_image_reaper_loop(
+                get_async_session_local(),
+                interval_seconds=app_settings.image_job_reaper_interval,
+            )
+        except Exception as exc:
+            _handle_startup_failure("image job reaper", exc)
+
     schedule_worker_coro = None
     if getattr(app_settings, "schedule_worker_enabled", False):
         try:
@@ -234,6 +247,8 @@ async def lifespan(app: FastAPI):
     try:
         if workflow_reaper_coro is not None:
             background_tasks.append(asyncio.create_task(workflow_reaper_coro))
+        if image_reaper_coro is not None:
+            background_tasks.append(asyncio.create_task(image_reaper_coro))
         if deletion_sweeper_coro is not None:
             background_tasks.append(asyncio.create_task(deletion_sweeper_coro))
         if schedule_worker_coro is not None:

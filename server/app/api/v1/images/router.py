@@ -42,7 +42,7 @@ from app.kernel.runtime.images.service import (
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.wiring import get_container
-from app.wiring.image_job import start_detached_image_job
+from app.wiring.image_job import keep_image_run_alive, start_detached_image_job
 
 router = APIRouter()
 
@@ -262,15 +262,16 @@ async def _submit(
     await trace_writer.update_run_status(run.id, "running")
     await db.commit()
     try:
-        outcome = await execute_image_job(
-            request,
-            run_id=run.id,
-            ctx=ctx,
-            llm_port=container.get_llm_port(ctx=ctx, trace_writer=trace_writer),
-            trace_writer=trace_writer,
-            storage_port=container.get_storage_port(ctx=ctx),
-            content_safety=container.get_content_safety_port(ctx, trace_writer),
-        )
+        async with keep_image_run_alive(db.bind, run.id):
+            outcome = await execute_image_job(
+                request,
+                run_id=run.id,
+                ctx=ctx,
+                llm_port=container.get_llm_port(ctx=ctx, trace_writer=trace_writer),
+                trace_writer=trace_writer,
+                storage_port=container.get_storage_port(ctx=ctx),
+                content_safety=container.get_content_safety_port(ctx, trace_writer),
+            )
         await trace_writer.update_run_status(
             run.id,
             "succeeded",

@@ -147,6 +147,7 @@ services:
       RESPONSE_INTERACTION_WORKER_ENABLED: "true"
       RESPONSE_INTERACTION_WORKER_IN_API: "true"
       WORKFLOW_ORPHAN_REAPER_ENABLED: "true"
+      IMAGE_JOB_REAPER_ENABLED: "true"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9200"]
     ports:
       - "${API_PUBLISHED_PORT:-9200}:9200"

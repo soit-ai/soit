@@ -380,6 +380,30 @@ class Settings(BaseSettings):
     workflow_orphan_reaper_interval: float = 30.0
     """Seconds between orphaned workflow run sweeps."""
 
+    # Image jobs
+    image_job_heartbeat_seconds: float = 30.0
+    """Seconds between the beats an image call in progress marks its run alive with."""
+
+    image_job_orphan_after_seconds: float = 600.0
+    """Seconds without a beat after which an image run counts as lost.
+
+    Well above the heartbeat, and above the default image call timeout, so a
+    job started by a process from before the heartbeat existed, during a
+    rolling upgrade, is not taken for lost while it still runs.
+    """
+
+    image_job_reaper_enabled: bool = False
+    """Fail image runs lost with the process that ran them.
+
+    An image job runs in the process that accepted it; a restart loses it and
+    leaves its run queued or running for good. The reaper fails such a run and
+    charges the provider call it left in flight. Disabled by default like the
+    other background loops; deployments enable it on the API service.
+    """
+
+    image_job_reaper_interval: float = 60.0
+    """Seconds between lost image run sweeps."""
+
     # Transactional outbox dispatcher (Phase 1)
     outbox_dispatcher_enabled: bool = False
     """Enable background outbox dispatcher in the API process."""

@@ -68,6 +68,7 @@ recovery-time figure.
 | Scenario | Command | Expected |
 |---|---|---|
 | API killed mid-execution | `docker compose -f docker/docker-compose.production.yml kill -s KILL api` | Workflow runs whose lease lapses are marked `failed` with `WORKFLOW_EXECUTION_ORPHANED` by the reaper; interactions are reclaimed by a worker after their lease expires |
+| API killed mid image job | Kill `api` while an `async` image job runs | The job's run is marked `failed` with `IMAGE_JOB_INTERRUPTED` by the image job reaper once it has gone `IMAGE_JOB_ORPHAN_AFTER_SECONDS` without a heartbeat; a provider call it left in flight is charged as an estimate |
 | Dispatcher killed | `... kill -s KILL outbox-dispatcher` | Pending outbox events accumulate, then drain when it restarts; none are lost |
 | Ingest worker killed | `... kill -s KILL knowledge-ingest-worker` | The in-flight task's lease expires and another worker reclaims it |
 | Database briefly unreachable | Block the port with the host firewall | Requests fail; no run is left reporting `running` once leases lapse |
@@ -79,6 +80,8 @@ lease has expired, and record how long the queue took to drain.
 The orphan sweep interval is `WORKFLOW_ORPHAN_REAPER_INTERVAL` (30s default)
 and the workflow lease is `WORKFLOW_EXECUTION_LEASE_SECONDS` (120s default), so
 expect recovery on the order of the lease plus one sweep, not instantly.
+Image runs are swept every `IMAGE_JOB_REAPER_INTERVAL` (60s) and count as lost
+after `IMAGE_JOB_ORPHAN_AFTER_SECONDS` (600s) without a heartbeat.
 
 ## Evidence to retain
 

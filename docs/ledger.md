@@ -44,13 +44,37 @@ what the estimate counts:
   left, the stream failed part way, or the backend never sends usage) is
   charged tokens estimated from the prompt and the text generated
   (`characters`); see [the gateway's streams](gateway.md#streams).
-- An image call that times out after the provider was asked is charged the
-  number of images it asked for (`requested_images`) at its route's
-  per-image price. The provider may still make and bill every one. Before
-  the provider is asked, the step records that number, the model asked for
-  and the target and provider serving it (`requested_images`, `model`,
-  `model_ref` and the `provider_*` fields in its metrics). A call refused
-  or answered with an error before the timeout is not charged.
+- An image call that times out after the provider was asked, or that was in
+  flight when the process making it was lost, is charged the number of
+  images it asked for (`requested_images`) at its route's per-image price.
+  The provider may still make and bill every one. Before the provider is
+  asked, the step records that number, the model asked for and the target
+  and provider serving it (`requested_images`, `model`, `model_ref` and the
+  `provider_*` fields in its metrics), so the charge can be told even
+  without the process. A call refused or answered with an error before the
+  timeout is not charged.
+
+An image job lost with its process, after a restart or a crash, is failed with
+`IMAGE_JOB_INTERRUPTED` by the image job reaper. The reaper is off unless
+`IMAGE_JOB_REAPER_ENABLED` is set; the shipped compose files and
+`.env.example` set it. An image call in progress, asynchronous or not, marks
+its run alive every `IMAGE_JOB_HEARTBEAT_SECONDS` (30 by default); a run left
+unmarked for `IMAGE_JOB_ORPHAN_AFTER_SECONDS` (600, and never less than three
+heartbeats) counts as lost. A model call it left in flight is charged as
+above, at the price its route has when the reaper runs, and the cost row is
+dated then, not when the call was made. If the route no longer resolves the
+charge is recorded unpriced, with `reason` `route_not_resolved` in its
+snapshot and the provider named from the step. A job lost before it asked the
+provider is not charged.
+
+The first sweep after an upgrade also fails image runs that earlier versions
+left open. Their steps predate the record of what was asked, so they are
+closed without a charge. During a rolling upgrade, a replica still on an
+earlier version sends no heartbeat, so an image job it runs for longer than
+`IMAGE_JOB_ORPHAN_AFTER_SECONDS` can be failed while it is still waiting on
+the provider; enable the reaper once every replica is upgraded. Heartbeats
+and the cutoff are stamped by each replica's own clock, so keep replica
+clocks in sync: skew eats into the margin.
 
 ## Exports
 
