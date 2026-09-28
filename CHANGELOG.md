@@ -14,6 +14,14 @@ record for operators.
 
 ### Added
 
+- `SOIT_ROLE=gateway` runs a process that serves only the gateway: `/v1`,
+  `/mcp` and its discovery metadata, `/api/v1/tools`, and health and
+  metrics, with none of the background work, so the gateway can be scaled
+  and exposed apart from the console's API. A process with the default role
+  (`all`) runs beside it. `/v1/models` now reads the model list through a
+  kernel port, and an import contract keeps the gateway entry points off the
+  domain modules.
+
 - The runtime reads a signed Enterprise license. With
   `ENTERPRISE_LICENSE_PATH` and `ENTERPRISE_LICENSE_PUBLIC_KEY_PATH` set, a
   license that verifies (Ed25519, the Enterprise issuer's format) and has not

@@ -126,8 +126,12 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _handle_startup_failure("dead letter sources", exc)
 
+    # A gateway process only answers calls; the reapers, workers, schedulers
+    # and outbox dispatcher run in a process with the default role.
+    runs_background = app_settings.soit_role != "gateway"
+
     workflow_reaper_coro = None
-    if getattr(app_settings, "workflow_orphan_reaper_enabled", False):
+    if runs_background and getattr(app_settings, "workflow_orphan_reaper_enabled", False):
         try:
             from app.infra.db.session import get_async_session_local
             from app.modules.workflow.runtime.reaper import run_reaper_loop
@@ -140,7 +144,7 @@ async def lifespan(app: FastAPI):
             _handle_startup_failure("workflow orphan reaper", exc)
 
     image_reaper_coro = None
-    if getattr(app_settings, "image_job_reaper_enabled", False):
+    if runs_background and getattr(app_settings, "image_job_reaper_enabled", False):
         try:
             from app.infra.db.session import get_async_session_local
             from app.wiring.image_job import run_image_reaper_loop
@@ -153,7 +157,7 @@ async def lifespan(app: FastAPI):
             _handle_startup_failure("image job reaper", exc)
 
     schedule_worker_coro = None
-    if getattr(app_settings, "schedule_worker_enabled", False):
+    if runs_background and getattr(app_settings, "schedule_worker_enabled", False):
         try:
             from app.infra.db.session import get_async_session_local
             from app.wiring.schedule_worker import ScheduleWorker
@@ -166,7 +170,7 @@ async def lifespan(app: FastAPI):
             _handle_startup_failure("schedule worker", exc)
 
     deletion_sweeper_coro = None
-    if getattr(app_settings, "account_deletion_sweeper_enabled", False):
+    if runs_background and getattr(app_settings, "account_deletion_sweeper_enabled", False):
         try:
             from app.modules.identity.runtime.deletion_sweeper import (
                 run_deletion_sweeper,
@@ -179,7 +183,7 @@ async def lifespan(app: FastAPI):
             _handle_startup_failure("account deletion sweeper", exc)
 
     knowledge_worker = None
-    if getattr(app_settings, "knowledge_ingest_worker_enabled", False):
+    if runs_background and getattr(app_settings, "knowledge_ingest_worker_enabled", False):
         try:
             from app.modules.knowledge.runtime.ingest_worker import (
                 GlobalKnowledgeIngestWorker,
@@ -190,7 +194,7 @@ async def lifespan(app: FastAPI):
             _handle_startup_failure("knowledge ingest worker", exc)
 
     outbox_service = None
-    if getattr(app_settings, "outbox_dispatcher_enabled", False):
+    if runs_background and getattr(app_settings, "outbox_dispatcher_enabled", False):
         try:
             from app.infra.db.session import get_async_session_local
             from app.kernel.events.dispatcher import OutboxDispatcherService
@@ -230,8 +234,10 @@ async def lifespan(app: FastAPI):
             _handle_startup_failure("usage aggregate reconciler", exc)
 
     response_interaction_worker = None
-    if getattr(app_settings, "response_interaction_worker_enabled", False) and getattr(
-        app_settings, "response_interaction_worker_in_api", True
+    if (
+        runs_background
+        and getattr(app_settings, "response_interaction_worker_enabled", False)
+        and getattr(app_settings, "response_interaction_worker_in_api", True)
     ):
         try:
             from app.wiring.response_interaction_worker import (
@@ -245,7 +251,7 @@ async def lifespan(app: FastAPI):
 
     background_tasks: list[asyncio.Task] = []
     try:
-        if app_settings.enterprise_license_path:
+        if runs_background and app_settings.enterprise_license_path:
             from app.infra.db.session import get_async_session_local
             from app.wiring.edition import run_license_heartbeat
 
@@ -501,36 +507,55 @@ from app.api.v1.tools.router import router as tools_router  # noqa: E402
 from app.api.v1.workflow.router import router as workflow_router  # noqa: E402
 from app.docs.openapi import install_enveloped_openapi  # noqa: E402
 
+
 # Register routers
-app.include_router(identity_router, prefix="/api/v1", tags=["identity"])
-app.include_router(workflow_router, prefix="/api/v1/workflows", tags=["workflows"])
-app.include_router(knowledge_router, prefix="/api/v1/knowledge", tags=["knowledge"])
-app.include_router(modelhub_router, prefix="/api/v1/modelhub", tags=["modelhub"])
-app.include_router(plugin_router, prefix="/api/v1/plugins", tags=["plugins"])
-app.include_router(observe_router, prefix="/api/v1/observe", tags=["observe"])
-app.include_router(run_router, prefix="/api/v1/runs", tags=["runs"])
-app.include_router(security_router, prefix="/api/v1/security", tags=["security"])
-app.include_router(secrets_router, prefix="/api/v1/secrets", tags=["secrets"])
-app.include_router(health_router, tags=["health"])
-app.include_router(agent_router, prefix="/api/v1/agents", tags=["agents"])
-app.include_router(task_router, prefix="/api/v1/tasks", tags=["tasks"])
-app.include_router(schedule_router, prefix="/api/v1/schedules", tags=["schedules"])
-app.include_router(thread_router, prefix="/api/v1/threads", tags=["threads"])
-app.include_router(evaluation_router, prefix="/api/v1/evaluations", tags=["evaluations"])
-app.include_router(feedback_router, prefix="/api/v1/feedback", tags=["feedback"])
-app.include_router(diagnostics_router, prefix="/api/v1/diagnostics", tags=["diagnostics"])
-app.include_router(search_router, prefix="/api/v1/search", tags=["search"])
-app.include_router(notification_router, prefix="/api/v1/notifications", tags=["notifications"])
-app.include_router(responses_router, prefix="/api/v1/responses", tags=["responses"])
-app.include_router(images_router, prefix="/api/v1/images", tags=["images"])
-app.include_router(embeddings_router, prefix="/api/v1/embeddings", tags=["embeddings"])
-app.include_router(attachments_router, prefix="/api/v1/attachments", tags=["attachments"])
-app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
-app.include_router(exports_router, prefix="/api/v1/exports", tags=["exports"])
-app.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
-app.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
-app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
-app.include_router(mcp_well_known_router, tags=["mcp"])
+def include_routes(target: FastAPI, role: str) -> None:
+    """Register the routers a process with ``role`` serves.
+
+    A gateway process serves the entry points external callers use (``/v1``,
+    ``/mcp`` with its discovery metadata, ``/api/v1/tools``) and health.
+    Everything else, the console's API and the background work, runs in a
+    process with the default role.
+    """
+    if role == "gateway":
+        target.include_router(health_router, tags=["health"])
+        target.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
+        target.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
+        target.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
+        target.include_router(mcp_well_known_router, tags=["mcp"])
+        return
+    target.include_router(identity_router, prefix="/api/v1", tags=["identity"])
+    target.include_router(workflow_router, prefix="/api/v1/workflows", tags=["workflows"])
+    target.include_router(knowledge_router, prefix="/api/v1/knowledge", tags=["knowledge"])
+    target.include_router(modelhub_router, prefix="/api/v1/modelhub", tags=["modelhub"])
+    target.include_router(plugin_router, prefix="/api/v1/plugins", tags=["plugins"])
+    target.include_router(observe_router, prefix="/api/v1/observe", tags=["observe"])
+    target.include_router(run_router, prefix="/api/v1/runs", tags=["runs"])
+    target.include_router(security_router, prefix="/api/v1/security", tags=["security"])
+    target.include_router(secrets_router, prefix="/api/v1/secrets", tags=["secrets"])
+    target.include_router(health_router, tags=["health"])
+    target.include_router(agent_router, prefix="/api/v1/agents", tags=["agents"])
+    target.include_router(task_router, prefix="/api/v1/tasks", tags=["tasks"])
+    target.include_router(schedule_router, prefix="/api/v1/schedules", tags=["schedules"])
+    target.include_router(thread_router, prefix="/api/v1/threads", tags=["threads"])
+    target.include_router(evaluation_router, prefix="/api/v1/evaluations", tags=["evaluations"])
+    target.include_router(feedback_router, prefix="/api/v1/feedback", tags=["feedback"])
+    target.include_router(diagnostics_router, prefix="/api/v1/diagnostics", tags=["diagnostics"])
+    target.include_router(search_router, prefix="/api/v1/search", tags=["search"])
+    target.include_router(notification_router, prefix="/api/v1/notifications", tags=["notifications"])
+    target.include_router(responses_router, prefix="/api/v1/responses", tags=["responses"])
+    target.include_router(images_router, prefix="/api/v1/images", tags=["images"])
+    target.include_router(embeddings_router, prefix="/api/v1/embeddings", tags=["embeddings"])
+    target.include_router(attachments_router, prefix="/api/v1/attachments", tags=["attachments"])
+    target.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
+    target.include_router(exports_router, prefix="/api/v1/exports", tags=["exports"])
+    target.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
+    target.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
+    target.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
+    target.include_router(mcp_well_known_router, tags=["mcp"])
+
+
+include_routes(app, app_settings.soit_role)
 
 # The license decides the edition before extension packages mount, so they
 # read the entitlements it grants.

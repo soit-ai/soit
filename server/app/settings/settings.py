@@ -457,6 +457,16 @@ class Settings(BaseSettings):
     platform_edition: str = "community"
     """Current product edition: community, enterprise, or cloud."""
 
+    soit_role: str = "all"
+    """What this process serves (``SOIT_ROLE``).
+
+    ``all``, the default, serves the whole API and runs the background work.
+    ``gateway`` serves only the entry points external callers use (``/v1``,
+    ``/mcp``, ``/api/v1/tools``) and health, and runs no background work, so
+    the gateway can be scaled and exposed apart from the console's API; a
+    process with the default role must run beside it.
+    """
+
     platform_entitlements: list[str] = []
     """License or control-plane granted feature keys."""
 
@@ -575,6 +585,14 @@ class Settings(BaseSettings):
 
     event_bus_channel: str = "soit:events"
     """Redis pubsub channel for event bus."""
+
+    @field_validator("soit_role")
+    @classmethod
+    def _known_role(cls, value: str) -> str:
+        role = value.strip().lower()
+        if role not in ("all", "gateway"):
+            raise ValueError(f"SOIT_ROLE must be all or gateway, not {value!r}")
+        return role
 
     @field_validator("trusted_proxies")
     @classmethod

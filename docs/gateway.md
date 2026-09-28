@@ -366,6 +366,25 @@ code in lower case.
 | 429 | `rate_limit_error` | a rate limit or quota; `Retry-After` says when to try again |
 | 5xx | `api_error` | the provider failed or timed out, and no virtual model target was left to try |
 
+## Running the gateway on its own
+
+The gateway can run in processes of its own, scaled and exposed apart from
+the console's API. Start them with `SOIT_ROLE=gateway` and the same
+configuration, database, Redis and storage as the rest of the deployment:
+
+```bash
+SOIT_ROLE=gateway uvicorn app.main:app --host 0.0.0.0 --port 9300
+```
+
+A gateway process serves `/v1`, `/mcp` with its discovery metadata under
+`/.well-known`, `/api/v1/tools`, and `/health` and `/metrics`; every other
+path answers `404`. It runs none of the background work (outbox dispatch,
+usage aggregation, reapers, schedules, ingestion, the license heartbeat), so
+a process with the default role, `SOIT_ROLE=all`, must run beside it: that is
+where a call's cost reaches its aggregates, budget thresholds and alerts. The
+gateway entry points reach the model hub and the other domain modules only
+through the composition root, which an import contract in CI holds them to.
+
 ## Compatibility testing
 
 `server/tests/compat` drives the OpenAI Python SDK against the gateway in CI:

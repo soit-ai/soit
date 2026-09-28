@@ -6,8 +6,8 @@ import logging
 
 import pytest
 
+from app.api.openai.dependencies import get_model_catalog
 from app.api.v1.billing.dependencies import get_credit_service
-from app.api.v1.modelhub.dependencies import get_modelhub_service
 from app.kernel.commons.errors import KernelError
 from app.main import app
 from app.middleware.error_handler import ERROR_CODE_TO_STATUS
@@ -78,7 +78,7 @@ async def test_an_unmapped_code_answers_without_its_message_outside_development(
 async def test_the_v1_surface_answers_it_in_the_openai_shape(async_client, monkeypatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
 
-    response = await _get(async_client, "/v1/models", get_modelhub_service, _vault_write_failure())
+    response = await _get(async_client, "/v1/models", get_model_catalog, _vault_write_failure())
 
     assert response.status_code == 500
     error = response.json()["error"]

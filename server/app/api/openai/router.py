@@ -36,16 +36,13 @@ from app.api.openai.convert import (
     tool_call_deltas_out,
     usage,
 )
+from app.api.openai.dependencies import get_model_catalog
 from app.api.openai.schemas import (
     MAX_IMAGE_PROMPT_CHARS,
     ChatCompletionRequest,
     EmbeddingRequest,
     ImageGenerationRequest,
     validate_image_size,
-)
-from app.api.v1.modelhub.dependencies import (
-    get_modelhub_service,
-    get_virtual_model_service,
 )
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
@@ -54,12 +51,12 @@ from app.api.v1.permissions import (
 from app.infra.db.session import get_async_db
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.contracts.context import RequestContext
+from app.kernel.ports.llm.catalog import ModelCatalogPort
 from app.kernel.ports.llm.image_mask import (
     assert_mask_matches_image,
     openai_alpha_to_mask,
 )
 from app.kernel.ports.llm.interface import ChatMessage, ChatStreamChunk
-from app.kernel.ports.llm.virtual_models import virtual_model_ref
 from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.images.service import (
     ImageJobRequest,
@@ -69,8 +66,6 @@ from app.kernel.runtime.images.service import (
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.middleware.error_handler import ERROR_CODE_TO_STATUS
 from app.middleware.openai_errors import openai_error_body
-from app.modules.modelhub.application.service import ModelHubService
-from app.modules.modelhub.application.virtual_models import VirtualModelService
 from app.wiring import get_container
 from app.wiring.image_job import keep_image_run_alive
 
@@ -468,8 +463,7 @@ async def _close_abandoned(
 @router.get("/models")
 async def list_models(
     ctx: Annotated[RequestContext, Depends(require_workspace_read_ctx)],
-    service: Annotated[ModelHubService, Depends(get_modelhub_service)],
-    virtual_models: Annotated[VirtualModelService, Depends(get_virtual_model_service)],
+    catalog: Annotated[ModelCatalogPort, Depends(get_model_catalog)],
 ):
     """The workspace's callable models, by the ref a call names.
 
@@ -479,23 +473,13 @@ async def list_models(
 
     entries = [
         {
-            "id": model.model_ref,
+            "id": model.id,
             "object": "model",
             "created": int(model.created_at.timestamp()),
             "owned_by": model.owned_by,
         }
-        for model in await service.list_runtime_models()
+        for model in await catalog.list_callable_models()
     ]
-    entries.extend(
-        {
-            "id": virtual_model_ref(model.slug),
-            "object": "model",
-            "created": int(model.created_at.timestamp()),
-            "owned_by": "soit",
-        }
-        for model in await virtual_models.list_virtual_models()
-        if model.status == "active"
-    )
     if ctx.allowed_models is not None:
         entries = [entry for entry in entries if entry["id"] in ctx.allowed_models]
     return {"object": "list", "data": entries}
