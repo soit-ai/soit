@@ -9,15 +9,45 @@ from datetime import timedelta
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.kernel.commons.errors import KernelError, public_error_message
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common import lease
+from app.middleware.error_handler import ERROR_CODE_TO_STATUS
 from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.domain.models import WorkflowRun
 from app.settings.settings import settings
 from app.wiring import get_container
 
 _detached_workflow_tasks: set[asyncio.Task] = set()
+
+logger = logging.getLogger(__name__)
+
+
+def stream_error_payload(
+    error: BaseException, *, run_id: str, request_id: str | None, default: str
+) -> dict:
+    """What an SSE error event tells the client about a failure.
+
+    A KernelError whose code has a status of its own describes the caller's
+    request (a missing workflow, invalid inputs) and keeps its message. Any
+    other failure may carry the text of what it wraps, so it is logged with
+    its traceback here and the client gets ``default``, the error code when
+    there is one, and the request id to look it up.
+    """
+    payload: dict = {"run_id": run_id, "request_id": request_id}
+    if isinstance(error, KernelError):
+        payload["error_code"] = error.code
+        if error.code in ERROR_CODE_TO_STATUS:
+            payload["error"] = error.message
+            return payload
+    logger.error(
+        "workflow.stream_failed",
+        exc_info=error,
+        extra={"run_id": run_id, "request_id": request_id},
+    )
+    payload["error"] = public_error_message(error, default)
+    return payload
 
 
 async def _claim_workflow_execution(
@@ -348,9 +378,14 @@ class SSEHandlers:
             try:
                 await execution_task
             except Exception as exec_error:
-                # Execution failed
+                failure = stream_error_payload(
+                    exec_error,
+                    run_id=run_id,
+                    request_id=ctx.request_id,
+                    default="Workflow execution failed",
+                )
                 yield "event: error\n"
-                yield f"data: {json.dumps({'run_id': run_id, 'error': str(exec_error)})}\n\n"
+                yield f"data: {json.dumps(failure)}\n\n"
                 return
 
             # Get final run status. The executor wrote it from a detached
@@ -384,8 +419,11 @@ class SSEHandlers:
             self.logger.info("sse.cancelled", extra={"run_id": run_id})
             raise
         except Exception as e:
+            failure = stream_error_payload(
+                e, run_id=run_id, request_id=ctx.request_id, default="Workflow execution failed"
+            )
             yield "event: error\n"
-            yield f"data: {json.dumps({'run_id': run_id, 'error': str(e)})}\n\n"
+            yield f"data: {json.dumps(failure)}\n\n"
         finally:
             if subscription_id and event_bus:
                 try:
@@ -647,8 +685,11 @@ class SSEHandlers:
             self.logger.info("sse.cancelled", extra={"run_id": run_id})
             raise
         except Exception as e:
+            failure = stream_error_payload(
+                e, run_id=run_id, request_id=ctx.request_id, default="Run stream failed"
+            )
             yield "event: error\n"
-            yield f"data: {json.dumps({'run_id': run_id, 'error': str(e)})}\n\n"
+            yield f"data: {json.dumps(failure)}\n\n"
         finally:
             if subscription_id and event_bus:
                 try:

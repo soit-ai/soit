@@ -326,6 +326,12 @@ record for operators.
 
 ### Security
 
+- The workflow and run event streams no longer put an exception's text in
+  their `error` events. A failure the caller can act on (a missing workflow,
+  invalid inputs, a spent budget) keeps its message; any other failure is
+  logged with its traceback and the event carries a generic message, the
+  error code when there is one, and the request id.
+
 - An image generation through the LiteLLM adapter sent a provider's
   `azure_ad_token`, `extra_headers` and `project` from its `litellm_params`
   as fields of the request body, the Azure AD token in clear: LiteLLM copies
