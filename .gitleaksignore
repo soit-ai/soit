@@ -18,3 +18,8 @@ fd976f4c5633c99dd7d5a3efe343f97368c2d08a:server/tests/unit/test_content_safety_r
 # A caller-chosen idempotency key in the tools API example of the gateway
 # guide: a date-stamped job name, not a credential.
 8b1be5f3149ca0868c6bb387c74b3043d97b2784:docs/gateway.md:generic-api-key:105
+# A test's Ed25519 signing key, generated at import, passed as the default of
+# a parameter named key: an object reference, not a credential.
+084f8abe69bb5604091500e402ba619c77e9fba9:server/tests/unit/test_enterprise_license.py:generic-api-key:54
+084f8abe69bb5604091500e402ba619c77e9fba9:server/tests/unit/test_enterprise_license.py:generic-api-key:63
+084f8abe69bb5604091500e402ba619c77e9fba9:server/tests/unit/test_enterprise_license.py:generic-api-key:67

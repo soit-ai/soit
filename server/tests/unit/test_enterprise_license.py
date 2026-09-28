@@ -36,7 +36,7 @@ from app.wiring.edition import (
 from app.wiring.extensions import mount_extensions
 
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
-KEY = Ed25519PrivateKey.generate()
+SIGNER = Ed25519PrivateKey.generate()
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
@@ -51,21 +51,21 @@ def _payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
-def _envelope(payload: dict[str, Any], key: Ed25519PrivateKey = KEY) -> str:
+def _envelope(payload: dict[str, Any], signer: Ed25519PrivateKey = SIGNER) -> str:
     # The Enterprise issuer's format: sorted keys, canonical payload signed.
-    signature = key.sign(canonical_payload(payload))
+    signature = signer.sign(canonical_payload(payload))
     return json.dumps(
         {"alg": "Ed25519", "payload": payload, "signature": base64.b64encode(signature).decode()},
         sort_keys=True,
     )
 
 
-def _pem(key: Ed25519PrivateKey = KEY) -> bytes:
-    return key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+def _pem(signer: Ed25519PrivateKey = SIGNER) -> bytes:
+    return signer.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
 
 
-def _raw_b64(key: Ed25519PrivateKey = KEY) -> bytes:
-    return base64.b64encode(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+def _raw_b64(signer: Ed25519PrivateKey = SIGNER) -> bytes:
+    return base64.b64encode(signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
 
 
 def _files(tmp_path: Path, envelope: str, key: bytes | None = None) -> tuple[str, str]:
@@ -166,7 +166,7 @@ class TestVerification:
                 "alg": "Ed25519",
                 "payload": payload,
                 "signature": base64.b64encode(
-                    KEY.sign(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+                    SIGNER.sign(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
                 ).decode("ascii"),
             },
             sort_keys=True,
