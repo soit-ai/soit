@@ -10,7 +10,7 @@ Status: Phase 1 acceptance support matrix. This document records implementation 
 | OpenAI-compatible | Yes, through `OpenAILLMPort` with `base_url` | Catalog/chat/embedding diagnostics through OpenAI-compatible client paths | Accepted implementation path | Covers self-hosted or compatible gateways when API semantics match OpenAI. |
 | DeepSeek | Yes, `app/adapters/llm/deepseek.py` | Provider configuration is supported; runtime uses OpenAI-compatible chat adapter | Accepted implementation path for chat runtime | Model IDs containing `:` are preserved by DeepSeek-specific parsing. |
 | Anthropic | Yes, `app/adapters/llm/anthropic.py` | Catalog and chat diagnostics | Accepted implementation path | Supports chat, streaming, and native tool calling (`tool_use` / `tool_result`, streamed `input_json_delta`). Embeddings and rerank are not offered by Anthropic. |
-| Gemini | No dedicated runtime adapter in `app/adapters/llm` | Chat diagnostics and catalog paths in ModelHub provider adapter | Diagnostic foundation only | Do not count as Phase 1 runtime acceptance until a runtime adapter is added. |
+| Gemini | LiteLLM (`gemini`) by default; the native backend, `app/adapters/llm/gemini.py`, calls the Gemini API directly | Chat diagnostics and catalog paths in ModelHub provider adapter | Native adapter covered by unit tests; no live-credential evidence yet | The native backend serves chat, streaming, tool calling (JSON Schema declarations, thought signatures returned with each call), structured output and embeddings (`batchEmbedContents`, counted at four characters a token since Gemini reports none). Images go inline as `data:` URLs. Image generation stays on LiteLLM. |
 | Ollama | LiteLLM (`ollama_chat`) by default; the native backend calls the server's OpenAI-compatible `/v1` through `OpenAILLMPort` | Catalog from `/api/tags` with context length and capabilities (chat, embeddings, tools, vision) from `/api/show`; health from `/api/version`; chat and embedding tests through `/v1` | Accepted implementation path | Needs no credential; a key is sent as a bearer token for servers behind an authenticating proxy. The base URL may be the server root or its `/v1` address. Add the server to the workspace egress allowlist. Local models carry no price. |
 
 ## Phase 1 acceptance
@@ -20,7 +20,7 @@ Phase 1 requires at least two mainstream model source types to be configurable a
 1. OpenAI or OpenAI-compatible provider.
 2. DeepSeek provider through the OpenAI-compatible runtime path.
 
-Anthropic supports chat, streaming and tool calling; it offers no embeddings or rerank, so a workspace pairs it with another provider for knowledge retrieval. Gemini must remain diagnostic-only until a runtime adapter is implemented.
+Anthropic supports chat, streaming and tool calling; it offers no embeddings or rerank, so a workspace pairs it with another provider for knowledge retrieval. Gemini has a native adapter for chat, tools and embeddings, but it has not yet been checked against the live API with a real credential, so it is not an acceptance candidate until that evidence exists.
 
 ## Verification commands
 

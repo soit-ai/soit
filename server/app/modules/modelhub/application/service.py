@@ -127,8 +127,10 @@ class ModelHubService:
         {
             "provider_kind": "gemini",
             "display_name": "Gemini",
+            # LiteLLM stays the default: the native adapter serves chat, tools
+            # and embeddings, and Gemini's image generation goes through LiteLLM.
             "default_adapter_backend": "litellm",
-            "supported_adapter_backends": ["litellm"],
+            "supported_adapter_backends": ["native", "litellm"],
             "litellm_provider": "gemini",
             "requires_base_url": False,
             "credential_optional": False,

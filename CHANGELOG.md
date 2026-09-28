@@ -14,6 +14,13 @@ record for operators.
 
 ### Added
 
+- Gemini providers can use a native adapter (`adapter_backend: native`) that
+  calls the Gemini API directly: chat, streaming, tool calls declared with
+  their JSON Schema and returned with their thought signatures, structured
+  output, inline `data:` URL images and embeddings. LiteLLM stays the
+  default and still serves Gemini's image generation, so a Gemini provider
+  no longer depends on LiteLLM for chat, tools or retrieval.
+
 - `SOIT_ROLE=gateway` runs a process that serves only the gateway: `/v1`,
   `/mcp` and its discovery metadata, `/api/v1/tools`, and health and
   metrics, with none of the background work, so the gateway can be scaled

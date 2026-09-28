@@ -114,6 +114,15 @@ def _default_native_factory(
                 f"Provider credential is required: {config.slug}",
             )
         return AnthropicLLMPort(api_key=api_key, base_url=config.base_url, timeout=config.timeout)
+    if config.kind == "gemini":
+        from app.adapters.llm.gemini import GeminiLLMPort
+
+        if not api_key:
+            raise KernelError(
+                "MODEL_PROVIDER_CREDENTIAL_REQUIRED",
+                f"Provider credential is required: {config.slug}",
+            )
+        return GeminiLLMPort(api_key=api_key, base_url=config.base_url, timeout=config.timeout)
     if config.kind == "ollama":
         # Ollama's OpenAI-compatible /v1 carries tools and embeddings natively.
         from app.adapters.llm.ollama import (
