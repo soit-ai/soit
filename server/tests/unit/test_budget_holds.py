@@ -215,6 +215,48 @@ async def test_a_tool_calls_cost_releases_its_hold(async_db, ctx) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_run_that_ends_releases_the_holds_its_failed_calls_kept(async_db, ctx) -> None:
+    budget = _budget(ctx)
+    async_db.add(budget)
+    await _run(async_db, ctx, "run_ends")
+    holds = _Recording()
+    guard = BudgetGuard(async_db, ctx, reservations=holds)
+
+    # Two calls admitted; both fail before the provider answers, so no cost.
+    await guard.check(operation="chat", run_id="run_ends")
+    await guard.check(operation="chat", run_id="run_ends")
+    await async_db.commit()
+    await _drain_releases()
+    assert holds.held(budget.id) == 2
+
+    run = await async_db.get(Run, "run_ends")
+    assert run is not None
+    run.status = "failed"
+    await async_db.commit()
+    await _drain_releases()
+
+    assert holds.held(budget.id) == 0
+    assert len(holds.released) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_run_still_going_keeps_its_holds(async_db, ctx) -> None:
+    budget = _budget(ctx)
+    async_db.add(budget)
+    await _run(async_db, ctx, "run_going")
+    holds = _Recording()
+
+    await BudgetGuard(async_db, ctx, reservations=holds).check(operation="chat", run_id="run_going")
+    run = await async_db.get(Run, "run_going")
+    assert run is not None
+    run.status = "running"
+    await async_db.commit()
+    await _drain_releases()
+
+    assert holds.held(budget.id) == 1
+
+
+@pytest.mark.asyncio
 async def test_a_run_releases_one_hold_per_costed_call(async_db, ctx) -> None:
     budget = _budget(ctx)
     async_db.add(budget)

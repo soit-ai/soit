@@ -396,10 +396,10 @@ same client.
 ## Known limitations
 
 - A call that fails, or records no cost, keeps its budget hold until its
+  run ends (for a gateway call, when the call returns), or at most its
   timeout (`LLM_TIMEOUT_SECONDS`, or `LLM_IMAGE_TIMEOUT_SECONDS` for images)
-  and a minute have passed, so near a limit it can refuse other calls until
-  then. A call still running after that, such as a very long stream, no
-  longer holds its budget. While Redis is unreachable, replicas do not see
+  and a minute. A call still running after that, such as a very long stream,
+  no longer holds its budget. While Redis is unreachable, replicas do not see
   each other's holds and can each overshoot a budget by about one call.
 - Budget spend reads the daily aggregates for finished days and the cost
   ledger for today; a day's aggregate is rebuilt by the reconciler

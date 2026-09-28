@@ -128,8 +128,9 @@ record for operators.
   of lasting a minute, so a busy workspace is no longer refused near its
   limit for calls that already finished. Checking a budget and holding it
   are now one Redis step, so two concurrent callers can no longer both take
-  the last slot; a hold that nothing releases lasts the call's timeout and a
-  minute, so a long image call keeps its budget held to the end; and while
+  the last slot; a failed call's hold is released when its run ends, and a
+  hold that nothing releases lasts the call's timeout and a minute, so a long
+  image call keeps its budget held to the end; and while
   Redis is unreachable, holds are kept in the process instead of skipped.
 
 - The content-free runs documentation, README and settings copy now say
