@@ -270,6 +270,12 @@ record for operators.
   generation through LiteLLM's generic image handler for a provider other
   than Gemini or Stability, such as OpenRouter or DashScope, is sent no
   custom headers, since there LiteLLM would copy them into the body.
+- An embedding through the LiteLLM adapter sent an OpenAI, Azure or
+  OpenAI-compatible provider's `azure_ad_token` and `project` as fields of
+  the request body, the Azure AD token in clear beside the `Authorization`
+  header it also set. An embedding now hands them over as image calls do,
+  and sends the `organization`, which it used to drop, as the
+  `OpenAI-Organization` header.
 - A tool call whose URL was injected from a secret, such as a webhook URL
   kept as one, put that secret into the evidence of its refusal when egress
   policy refused it, in every capture mode: the `security.egress.blocked`

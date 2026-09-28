@@ -37,7 +37,7 @@ _ROUTES = [
     pytest.param("openai_compatible", "litellm_proxy", "https://gateway.provider.test/v1", id="openai-compatible"),
 ]
 _OPENAI_ROUTES = [route for route in _ROUTES if route.id != "azure"]
-_OPERATIONS = ["generate", "edit"]
+_OPERATIONS = ["generate", "edit", "embed"]
 
 
 def _setting(name: str) -> Any:
@@ -59,18 +59,23 @@ def _sentinels(settings: dict[str, Any]) -> list[str]:
 
 
 class _Wire:
-    """Every request LiteLLM sends, answered with one generated image."""
+    """Every request LiteLLM sends, answered with one image or one embedding."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
 
     def answer(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        return httpx.Response(
-            200,
-            json={"created": 1, "data": [{"b64_json": "aGk="}]},
-            request=request,
-        )
+        if request.url.path.endswith("/embeddings"):
+            answer: dict[str, Any] = {
+                "object": "list",
+                "data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2]}],
+                "model": "text-embedding-3-small",
+                "usage": {"prompt_tokens": 1, "total_tokens": 1},
+            }
+        else:
+            answer = {"created": 1, "data": [{"b64_json": "aGk="}]}
+        return httpx.Response(200, json=answer, request=request)
 
     @property
     def last(self) -> httpx.Request:
@@ -120,7 +125,7 @@ async def _call(
     api_base: str,
     settings: dict[str, Any],
     api_key: str | None = _API_KEY,
-    model: str = "gpt-image-1",
+    model: str | None = None,
 ) -> None:
     port = LiteLLMPort(
         provider_kind=provider_kind,
@@ -130,9 +135,11 @@ async def _call(
         litellm_params=settings,
     )
     if operation == "generate":
-        await port.generate_image(prompt="a red dot", model=f"model:p:{model}")
+        await port.generate_image(prompt="a red dot", model=f"model:p:{model or 'gpt-image-1'}")
+    elif operation == "edit":
+        await port.edit_image(image=_png(), prompt="a red dot", model=f"model:p:{model or 'gpt-image-1'}")
     else:
-        await port.edit_image(image=_png(), prompt="a red dot", model=f"model:p:{model}")
+        await port.embed(["a red dot"], model=f"model:p:{model or 'text-embedding-3-small'}")
 
 
 @pytest.mark.asyncio

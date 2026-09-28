@@ -164,13 +164,12 @@ class LiteLLMPort(LLMPort):
         """Connection settings handed over so that none can become a body field.
 
         LiteLLM takes a keyword as a connection setting only when it is one of
-        the call's own parameters or LiteLLM's; an image generation copies any
-        other into the provider request, for OpenAI, Azure and the providers
-        LiteLLM treats as OpenAI-compatible into the JSON body. An
-        extra_headers, project or azure_ad_token passed as it is therefore
-        reached the provider as a body field, the Azure AD token in clear and
-        never as the Authorization header, while an image edit dropped the
-        headers.
+        the call's own parameters or LiteLLM's; an image generation or an
+        embedding copies any other into the provider request, for OpenAI, Azure
+        and the providers LiteLLM treats as OpenAI-compatible into the JSON
+        body. An extra_headers, project or azure_ad_token passed as it is
+        therefore reached the provider as a body field, the Azure AD token in
+        clear, while an image edit dropped the headers.
 
         So the headers go in ``headers_param``, the parameter the call sends as
         request headers, with OpenAI's organization and project as its
@@ -409,17 +408,20 @@ class LiteLLMPort(LLMPort):
             )
 
     async def embed(self, texts: list[str], model: str, **kwargs: Any) -> EmbeddingResponse:
+        model_name = self._model_name(model)
         response = await self._embedding(
-            model=self._model_name(model),
+            model=model_name,
             input=texts,
-            **self._connection_params(),
+            # LiteLLM's embedding counts the extra_headers keyword among its own
+            # parameters, so it never copies it into the body.
+            **self._body_safe_connection_params(model_name, headers_param="extra_headers"),
         )
         data = _value(response, "data", []) or []
         usage = _value(response, "usage")
         return EmbeddingResponse(
             embeddings=[list(_value(item, "embedding", [])) for item in data],
             tokens_used=int(_value(usage, "total_tokens", 0) or 0),
-            model=_value(response, "model", self._model_name(model)),
+            model=_value(response, "model", model_name),
         )
 
     async def generate_image(
