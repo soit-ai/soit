@@ -203,6 +203,16 @@ record for operators.
   capability (`MODEL_CAPABILITY_UNAVAILABLE`, `reason` `no_litellm_route`
   or `native_adapter`) when its route is chosen, so a virtual model moves
   on to its next target instead of failing.
+- An image call that times out is now charged. It recorded no cost, although
+  the provider does not cancel the work when SOIT stops waiting and may
+  still make and bill every image. It is now charged the images it asked
+  for, at its route's per-image price, flagged `usage_estimated` on the
+  step and in the cost row's pricing snapshot (whose
+  `usage_estimate_basis` is `requested_images`). Before the provider is
+  asked, the step now records how many images the call asks for, the
+  model asked for and the provider serving it (`requested_images`,
+  `model`, `model_ref` and `provider_*` in its metrics), so the charge
+  can be told even if the process making the call is lost.
 - A file download that is JSON is returned as the file. Run artifacts,
   attachments and knowledge documents of type `application/json` were
   wrapped in the API's `{success, code, message, data}` envelope on

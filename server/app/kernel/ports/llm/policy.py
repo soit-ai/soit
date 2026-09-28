@@ -72,6 +72,9 @@ _SETTLE_TIMEOUT_SECONDS = 60.0
 # reported them (see usage_estimate): about right for text, a lower bound
 # for images and for reasoning the provider does not stream.
 _USAGE_ESTIMATE_SNAPSHOT = {"usage_estimated": True, "usage_estimate_basis": "characters"}
+# Marks an image charge whose count was never confirmed: the provider was asked
+# for the images and its answer never came, so the count is what was asked for.
+_IMAGE_ESTIMATE_SNAPSHOT = {"usage_estimated": True, "usage_estimate_basis": "requested_images"}
 
 
 def _closing_a_dropped_generator() -> bool:
@@ -453,6 +456,7 @@ def _image_pricing(
     size: str | None = None,
     quality: str | None = None,
     steps: int | None = None,
+    unpriced_reason: str | None = None,
 ) -> _PricingCalculation:
     """Images bill per generated image; pricing key "image" with unit "image".
 
@@ -476,6 +480,7 @@ def _image_pricing(
             pricing,
             billing_basis="images",
             quantities=quantities,
+            reason=unpriced_reason,
         )
     image_rate = _rate_definition(
         pricing,
@@ -490,6 +495,7 @@ def _image_pricing(
             pricing,
             billing_basis="images",
             quantities=quantities,
+            reason=unpriced_reason,
         )
     amount = Decimal(image_count) * image_rate[0] / Decimal(image_rate[2])
     return _priced_calculation(
@@ -499,6 +505,40 @@ def _image_pricing(
         quantities=quantities,
         amount=amount,
         currency=currency,
+    )
+
+
+def unconfirmed_image_charge(
+    pricing: dict[str, Any],
+    *,
+    requested_model: str,
+    target: LLMRuntimeTarget | None,
+    images: int,
+    size: str | None = None,
+    unpriced_reason: str | None = None,
+) -> tuple[_PricingCalculation, dict[str, str | None]]:
+    """The charge for an image call whose answer never came, and its cost identity.
+
+    The provider was asked for ``images`` images and nothing came back, a
+    timeout or a process that stopped mid-call. It does not cancel the work
+    and may still make and bill every image, so the call is charged the
+    count it asked for, flagged as estimated. ``unpriced_reason`` says why a
+    charge has no price when the reason is not the pricing itself, such as
+    a route that no longer resolves.
+    """
+    identity = _runtime_cost_fields(requested_model=requested_model, upstream_model=None, target=target)
+    calculation = _with_runtime_identity(
+        _image_pricing(pricing, image_count=images, size=size, unpriced_reason=unpriced_reason),
+        requested_model=requested_model,
+        identity=identity,
+    )
+    return (
+        _PricingCalculation(
+            currency=calculation.currency,
+            amount=calculation.amount,
+            snapshot={**calculation.snapshot, **_IMAGE_ESTIMATE_SNAPSHOT},
+        ),
+        identity,
     )
 
 
@@ -1802,6 +1842,9 @@ class LLMPolicyGateway(LLMPort):
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
+        route: _ResolvedPolicyRoute | None = None
+        target = model
+        asked = False
         try:
             route, target, attempts = await self._first_available_route(
                 model,
@@ -1818,6 +1861,8 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
+            await self._note_image_call(step, route=route, model=model, target=target, images=n, edit=False)
+            asked = True
             with call_span(
                 self.otel_tracer,
                 "soit.llm.generate_image",
@@ -1905,14 +1950,98 @@ class LLMPolicyGateway(LLMPort):
             return response
         except Exception as e:
             if step and self.trace_writer:
+                charged = asked and route is not None and isinstance(e, KernelTimeoutError)
+                if charged:
+                    await self._charge_unanswered_images(
+                        step.id,
+                        route=route,
+                        model=model,
+                        images=n,
+                        size=size,
+                        operation="generate_image",
+                        run_id=resolve_run_id(kwargs, self.ctx),
+                        elapsed_ms=int((utc_now() - start_time).total_seconds() * 1000),
+                    )
                 await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
+                    metrics={"usage_estimated": True} if charged else None,
                     error_code="IMAGE_ERROR",
                     error_message=str(e),
                     error_details=error_details(e),
                 )
             raise
+
+    async def _note_image_call(
+        self,
+        step: Any,
+        *,
+        route: _ResolvedPolicyRoute,
+        model: str,
+        target: str,
+        images: int,
+        edit: bool,
+    ) -> None:
+        """Make durable, before the provider is asked, what the call asks for.
+
+        If its answer never comes, the gateway charges it on a timeout; if the
+        process making the call is lost, the image job reaper tells the charge
+        from what this writes on the step: the count, the model asked for, and
+        the target and provider serving it.
+        """
+        if not step or not self.trace_writer:
+            return
+        served_by = route.target
+        await self.trace_writer.update_step_status(
+            step.id,
+            "running",
+            metrics={
+                "requested_images": images,
+                "image_edit": edit,
+                "model": model,
+                "model_ref": target,
+                "provider_id": served_by.provider_id if served_by else None,
+                "provider_slug": served_by.provider_slug if served_by else None,
+                "provider_kind": served_by.provider_kind if served_by else None,
+            },
+        )
+        await self.trace_writer.release_before_wait()
+
+    async def _charge_unanswered_images(
+        self,
+        step_id: str,
+        *,
+        route: _ResolvedPolicyRoute,
+        model: str,
+        images: int,
+        size: str | None,
+        operation: str,
+        run_id: str | None,
+        elapsed_ms: int,
+    ) -> None:
+        """Charge an image call that timed out: the provider may still bill it."""
+        assert self.trace_writer is not None
+        pricing, identity = unconfirmed_image_charge(
+            route.pricing,
+            requested_model=model,
+            target=route.target,
+            images=images,
+            size=size,
+        )
+        await self.trace_writer.record_cost(
+            run_id=run_id,
+            step_id=step_id,
+            billing_basis="images",
+            billed_quantity=images,
+            currency=pricing.currency,
+            amount=pricing.amount,
+            pricing_snapshot_json=pricing.snapshot,
+            **identity,
+            source_port="llm",
+            operation=operation,
+            latency_ms=elapsed_ms,
+            request_count=images,
+        )
 
     async def check_image_request(
         self,
@@ -2026,6 +2155,9 @@ class LLMPolicyGateway(LLMPort):
             await self.trace_writer.release_before_wait()
 
         start_time = utc_now()
+        route: _ResolvedPolicyRoute | None = None
+        target = model
+        asked = False
         try:
             route, target, attempts = await self._first_available_route(
                 model,
@@ -2041,6 +2173,8 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
+            await self._note_image_call(step, route=route, model=model, target=target, images=n, edit=True)
+            asked = True
             with call_span(
                 self.otel_tracer,
                 "soit.llm.edit_image",
@@ -2136,9 +2270,22 @@ class LLMPolicyGateway(LLMPort):
             return response
         except Exception as e:
             if step and self.trace_writer:
+                charged = asked and route is not None and isinstance(e, KernelTimeoutError)
+                if charged:
+                    await self._charge_unanswered_images(
+                        step.id,
+                        route=route,
+                        model=model,
+                        images=n,
+                        size=size,
+                        operation="edit_image",
+                        run_id=resolve_run_id(kwargs, self.ctx),
+                        elapsed_ms=int((utc_now() - start_time).total_seconds() * 1000),
+                    )
                 await self.trace_writer.update_step_status(
                     step.id,
                     "failed",
+                    metrics={"usage_estimated": True} if charged else None,
                     error_code="IMAGE_ERROR",
                     error_message=str(e),
                     error_details=error_details(e),

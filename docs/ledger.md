@@ -31,6 +31,27 @@ renaming or retyping one is a major version. A contract test fails whenever a
 ledger table gains a column the contract does not account for, so every
 change to what leaves the runtime is a reviewed change.
 
+## Charges SOIT estimates
+
+Most cost rows record what the provider reported. Two kinds of call are
+charged an estimate instead, because the provider was asked and its full
+answer never came, and neither kind is cancelled at the provider by SOIT
+giving up. Both are flagged `usage_estimated` on the step's metrics and in
+the cost row's `pricing_snapshot`; the snapshot's `usage_estimate_basis` says
+what the estimate counts:
+
+- A streamed model call that ends without the provider's usage (the client
+  left, the stream failed part way, or the backend never sends usage) is
+  charged tokens estimated from the prompt and the text generated
+  (`characters`); see [the gateway's streams](gateway.md#streams).
+- An image call that times out after the provider was asked is charged the
+  number of images it asked for (`requested_images`) at its route's
+  per-image price. The provider may still make and bill every one. Before
+  the provider is asked, the step records that number, the model asked for
+  and the target and provider serving it (`requested_images`, `model`,
+  `model_ref` and the `provider_*` fields in its metrics). A call refused
+  or answered with an error before the timeout is not charged.
+
 ## Exports
 
 ```

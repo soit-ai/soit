@@ -321,7 +321,8 @@ to the next target once that target's own retries are spent. An invalid
 request or a policy refusal is not repeated elsewhere; a stream moves on only
 before its first chunk; an image call is never repeated on another provider,
 because the failed one may have billed it. Each attempt is recorded on the
-run step, and cost is attributed to the provider that answered.
+run step, and cost is attributed to the provider that answered, or, for
+an image call that timed out, to the provider it was waiting on.
 
 ## Streams
 
@@ -341,7 +342,11 @@ cost row's pricing snapshot, and it counts toward credits, budgets and the
 key's daily token quota like any other call. It is close for text and a lower
 bound for large images and for reasoning a model does not stream. The `usage`
 a response reports is always the provider's own count; only the ledger
-carries the estimate.
+carries the estimate. An image call that times out after the provider was
+asked is charged the images it asked for, also flagged `usage_estimated`. It
+counts toward credits and budgets like any image call and, carrying no
+tokens, not toward the token quota; see
+[the ledger](ledger.md#charges-soit-estimates).
 
 ## Errors
 
