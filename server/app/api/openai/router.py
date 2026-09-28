@@ -598,6 +598,41 @@ async def _image_response(
     return {"created": int(time.time()), "data": data}
 
 
+# OpenAI image parameters SOIT does not send to providers, each with the
+# values that ask for no more than leaving the parameter out does: OpenAI's
+# documented default, and for quality also standard, the DALL-E default.
+_UNSENT_IMAGE_PARAMS: dict[str, tuple[Any, ...]] = {
+    "quality": ("auto", "standard"),
+    "style": ("vivid",),
+    "moderation": ("auto",),
+    "output_compression": (100,),
+    "input_fidelity": ("low",),
+    "partial_images": (0,),
+    "stream": (False,),
+}
+
+
+def _refuse_unsent_params(**values: Any) -> None:
+    """Refuse an OpenAI image parameter SOIT would otherwise drop.
+
+    Each one changes the image or how it is delivered, so answering as if it
+    had been applied would return and bill something other than what was
+    asked for. None is sent yet because providers disagree on them: LiteLLM
+    refuses ``quality`` for several, so sending it needs a per-provider rule
+    first. Refused here, before a run opens.
+    """
+    for name, value in values.items():
+        accepted = _UNSENT_IMAGE_PARAMS[name]
+        if value is None or any(type(value) is type(ok) and value == ok for ok in accepted):
+            continue
+        choices = " or ".join(orjson.dumps(ok).decode() for ok in accepted)
+        raise ValidationError(
+            f"SOIT does not send {name} to image providers; omit it"
+            + (f" or send {choices}" if choices else ""),
+            {"param": name},
+        )
+
+
 def _image_options(background: str | None, output_format: str | None) -> dict[str, Any]:
     """What an image job forwards of OpenAI's ``background`` value.
 
@@ -623,6 +658,14 @@ async def create_image(
 ):
     """Image generation in OpenAI's ``created`` + ``data`` shape."""
 
+    _refuse_unsent_params(
+        quality=payload.quality,
+        style=payload.style,
+        moderation=payload.moderation,
+        output_compression=payload.output_compression,
+        partial_images=payload.partial_images,
+        stream=payload.stream,
+    )
     return await _image_response(
         ImageJobRequest(
             kind="generate",
@@ -667,14 +710,27 @@ async def edit_image(
     response_format: Annotated[Literal["b64_json", "url"], Form()] = "b64_json",
     output_format: Annotated[Literal["png", "jpeg", "webp"], Form()] = "png",
     background: Annotated[Literal["transparent", "opaque", "auto"] | None, Form()] = None,
+    quality: Annotated[str | None, Form()] = None,
+    input_fidelity: Annotated[str | None, Form()] = None,
+    output_compression: Annotated[int | None, Form()] = None,
+    partial_images: Annotated[int | None, Form()] = None,
+    stream: Annotated[bool | None, Form()] = None,
 ):
     """Image editing from OpenAI's multipart form.
 
     The mask follows OpenAI's convention, transparent marks the region to
     edit, and is converted to SOIT's white-is-edit mask so every provider
-    reads the same selection.
+    reads the same selection. OpenAI parameters SOIT does not send are taken
+    only to be refused, as on generations.
     """
 
+    _refuse_unsent_params(
+        quality=quality,
+        input_fidelity=input_fidelity,
+        output_compression=output_compression,
+        partial_images=partial_images,
+        stream=stream,
+    )
     try:
         validate_image_size(size)
     except ValueError as exc:

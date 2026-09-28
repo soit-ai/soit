@@ -853,3 +853,115 @@ async def test_an_auto_size_is_left_to_the_provider(async_client) -> None:
         response = await _generate(async_client, size="auto")
 
     assert response.status_code == 200, response.text
+
+
+_UNSENT_ON_GENERATIONS = [
+    ("quality", "high"),
+    ("quality", "low"),
+    ("quality", "hd"),
+    ("style", "natural"),
+    ("moderation", "low"),
+    ("output_compression", 50),
+    ("partial_images", 2),
+    ("stream", True),
+]
+_UNSENT_ON_EDITS = [
+    ("quality", "high"),
+    ("input_fidelity", "high"),
+    ("output_compression", "50"),
+    ("partial_images", "2"),
+    ("stream", "true"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field, value", _UNSENT_ON_GENERATIONS)
+async def test_a_generation_parameter_soit_does_not_send_is_refused(
+    async_client, async_db, field, value
+) -> None:
+    # Ignoring it would return and bill an image other than the one asked for.
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        response = await _generate(async_client, **{field: value})
+
+    assert response.status_code == 400, response.text
+    error = response.json()["error"]
+    assert error["type"] == "invalid_request_error"
+    assert error["param"] == field
+    assert field in error["message"]
+    assert "x-soit-run-id" not in response.headers
+    assert port.generate_kwargs is None
+    assert (await async_db.exec(select(Run).where(Run.kind == "image"))).all() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field, value", _UNSENT_ON_EDITS)
+async def test_an_edit_parameter_soit_does_not_send_is_refused(
+    async_client, async_db, field, value
+) -> None:
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        response = await _edit(async_client, **{field: value})
+
+    assert response.status_code == 400, response.text
+    error = response.json()["error"]
+    assert error["param"] == field
+    assert port.edit_kwargs is None
+    assert (await async_db.exec(select(Run).where(Run.kind == "image"))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_the_default_of_a_parameter_soit_does_not_send_is_accepted(async_client) -> None:
+    # These ask for no more than leaving the parameter out, so nothing is lost.
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        generation = await _generate(
+            async_client,
+            quality="auto",
+            style="vivid",
+            moderation="auto",
+            output_compression=100,
+            partial_images=0,
+            stream=False,
+        )
+        # Each call replaces what the port recorded, so keep them apart.
+        generated = dict(port.generate_kwargs)
+        standard = await _generate(async_client, quality="standard")
+        edit = await _edit(
+            async_client,
+            quality="auto",
+            input_fidelity="low",
+            output_compression="100",
+            partial_images="0",
+            stream="false",
+        )
+
+    assert generation.status_code == 200, generation.text
+    assert standard.status_code == 200, standard.text
+    assert edit.status_code == 200, edit.text
+    for name in (
+        "quality",
+        "style",
+        "moderation",
+        "output_compression",
+        "partial_images",
+        "stream",
+    ):
+        assert name not in generated
+    assert "quality" not in port.generate_kwargs
+    for name in ("quality", "input_fidelity", "output_compression", "partial_images", "stream"):
+        assert name not in port.edit_kwargs
+
+
+@pytest.mark.asyncio
+async def test_a_field_outside_openais_image_api_is_still_ignored(async_client) -> None:
+    # A client newer than the server, or one sending a vendor extension, keeps working.
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        generation = await _generate(async_client, steps=30, user="end-user-1")
+        edit = await _edit(async_client, steps="30", user="end-user-1")
+
+    assert generation.status_code == 200, generation.text
+    assert edit.status_code == 200, edit.text
+    assert "steps" not in port.generate_kwargs
+    assert "steps" not in port.edit_kwargs

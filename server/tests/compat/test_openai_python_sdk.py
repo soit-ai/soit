@@ -297,3 +297,8 @@ async def test_refusals_raise_the_sdk_error_classes(sdk: openai.AsyncOpenAI) -> 
 
     with pytest.raises(openai.BadRequestError):
         await sdk.images.generate(model=PAINTER, prompt="x", size="9999x9999")  # type: ignore[arg-type]
+
+    # A parameter SOIT does not send is refused by name, not ignored.
+    with pytest.raises(openai.BadRequestError) as unsent:
+        await sdk.images.generate(model=PAINTER, prompt="x", quality="high")
+    assert unsent.value.param == "quality"

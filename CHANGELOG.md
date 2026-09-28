@@ -95,6 +95,17 @@ record for operators.
   its own rules; the fields each endpoint takes are those in its OpenAPI
   schema.
 
+- `POST /v1/images/generations` and `/edits` now answer `400` naming the
+  parameter to a value of an OpenAI image parameter SOIT does not send,
+  where they ignored it: `quality`, `style`, `moderation`,
+  `output_compression`, `partial_images` and `stream` on generations, and
+  `quality`, `input_fidelity`, `output_compression`, `partial_images` and
+  `stream` on edits. The image came back and was billed as if the value
+  had been applied, and a `stream: true` caller got plain JSON where its SDK
+  expected events. Each parameter's OpenAI default, and `quality`
+  `standard`, is still accepted and not sent. Fields outside OpenAI's image
+  API are still ignored.
+
 ### Fixed
 
 - An asynchronous image job (`async: true` on `/api/v1/images/generations`

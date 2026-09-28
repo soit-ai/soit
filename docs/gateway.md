@@ -35,13 +35,18 @@ or rotation.
 | `POST /v1/chat/completions` | Whole or streamed (`stream`, `stream_options.include_usage`). Tools and `tool_choice`, images in user messages, `response_format` (`json_object`, `json_schema`), `temperature`, `top_p`, `max_tokens` / `max_completion_tokens`, `stop`, `seed`. `n` must be 1. |
 | `GET /v1/models` | Active models and virtual models the key may call. |
 | `POST /v1/embeddings` | `encoding_format` `float` or `base64` (the SDKs' default). |
-| `POST /v1/images/generations` | `n`, `size` (64 to 4096 pixels a side, or `auto`), `response_format`, `background`, `output_format` (`png`, `jpeg`, `webp`). `background: auto` is the provider's default and is not sent; a transparent background with `jpeg` is refused. |
-| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. Takes the same `n`, `size`, `response_format`, `background` and `output_format` as generations; an edit's `output_format` does not yet reach OpenAI-compatible providers, which answer in their default format. |
+| `POST /v1/images/generations` | `n`, `size` (64 to 4096 pixels a side, or `auto`), `response_format`, `background`, `output_format` (`png`, `jpeg`, `webp`). `background: auto` is the provider's default and is not sent; a transparent background with `jpeg` is refused. `quality`, `style`, `moderation`, `output_compression`, `partial_images` and `stream` are not sent: their defaults (`quality` `auto` or `standard`, `style` `vivid`, `moderation` `auto`, `output_compression` `100`, `partial_images` `0`, `stream` `false`) are accepted, and any other value is refused with `400` naming the parameter. |
+| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. Takes the same `n`, `size`, `response_format`, `background` and `output_format` as generations; an edit's `output_format` does not yet reach OpenAI-compatible providers, which answer in their default format. `quality`, `input_fidelity`, `output_compression`, `partial_images` and `stream` are treated as on generations (`input_fidelity`'s default is `low`). |
 
 Fields SOIT does not know are ignored rather than refused, so clients that
-send newer OpenAI parameters keep working. The Responses API
-(`/v1/responses`), Assistants, files, audio, batch and fine-tuning are not
-served.
+send parameters newer than SOIT, or vendor extensions, keep working. OpenAI
+image parameters SOIT knows but does not send are the exception: ignoring
+one would return and bill an image other than the one asked for, so a value
+other than its default is refused. An OpenAI image parameter SOIT starts
+modelling is announced in the changelog, since from then on a value it
+ignored is refused or sent. `user` is accepted and not sent. The Responses
+API (`/v1/responses`), Assistants, files, audio, batch and fine-tuning are
+not served.
 
 On models reached through OpenAI's Responses API (the GPT-5.5 family on an
 `openai` provider), `stop` is refused because that API cannot honour it, and
@@ -272,7 +277,7 @@ code in lower case.
 
 | Status | `type` | Typical cause |
 | ------ | ------ | ------------- |
-| 400 | `invalid_request_error` | a malformed request, `n` above 1, an image size out of range |
+| 400 | `invalid_request_error` | a malformed request, `n` above 1, an image size out of range, an image parameter SOIT does not send |
 | 401 | `authentication_error` | a missing, revoked or expired key |
 | 402 | `insufficient_quota` | a hard-stop budget is spent (`budget_exhausted`), or credit is exhausted |
 | 403 | `permission_error` | the key's scope, model list or address list does not allow the call |

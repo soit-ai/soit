@@ -2,7 +2,9 @@
 
 Only what SOIT can honour is modelled; unknown fields are ignored rather than
 rejected, the way OpenAI SDKs expect a compatible server to behave when the
-SDK is newer than the server.
+SDK is newer than the server. The exception is an OpenAI image parameter SOIT
+does not send: it is modelled so the route can refuse it by name, because
+ignoring it would return and bill an image other than the one asked for.
 """
 
 from __future__ import annotations
@@ -149,6 +151,14 @@ class ImageGenerationRequest(_Lenient):
     background: Literal["transparent", "opaque", "auto"] | None = None
     output_format: Literal["png", "jpeg", "webp"] | None = None
     user: str | None = None
+    # Not sent to providers; modelled so a value other than the default can
+    # be refused rather than ignored.
+    quality: str | None = None
+    style: str | None = None
+    moderation: str | None = None
+    output_compression: int | None = None
+    partial_images: int | None = None
+    stream: bool | None = None
 
     @field_validator("size")
     @classmethod
