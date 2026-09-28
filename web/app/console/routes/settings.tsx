@@ -34,6 +34,7 @@ import { relativeTime } from '../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { mockTiles } from '../mocks/tiles'
 import { useTranslation } from '@/i18n'
+import type { TFunction } from '@/i18n/types'
 import {
   createApiKey,
   listApiKeys,
@@ -57,7 +58,7 @@ import {
   revokeSession,
   startMfaEnrolment,
 } from '@/services/auth-service'
-import { getDiagnosticsSnapshot } from '@/services/diagnostics-service'
+import { getDiagnosticsSnapshot, type EditionDiagnostic } from '@/services/diagnostics-service'
 import {
   addWorkspaceMember,
   changePassword,
@@ -137,6 +138,25 @@ function formatCredits(value: string, magnitude = false): string {
   return (magnitude ? Math.abs(parsed) : parsed).toLocaleString('en-US', {
     maximumFractionDigits: 2,
   })
+}
+
+/**
+ * The edition the runtime resolved from its license file. A license that is
+ * configured but grants nothing (expired, unverifiable) says why, since the
+ * deployment has quietly dropped to Community.
+ */
+function editionLabel(edition: EditionDiagnostic | undefined, t: TFunction): string {
+  if (!edition) return '—'
+  if (edition.license_status === 'active') {
+    return t('console.settings.aboutPane.editionLicensed', {
+      edition: edition.edition.charAt(0).toUpperCase() + edition.edition.slice(1),
+      license: edition.license_id,
+      customer: edition.customer_id,
+      days: edition.days_left ?? 0,
+    })
+  }
+  if (edition.license_status === 'absent') return t('console.settings.aboutPane.editionCommunity')
+  return t('console.settings.aboutPane.editionUnlicensed', { reason: edition.reason ?? edition.license_status })
 }
 
 /** The server's workspace role vocabulary (kernel/identity/rbac.py). */
@@ -2118,6 +2138,7 @@ export default function ConsoleSettings() {
                 // separate version. The policy bundle identifier on the Policies
                 // page is what identifies the rules in force.
                 { key: t('console.settings.aboutPane.policyEngine'), value: '—' },
+                { key: t('console.settings.aboutPane.edition'), value: editionLabel(diagnostics?.edition, t) },
                 // Project fact, not workspace data.
                 { key: t('console.settings.aboutPane.license'), value: 'Apache 2.0 · open source' },
                 {

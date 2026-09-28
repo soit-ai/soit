@@ -14,6 +14,19 @@ record for operators.
 
 ### Added
 
+- The runtime reads a signed Enterprise license. With
+  `ENTERPRISE_LICENSE_PATH` and `ENTERPRISE_LICENSE_PUBLIC_KEY_PATH` set, a
+  license that verifies (Ed25519, the Enterprise issuer's format) and has not
+  expired makes the process Enterprise with the feature keys it grants that
+  an installed package defines; an expired, tampered or unreadable one leaves
+  it Community and logs why, and a license that lapses while running drops
+  it to Community at the daily `license.heartbeat`, which also logs the
+  month's metered calls, active principals and API keys. Extension packages
+  add their feature registries and mount themselves through the
+  `soit.feature_registries` and `soit.extensions` entry points. Diagnostics
+  and **Settings › About** show the edition and the license. See
+  `docs/editions.md`.
+
 - Image calls take `quality` and price it. `/api/v1/images/generations` and
   `/edits` accept a `quality` (a lowercase word such as `low`, `medium`,
   `high` or `hd`), and `/v1/images/*` now sends one instead of refusing it;

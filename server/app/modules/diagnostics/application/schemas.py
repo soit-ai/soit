@@ -34,6 +34,26 @@ class WorkspaceDiagnostic(BaseModel):
     open_feedback: int | None = None
 
 
+class ExtensionDiagnostic(BaseModel):
+    name: str
+    status: Literal["mounted", "failed"]
+    error: str | None = None
+
+
+class EditionDiagnostic(BaseModel):
+    edition: str
+    license_status: Literal["absent", "active", "expired", "invalid"]
+    license_id: str | None = None
+    customer_id: str | None = None
+    expires_at: datetime | None = None
+    days_left: int | None = None
+    reason: str | None = None
+    """Why a configured license grants nothing."""
+    enabled_features: list[str]
+    ignored_entitlements: list[str] = []
+    extensions: list[ExtensionDiagnostic] = []
+
+
 class DiagnosticsSnapshot(BaseModel):
     generated_at: datetime
     version: str
@@ -42,3 +62,4 @@ class DiagnosticsSnapshot(BaseModel):
     dependencies: list[DependencyDiagnostic]
     process: ProcessDiagnostic
     workspace: WorkspaceDiagnostic
+    edition: EditionDiagnostic

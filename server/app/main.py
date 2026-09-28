@@ -245,6 +245,13 @@ async def lifespan(app: FastAPI):
 
     background_tasks: list[asyncio.Task] = []
     try:
+        if app_settings.enterprise_license_path:
+            from app.infra.db.session import get_async_session_local
+            from app.wiring.edition import run_license_heartbeat
+
+            background_tasks.append(
+                asyncio.create_task(run_license_heartbeat(app_settings, get_async_session_local()))
+            )
         if workflow_reaper_coro is not None:
             background_tasks.append(asyncio.create_task(workflow_reaper_coro))
         if image_reaper_coro is not None:
@@ -524,6 +531,17 @@ app.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
 app.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
 app.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
 app.include_router(mcp_well_known_router, tags=["mcp"])
+
+# The license decides the edition before extension packages mount, so they
+# read the entitlements it grants.
+from dataclasses import replace as _replace  # noqa: E402
+
+from app.kernel.entitlements.edition import set_current_edition  # noqa: E402
+from app.wiring.edition import resolve_edition  # noqa: E402
+from app.wiring.extensions import mount_extensions  # noqa: E402
+
+_edition = resolve_edition(app_settings)
+set_current_edition(_replace(_edition, extensions=mount_extensions(app, app_settings)))
 
 install_enveloped_openapi(app)
 

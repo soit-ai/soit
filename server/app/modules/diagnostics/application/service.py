@@ -11,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.entitlements.edition import current_edition
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.db.models.threads import Thread
@@ -18,6 +19,8 @@ from app.modules.agent.domain.models import Agent
 from app.modules.diagnostics.application.schemas import (
     DependencyDiagnostic,
     DiagnosticsSnapshot,
+    EditionDiagnostic,
+    ExtensionDiagnostic,
     ProcessDiagnostic,
     WorkspaceDiagnostic,
 )
@@ -62,6 +65,28 @@ class DiagnosticsService:
             dependencies=dependencies,
             process=self._process_snapshot(),
             workspace=workspace,
+            edition=self._edition_snapshot(),
+        )
+
+    @staticmethod
+    def _edition_snapshot() -> EditionDiagnostic:
+        state = current_edition()
+        license_state = state.license
+        info = license_state.license
+        return EditionDiagnostic(
+            edition=state.edition,
+            license_status=license_state.status.value,
+            license_id=info.license_id if info else None,
+            customer_id=info.customer_id if info else None,
+            expires_at=info.expires_at if info else None,
+            days_left=license_state.days_left(),
+            reason=license_state.reason,
+            enabled_features=sorted(state.enabled_features),
+            ignored_entitlements=sorted(state.ignored_entitlements),
+            extensions=[
+                ExtensionDiagnostic(name=mount.name, status=mount.status, error=mount.error)  # type: ignore[arg-type]
+                for mount in state.extensions
+            ],
         )
 
     async def _probe_database(self) -> DependencyDiagnostic:

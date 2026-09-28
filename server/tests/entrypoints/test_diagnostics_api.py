@@ -119,6 +119,10 @@ async def test_owner_gets_real_time_dependency_process_and_workspace_snapshot(as
     assert payload["process"]["rss_bytes"] > 0
     assert payload["version"]
     assert payload["generated_at"]
+    # No license is configured in tests: Community, with its own features.
+    assert payload["edition"]["edition"] == "community"
+    assert payload["edition"]["license_status"] == "absent"
+    assert "agent.runtime" in payload["edition"]["enabled_features"]
 
 
 @pytest.mark.asyncio

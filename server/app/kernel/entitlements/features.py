@@ -13,6 +13,23 @@ from typing import Any
 FEATURE_REGISTRY_VERSION = 1
 VALID_EDITIONS = frozenset({"community", "enterprise", "cloud"})
 DEFAULT_FEATURE_FILE = Path(__file__).with_name("features.community.json")
+EXTENSION_REGISTRY_GROUP = "soit.feature_registries"
+"""Entry point group through which an installed extension package adds its feature registry.
+
+Each entry point names a path, or a callable returning one, to a registry
+file in the shape of ``features.community.json``.
+"""
+
+
+def extension_feature_files() -> list[Path]:
+    """The feature registry files installed extension packages declare."""
+    from importlib.metadata import entry_points
+
+    files: list[Path] = []
+    for entry in entry_points(group=EXTENSION_REGISTRY_GROUP):
+        target = entry.load()
+        files.append(Path(str(target() if callable(target) else target)))
+    return files
 
 
 class FeatureKind(str, Enum):

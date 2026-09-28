@@ -9,6 +9,19 @@ export interface DependencyDiagnostic {
   message?: string | null
 }
 
+export interface EditionDiagnostic {
+  edition: string
+  license_status: 'absent' | 'active' | 'expired' | 'invalid'
+  license_id?: string | null
+  customer_id?: string | null
+  expires_at?: string | null
+  days_left?: number | null
+  reason?: string | null
+  enabled_features: string[]
+  ignored_entitlements: string[]
+  extensions: { name: string; status: 'mounted' | 'failed'; error?: string | null }[]
+}
+
 export interface DiagnosticsSnapshot {
   generated_at: string
   version: string
@@ -31,6 +44,7 @@ export interface DiagnosticsSnapshot {
     failed_runs_24h: number | null
     open_feedback: number | null
   }
+  edition?: EditionDiagnostic
 }
 
 export const getDiagnosticsSnapshot = (): Promise<DiagnosticsSnapshot> => {

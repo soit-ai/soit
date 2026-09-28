@@ -428,6 +428,41 @@ test('settings redirects to account and navigates sections via the subnav', asyn
   await expect(page.getByText('github.com/soit-ai/soit')).toBeVisible()
 })
 
+const diagnosticsWith = (edition: Record<string, unknown>) => ({
+  generated_at: NOW,
+  version: '1.3.0',
+  environment: 'production',
+  overall_status: 'healthy',
+  dependencies: [],
+  process: { uptime_seconds: 900, rss_bytes: 1, thread_count: 8 },
+  workspace: {},
+  edition: { enabled_features: [], ignored_entitlements: [], extensions: [], ...edition },
+})
+
+test('about names the edition the license gives, and why a license gives none', async ({ page }) => {
+  await json(
+    page,
+    '**/api/v1/diagnostics',
+    diagnosticsWith({
+      edition: 'enterprise',
+      license_status: 'active',
+      license_id: 'lic_acme',
+      customer_id: 'acme',
+      days_left: 300,
+    }),
+  )
+  await page.goto('/settings/about', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Enterprise · license lic_acme for acme · 300 days left')).toBeVisible()
+
+  await json(
+    page,
+    '**/api/v1/diagnostics',
+    diagnosticsWith({ edition: 'community', license_status: 'expired', reason: 'the license has expired' }),
+  )
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Community · license not applied: the license has expired')).toBeVisible()
+})
+
 test('side panel shows live counts for the pillar on screen', async ({ page }) => {
   await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
 
