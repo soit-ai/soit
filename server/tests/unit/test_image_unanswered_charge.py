@@ -243,3 +243,45 @@ async def test_a_timeout_before_the_provider_is_asked_is_not_charged(ctx) -> Non
 
     assert provider.asked == 0
     writer.record_cost.assert_not_awaited()
+
+
+_PRICED_BY_QUALITY = {
+    "currency": "USD",
+    "image": "0.042",
+    "image_variants": [{"quality": "high", "price": "0.167"}, {"quality": "high", "size": "1536x1024", "price": "0.25"}],
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["generate", "edit"])
+async def test_the_note_keeps_the_size_and_quality_a_price_can_depend_on(ctx, operation) -> None:
+    provider = _Provider()
+    writer, _order = _writer(provider)
+
+    await _call(_gateway(ctx, provider, writer), operation, n=1, size="1536x1024", quality="high")
+
+    (noted,) = _noted(writer)
+    assert (noted["image_size"], noted["image_quality"]) == ("1536x1024", "high")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["generate", "edit"])
+async def test_a_timed_out_call_is_charged_at_its_qualitys_price(ctx, operation) -> None:
+    provider = _Provider(delay=0.5)
+    writer, _order = _writer(provider)
+
+    with pytest.raises(KernelError):
+        await _call(
+            _gateway(ctx, provider, writer, pricing=_PRICED_BY_QUALITY),
+            operation,
+            n=2,
+            size="1536x1024",
+            quality="high",
+        )
+
+    charge = writer.record_cost.await_args.kwargs
+    assert Decimal(str(charge["amount"])) == Decimal("0.50")
+    snapshot = charge["pricing_snapshot_json"]
+    assert snapshot["image_variant"] == {"quality": "high", "size": "1536x1024"}
+    assert snapshot["quantities"]["quality"] == "high"
+    assert snapshot["usage_estimated"] is True

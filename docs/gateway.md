@@ -35,8 +35,8 @@ or rotation.
 | `POST /v1/chat/completions` | Whole or streamed (`stream`, `stream_options.include_usage`). Tools and `tool_choice`, images in user messages, `response_format` (`json_object`, `json_schema`), `temperature`, `top_p`, `max_tokens` / `max_completion_tokens`, `stop`, `seed`. `n` must be 1. |
 | `GET /v1/models` | Active models and virtual models the key may call. |
 | `POST /v1/embeddings` | `encoding_format` `float` or `base64` (the SDKs' default). |
-| `POST /v1/images/generations` | `n`, `size` (64 to 4096 pixels a side, or `auto`), `response_format`, `background`, `output_format` (`png`, `jpeg`, `webp`). `background: auto` is the provider's default and is not sent; a transparent background with `jpeg` is refused. `quality`, `style`, `moderation`, `output_compression`, `partial_images` and `stream` are not sent: their defaults (`quality` `auto` or `standard`, `style` `vivid`, `moderation` `auto`, `output_compression` `100`, `partial_images` `0`, `stream` `false`) are accepted, and any other value is refused with `400` naming the parameter. |
-| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. Takes the same `n`, `size`, `response_format`, `background` and `output_format` as generations. Whether each reaches the provider depends on the model's route; see [Image options by route](#image-options-by-route). `quality`, `input_fidelity`, `output_compression`, `partial_images` and `stream` are treated as on generations (`input_fidelity`'s default is `low`). |
+| `POST /v1/images/generations` | `n`, `size` (64 to 4096 pixels a side, or `auto`), `response_format`, `background`, `output_format` (`png`, `jpeg`, `webp`), `quality`. `background: auto` is the provider's default and is not sent; a transparent background with `jpeg` is refused. `quality` is sent as given (gpt-image reads `low`, `medium`, `high`; DALL-E 3 `hd`), except `auto` and `standard`, which leave the choice to the provider and are not sent; it must be a lowercase word. `style`, `moderation`, `output_compression`, `partial_images` and `stream` are not sent: their defaults (`style` `vivid`, `moderation` `auto`, `output_compression` `100`, `partial_images` `0`, `stream` `false`) are accepted, and any other value is refused with `400` naming the parameter. |
+| `POST /v1/images/edits` | Multipart `image` and optional `mask`. As in OpenAI's API, the mask's transparent pixels mark the area to edit. Takes the same `n`, `size`, `response_format`, `background`, `output_format` and `quality` as generations. Whether each reaches the provider depends on the model's route; see [Image options by route](#image-options-by-route). `input_fidelity`, `output_compression`, `partial_images` and `stream` are treated as on generations (`input_fidelity`'s default is `low`). |
 
 Fields SOIT does not know are ignored rather than refused, so clients that
 send parameters newer than SOIT, or vendor extensions, keep working. OpenAI
@@ -56,9 +56,9 @@ On models reached through OpenAI's Responses API (the GPT-5.5 family on an
 
 Image calls, through `/v1/images` and `/api/v1/images` alike, go through
 LiteLLM, whose request for each provider has a place for some options and
-not others. SOIT records which of `background`, `output_format`, `seed`,
-`strength`, `negative_prompt`, `mask`, `size`, `response_format` and more
-than one image (`n` above 1) each LiteLLM image route carries, and CI checks
+not others. SOIT records which of `background`, `output_format`, `quality`,
+`seed`, `strength`, `negative_prompt`, `mask`, `size`, `response_format` and
+more than one image (`n` above 1) each LiteLLM image route carries, and CI checks
 the record against the requests LiteLLM sends. An option counts as carried
 where LiteLLM maps it to a field of the provider's API or, for a provider
 that takes OpenAI's image request, sends it under OpenAI's name.
@@ -98,17 +98,17 @@ from gpt-image.
 
 | Route | Generation carries | Edit carries |
 | ----- | ------------------ | ------------ |
-| OpenAI, Azure OpenAI | `background`, `output_format`, `n`, `size`; DALL-E also `response_format` | `background`, `n`, `mask`, `size`, `response_format` |
-| LiteLLM proxy | `background`, `output_format`, `n`, `size` | `background`, `n`, `mask`, `size`, `response_format` |
-| Azure AI gpt-image and DALL-E deployments under other names | `background`, `output_format`, `n`, `size`; DALL-E also `response_format` | not supported by LiteLLM |
-| Azure AI FLUX 1 / FLUX 2 / MAI | FLUX 1: `background`, `output_format`, `n`, `size`; FLUX 2: none; MAI: `size` | FLUX 1: `background`, `n`, `mask`, `size`, `response_format`; FLUX 2 and MAI: `n`, `size` |
-| Providers LiteLLM treats as OpenAI-compatible without an image config of their own (Volcengine, vLLM, Together), Xinference, CometAPI, ModelScope | `background`, `output_format`, `n`, `size`, `response_format` | not supported by LiteLLM |
+| OpenAI, Azure OpenAI | `background`, `output_format`, `quality`, `n`, `size`; DALL-E also `response_format` | `background`, `quality`, `n`, `mask`, `size`, `response_format` |
+| LiteLLM proxy | `background`, `output_format`, `quality`, `n`, `size` | `background`, `quality`, `n`, `mask`, `size`, `response_format` |
+| Azure AI gpt-image and DALL-E deployments under other names | `background`, `output_format`, `quality`, `n`, `size`; DALL-E also `response_format` | not supported by LiteLLM |
+| Azure AI FLUX 1 / FLUX 2 / MAI | FLUX 1: `background`, `output_format`, `quality`, `n`, `size`; FLUX 2: none; MAI: `size` | FLUX 1: `background`, `quality`, `n`, `mask`, `size`, `response_format`; FLUX 2 and MAI: `n`, `size` |
+| Providers LiteLLM treats as OpenAI-compatible without an image config of their own (Volcengine, vLLM, Together), Xinference, CometAPI, ModelScope | `background`, `output_format`, `quality`, `n`, `size`, `response_format` | not supported by LiteLLM |
 | Recraft | `background`, `output_format`, `n`, `size`, `response_format` | `n`, `response_format` |
 | Gemini: Imagen / image models | Imagen: `background`, `output_format`, `n`, `size`; image models: `n`, `size` | Imagen: `n`; image models: `n`, `size` |
 | Vertex AI: Imagen / Gemini image models | `n`, `size` | Imagen: `n`, `mask`; Gemini: `size` |
 | OpenRouter | `size` | `n`, `size` |
 | DashScope | `n`, `size` | not supported by LiteLLM |
-| Bedrock | SDXL: `size`; SD3 and Stable Image: none; Titan and Nova Canvas: `n`, `size` | Nova Canvas: `seed`, `n`, `mask`, `size`; Stability edit models (inpaint, outpaint, search-and-replace and the like): `output_format`, `seed`, `strength`, `negative_prompt`, `mask`, `size`; SDXL, SD3, Stable Image and Titan: not supported by LiteLLM |
+| Bedrock | SDXL: `size`; SD3 and Stable Image: none; Titan and Nova Canvas: `n`, `size` | Nova Canvas: `quality`, `seed`, `n`, `mask`, `size`; Stability edit models (inpaint, outpaint, search-and-replace and the like): `output_format`, `seed`, `strength`, `negative_prompt`, `mask`, `size`; SDXL, SD3, Stable Image and Titan: not supported by LiteLLM |
 | Stability | `output_format`, `size` | `seed`, `strength`, `negative_prompt`, `mask`, `size` |
 | Black Forest Labs | `size`; ultra models also `n` | `output_format`, `seed`; no mask |
 | fal | `n`, `size` for Imagen 4, Nano Banana, FLUX Pro 1.1 and Ultra, FLUX Schnell, Seedream, Dreamina, Ideogram and Stable Diffusion; `size` for Recraft V3 and Bria; none for other models | not supported by LiteLLM |

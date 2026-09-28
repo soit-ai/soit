@@ -856,9 +856,6 @@ async def test_an_auto_size_is_left_to_the_provider(async_client) -> None:
 
 
 _UNSENT_ON_GENERATIONS = [
-    ("quality", "high"),
-    ("quality", "low"),
-    ("quality", "hd"),
     ("style", "natural"),
     ("moderation", "low"),
     ("output_compression", 50),
@@ -866,7 +863,6 @@ _UNSENT_ON_GENERATIONS = [
     ("stream", True),
 ]
 _UNSENT_ON_EDITS = [
-    ("quality", "high"),
     ("input_fidelity", "high"),
     ("output_compression", "50"),
     ("partial_images", "2"),
@@ -951,6 +947,32 @@ async def test_the_default_of_a_parameter_soit_does_not_send_is_accepted(async_c
     assert "quality" not in port.generate_kwargs
     for name in ("quality", "input_fidelity", "output_compression", "partial_images", "stream"):
         assert name not in port.edit_kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quality", ["high", "low", "hd"])
+async def test_a_quality_is_sent_to_the_provider(async_client, quality) -> None:
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        generation = await _generate(async_client, quality=quality)
+        edit = await _edit(async_client, quality=quality)
+
+    assert generation.status_code == 200, generation.text
+    assert edit.status_code == 200, edit.text
+    assert port.generate_kwargs["quality"] == quality
+    assert port.edit_kwargs["quality"] == quality
+
+
+@pytest.mark.asyncio
+async def test_a_quality_that_is_not_a_word_is_refused(async_client, async_db) -> None:
+    port = _CapturingGeneratePort()
+    with _SwapLLMPort(port):
+        response = await _generate(async_client, quality="HIGH")
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["param"] == "quality"
+    assert port.generate_kwargs is None
+    assert (await async_db.exec(select(Run).where(Run.kind == "image"))).all() == []
 
 
 @pytest.mark.asyncio

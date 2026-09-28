@@ -485,7 +485,7 @@ class LiteLLMPort(LLMPort):
         self._forward_image_options(
             params,
             kwargs,
-            tuple(name for name in ("background", "output_format") if name in carried),
+            tuple(name for name in ("background", "output_format", "quality") if name in carried),
             in_extra_body=self._merges_extra_body(params["model"]),
         )
         response = await self._image_generation(**params)
@@ -792,7 +792,7 @@ class LiteLLMPort(LLMPort):
             kwargs,
             tuple(
                 name
-                for name in ("background", "seed", "strength", "negative_prompt", "output_format")
+                for name in ("background", "quality", "seed", "strength", "negative_prompt", "output_format")
                 if name in carried
             ),
             in_extra_body=False,

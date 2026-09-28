@@ -14,6 +14,18 @@ record for operators.
 
 ### Added
 
+- Image calls take `quality` and price it. `/api/v1/images/generations` and
+  `/edits` accept a `quality` (a lowercase word such as `low`, `medium`,
+  `high` or `hd`), and `/v1/images/*` now sends one instead of refusing it;
+  `auto` and `standard` are still taken unsent. It reaches the provider on
+  the routes that carry it (OpenAI, Azure OpenAI and Azure AI, the LiteLLM
+  proxy, OpenAI-compatible providers, Xinference, CometAPI and ModelScope
+  generations, OpenAI-style edits and Bedrock Nova Canvas edits) and is
+  refused with `422` `route_cannot_carry` on the others. A model's
+  `pricing_json` can list `image_variants`, prices by quality, size or both;
+  the variant a call fits prices it, including a timed-out call and one the
+  image job reaper charges, and its cost row names the variant.
+
 - A tool can declare what one call costs in its ToolSpec policy, as
   `"pricing": {"currency": "USD", "call": "0.002"}`. Every successful call
   of it, through `POST /api/v1/tools/{ref}/invoke`, MCP `tools/call`, an

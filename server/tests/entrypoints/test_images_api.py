@@ -144,6 +144,25 @@ class TestGenerationOptions:
         passed = port.last_generate["kwargs"]
         assert "background" not in passed
         assert "output_format" not in passed
+        assert "quality" not in passed
+
+    @pytest.mark.asyncio
+    async def test_quality_reaches_the_adapter(self, async_client):
+        port = get_container().get("llm_port")
+        port.last_generate = None
+
+        response = await _generate(async_client, quality="high")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.text
+        assert port.last_generate["kwargs"]["quality"] == "high"
+
+    @pytest.mark.asyncio
+    async def test_a_quality_that_is_not_a_word_is_refused(self, async_client, async_db):
+        response = await _generate(async_client, quality="High Quality!")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert [e["field"] for e in response.json()["details"]["errors"]] == ["body.quality"]
+        assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("overrides", [{"background": "checkered"}, {"output_format": "gif"}])
@@ -167,7 +186,6 @@ class TestFieldsGenerationDoesNotTake:
             ("seed", 7),
             ("strength", 0.5),
             ("negative_prompt", "blurry"),
-            ("quality", "high"),
             ("steps", 30),
             ("style", "vivid"),
         ],
@@ -188,11 +206,11 @@ class TestFieldsGenerationDoesNotTake:
 
     @pytest.mark.asyncio
     async def test_every_such_field_is_named(self, async_client):
-        response = await _generate(async_client, seed=7, quality="high")
+        response = await _generate(async_client, seed=7, steps=30)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         fields = {error["field"] for error in response.json()["details"]["errors"]}
-        assert fields == {"body.seed", "body.quality"}
+        assert fields == {"body.seed", "body.steps"}
 
     @pytest.mark.asyncio
     async def test_the_async_flag_is_still_taken_by_its_name(self, async_client):

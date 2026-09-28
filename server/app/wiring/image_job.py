@@ -332,6 +332,8 @@ async def _close_step(
         requested_model=metrics.get("model") if isinstance(metrics.get("model"), str) else model_ref,
         target=target,
         images=images,
+        size=_text(metrics.get("image_size")),
+        quality=_text(metrics.get("image_quality")),
         unpriced_reason=None if route is not None else "route_not_resolved",
     )
     if target is None:
@@ -354,6 +356,10 @@ async def _close_step(
         operation="edit_image" if edit else "generate_image",
         request_count=images,
     )
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 async def _already_charged(db: AsyncSession, run: _LostRun, step: RunStep) -> bool:

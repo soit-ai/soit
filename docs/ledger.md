@@ -31,6 +31,33 @@ renaming or retyping one is a major version. A contract test fails whenever a
 ledger table gains a column the contract does not account for, so every
 change to what leaves the runtime is a reviewed change.
 
+## Image prices
+
+A model's `pricing_json` prices images per image. `image` is the plain rate;
+`image_variants` lists prices for a `quality`, a `size` or both, for
+providers whose price depends on them:
+
+```json
+{
+  "currency": "USD",
+  "image": "0.042",
+  "image_variants": [
+    {"quality": "low", "price": "0.011"},
+    {"quality": "high", "price": "0.167"},
+    {"quality": "high", "size": "1536x1024", "price": "0.25"}
+  ]
+}
+```
+
+A call is priced by the variant that fits it, that is whose every named
+value equals the call's; of several, the one naming more values wins, and
+of equals the first listed. The cost row's `pricing_snapshot` names the
+variant (`image_variant`) and records the call's `size` and `quality` under
+`quantities`. A call no variant fits takes `image`; without an `image` rate
+it is recorded unpriced with the reason `image_variant_not_priced` rather
+than billed at another quality's price. A call that asks for no quality, or
+for `auto`, is priced as one that names none.
+
 ## Charges SOIT estimates
 
 Most cost rows record what the provider reported. Two kinds of call are
@@ -46,12 +73,13 @@ what the estimate counts:
   (`characters`); see [the gateway's streams](gateway.md#streams).
 - An image call that times out after the provider was asked, or that was in
   flight when the process making it was lost, is charged the number of
-  images it asked for (`requested_images`) at its route's per-image price.
-  The provider may still make and bill every one. Before the provider is
-  asked, the step records that number, the model asked for and the target
-  and provider serving it (`requested_images`, `model`, `model_ref` and the
-  `provider_*` fields in its metrics), so the charge can be told even
-  without the process. A call refused or answered with an error before the
+  images it asked for (`requested_images`) at its route's per-image price
+  for the size and quality it asked for. The provider may still make and
+  bill every one. Before the provider is asked, the step records that
+  number, the size and quality when given, the model asked for and the
+  target and provider serving it (`requested_images`, `image_size`,
+  `image_quality`, `model`, `model_ref` and the `provider_*` fields in its
+  metrics), so the charge can be told even without the process. A call refused or answered with an error before the
   timeout is not charged.
 
 An image job lost with its process, after a restart or a crash, is failed with

@@ -321,7 +321,7 @@ class TestFieldsEditDoesNotTake:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "field, value",
-        [("quality", "high"), ("steps", 30), ("input_fidelity", "high"), ("image", "x")],
+        [("steps", 30), ("input_fidelity", "high"), ("image", "x")],
     )
     async def test_it_is_refused_before_a_run_opens(self, async_client, async_db, field, value):
         port = get_container().get("llm_port")

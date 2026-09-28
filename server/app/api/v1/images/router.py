@@ -87,6 +87,14 @@ class ImageGenerationCreate(BaseModel):
     )
     background: str | None = Field(default=None, pattern="^(transparent|opaque)$")
     output_format: str | None = Field(default=None, pattern="^(png|webp)$")
+    quality: str | None = Field(
+        default=None,
+        pattern="^[a-z]{1,16}$",
+        description=(
+            "Passed to the provider as the model reads it (gpt-image: low, medium, "
+            "high, auto; DALL-E 3: standard, hd). Refused on a route that cannot carry it."
+        ),
+    )
     run_async: bool = Field(default=False, alias="async")
 
     @field_validator("size")
@@ -136,6 +144,14 @@ class ImageEditCreate(BaseModel):
     negative_prompt: str | None = Field(default=None, max_length=4000)
     background: str | None = Field(default=None, pattern="^(transparent|opaque)$")
     output_format: str | None = Field(default=None, pattern="^(png|webp)$")
+    quality: str | None = Field(
+        default=None,
+        pattern="^[a-z]{1,16}$",
+        description=(
+            "Passed to the provider as the model reads it (gpt-image: low, medium, "
+            "high, auto; DALL-E 3: standard, hd). Refused on a route that cannot carry it."
+        ),
+    )
     response_format: str | None = Field(
         default=None, pattern="^(b64_json|url|artifact)$"
     )
@@ -314,7 +330,11 @@ async def create_image_generation(
             size=payload.size,
             response_format=payload.response_format or "b64_json",
             output_format=payload.output_format,
-            extra={"background": payload.background} if payload.background else {},
+            extra={
+                name: value
+                for name, value in (("background", payload.background), ("quality", payload.quality))
+                if value is not None
+            },
         ),
         ctx=ctx,
         db=db,
@@ -363,7 +383,7 @@ async def create_image_edit(
         assert_mask_matches_image(image, mask)
 
     extra: dict[str, Any] = {}
-    for name in ("strength", "seed", "negative_prompt", "background"):
+    for name in ("strength", "seed", "negative_prompt", "background", "quality"):
         value = getattr(payload, name)
         if value is not None:
             extra[name] = value

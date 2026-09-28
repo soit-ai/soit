@@ -14,6 +14,7 @@ import array
 import base64
 import contextlib
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from functools import partial
@@ -607,9 +608,8 @@ async def _image_response(
 
 # OpenAI image parameters SOIT does not send to providers, each with the
 # values that ask for no more than leaving the parameter out does: OpenAI's
-# documented default, and for quality also standard, the DALL-E default.
+# documented default.
 _UNSENT_IMAGE_PARAMS: dict[str, tuple[Any, ...]] = {
-    "quality": ("auto", "standard"),
     "style": ("vivid",),
     "moderation": ("auto",),
     "output_compression": (100,),
@@ -624,9 +624,7 @@ def _refuse_unsent_params(**values: Any) -> None:
 
     Each one changes the image or how it is delivered, so answering as if it
     had been applied would return and bill something other than what was
-    asked for. None is sent yet because providers disagree on them: LiteLLM
-    refuses ``quality`` for several, so sending it needs a per-provider rule
-    first. Refused here, before a run opens.
+    asked for. Refused here, before a run opens.
     """
     for name, value in values.items():
         accepted = _UNSENT_IMAGE_PARAMS[name]
@@ -640,20 +638,37 @@ def _refuse_unsent_params(**values: Any) -> None:
         )
 
 
-def _image_options(background: str | None, output_format: str | None) -> dict[str, Any]:
-    """What an image job forwards of OpenAI's ``background`` value.
+# Quality values that ask for the provider's own default, as leaving the
+# parameter out does: OpenAI's auto, and standard, the DALL-E default, which
+# gpt-image would refuse if it were sent.
+_DEFAULT_QUALITIES = frozenset({"auto", "standard"})
+
+
+def _image_options(
+    background: str | None, output_format: str | None, quality: str | None = None
+) -> dict[str, Any]:
+    """What an image job forwards of OpenAI's ``background`` and ``quality`` values.
 
     ``auto`` leaves the choice to the provider, as leaving it out does, so it
-    is not sent. A transparent background cannot be encoded as JPEG, so that
-    pair is refused here rather than billed for an image that cannot be what
-    was asked for.
+    is not sent, nor is a ``standard`` quality. Any other quality goes to the
+    provider as given, where the route carries it, and prices the call when
+    the model lists a price for it. A transparent background cannot be
+    encoded as JPEG, so that pair is refused here rather than billed for an
+    image that cannot be what was asked for.
     """
     if background == "transparent" and output_format == "jpeg":
         raise ValidationError(
             "A transparent background needs output_format png or webp",
             {"param": "output_format"},
         )
-    return {"background": background} if background in ("transparent", "opaque") else {}
+    options: dict[str, Any] = {}
+    if background in ("transparent", "opaque"):
+        options["background"] = background
+    if quality is not None and quality not in _DEFAULT_QUALITIES:
+        if not re.fullmatch(r"[a-z]{1,16}", quality):
+            raise ValidationError("quality must be a lowercase word", {"param": "quality"})
+        options["quality"] = quality
+    return options
 
 
 @router.post("/images/generations")
@@ -666,7 +681,6 @@ async def create_image(
     """Image generation in OpenAI's ``created`` + ``data`` shape."""
 
     _refuse_unsent_params(
-        quality=payload.quality,
         style=payload.style,
         moderation=payload.moderation,
         output_compression=payload.output_compression,
@@ -682,7 +696,7 @@ async def create_image(
             size=payload.size,
             response_format=payload.response_format,
             output_format=payload.output_format,
-            extra=_image_options(payload.background, payload.output_format),
+            extra=_image_options(payload.background, payload.output_format, payload.quality),
         ),
         ctx=ctx,
         db=db,
@@ -732,7 +746,6 @@ async def edit_image(
     """
 
     _refuse_unsent_params(
-        quality=quality,
         input_fidelity=input_fidelity,
         output_compression=output_compression,
         partial_images=partial_images,
@@ -742,7 +755,7 @@ async def edit_image(
         validate_image_size(size)
     except ValueError as exc:
         raise ValidationError(str(exc), {"param": "size"}) from exc
-    options = _image_options(background, output_format)
+    options = _image_options(background, output_format, quality)
     source = await _read_upload(image, field="image")
     selection: bytes | None = None
     if mask is not None:

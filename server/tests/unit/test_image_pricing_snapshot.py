@@ -60,3 +60,55 @@ class TestPricingIsUnchanged:
         assert snapshot["reason"] == "pricing_not_configured"
         # The shape is evidence even when no rate is configured.
         assert snapshot["quantities"]["size"] == "1024x1024"
+
+
+def _by_quality_and_size() -> dict:
+    # gpt-image-1's list prices, per image.
+    return {
+        "currency": "USD",
+        "image": "0.042",
+        "image_variants": [
+            {"quality": "low", "price": "0.011"},
+            {"quality": "high", "price": "0.167"},
+            {"quality": "high", "size": "1536x1024", "price": "0.25"},
+            {"size": "1536x1024", "price": "0.063"},
+        ],
+    }
+
+
+class TestPriceVariants:
+    def test_a_quality_prices_the_call(self):
+        calculation = _image_pricing(_by_quality_and_size(), image_count=2, quality="low")
+        assert calculation.amount == Decimal("0.022")
+        assert calculation.snapshot["image_variant"] == {"quality": "low"}
+
+    def test_the_variant_naming_more_of_the_call_wins(self):
+        calculation = _image_pricing(
+            _by_quality_and_size(), image_count=1, quality="high", size="1536x1024"
+        )
+        assert calculation.amount == Decimal("0.25")
+        assert calculation.snapshot["image_variant"] == {"quality": "high", "size": "1536x1024"}
+
+    def test_a_size_alone_can_price_the_call(self):
+        calculation = _image_pricing(_by_quality_and_size(), image_count=1, size="1536x1024")
+        assert calculation.amount == Decimal("0.063")
+
+    def test_a_call_no_variant_fits_takes_the_plain_rate(self):
+        calculation = _image_pricing(_by_quality_and_size(), image_count=1, quality="medium")
+        assert calculation.amount == Decimal("0.042")
+        assert "image_variant" not in calculation.snapshot
+
+    def test_without_a_plain_rate_an_unfit_call_is_unpriced_not_mispriced(self):
+        pricing = {"currency": "USD", "image_variants": [{"quality": "low", "price": "0.011"}]}
+        snapshot = _image_pricing(pricing, image_count=1, quality="high").snapshot
+        assert snapshot["priced"] is False
+        assert snapshot["reason"] == "image_variant_not_priced"
+
+    def test_a_variant_without_a_readable_price_is_skipped(self):
+        pricing = {
+            "currency": "USD",
+            "image": "0.04",
+            "image_variants": [{"quality": "low", "price": "cheap"}, "not a variant", {"price": "1"}],
+        }
+        calculation = _image_pricing(pricing, image_count=1, quality="low")
+        assert calculation.amount == Decimal("0.04")

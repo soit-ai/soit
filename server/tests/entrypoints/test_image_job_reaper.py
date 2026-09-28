@@ -136,6 +136,27 @@ class TestTheReaper:
         assert charge.model_ref == "model:painter:gpt-image-1"
 
     @pytest.mark.asyncio
+    async def test_a_call_left_in_flight_is_charged_at_the_price_of_what_it_asked_for(self, async_db, ctx):
+        run = await _image_run(async_db, ctx)
+        await _step(async_db, ctx, run.id, {**_NOTE, "image_size": "1536x1024", "image_quality": "high"})
+        priced = SimpleNamespace(
+            pricing={
+                "currency": "USD",
+                "image": "0.042",
+                "image_variants": [{"quality": "high", "size": "1536x1024", "price": "0.25"}],
+            },
+            target=None,
+        )
+
+        await _reap(async_db, _Describer(route=priced))
+
+        (charge,) = await _costs(async_db, run.id)
+        assert Decimal(str(charge.amount)) == Decimal("0.50")
+        assert charge.pricing_snapshot_json["image_variant"] == {"quality": "high", "size": "1536x1024"}
+        quantities = charge.pricing_snapshot_json["quantities"]
+        assert (quantities["size"], quantities["quality"]) == ("1536x1024", "high")
+
+    @pytest.mark.asyncio
     async def test_a_call_whose_route_is_gone_is_charged_unpriced_to_who_served_it(self, async_db, ctx):
         run = await _image_run(async_db, ctx)
         await _step(async_db, ctx, run.id, {**_NOTE, "requested_images": 1})

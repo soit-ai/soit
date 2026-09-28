@@ -192,6 +192,7 @@ _CANARY = "zz-canary-sentinel"
 _SENTINELS: dict[str, Any] = {
     "background": "transparent",
     "output_format": "webp",
+    "quality": "high",
     "seed": 424242,
     "strength": 0.37,
     "negative_prompt": "np-sentinel-kq",

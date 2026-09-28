@@ -20,10 +20,11 @@ EDIT = "edit"
 
 # The options SOIT forwards by name. "n" stands for more than one image and
 # "mask" for an edit mask; a single image and no mask need no route support.
-GENERATE_OPTIONS = ("background", "output_format", "n", "size", "response_format")
+GENERATE_OPTIONS = ("background", "output_format", "quality", "n", "size", "response_format")
 EDIT_OPTIONS = (
     "background",
     "output_format",
+    "quality",
     "seed",
     "strength",
     "negative_prompt",
@@ -80,8 +81,8 @@ def _options(*names: str) -> frozenset[str]:
     return frozenset(names)
 
 
-_OPENAI_GENERATION = _options("background", "output_format", "n", "size")
-_OPENAI_EDIT = _options("background", "n", "mask", "size", "response_format")
+_OPENAI_GENERATION = _options("background", "output_format", "quality", "n", "size")
+_OPENAI_EDIT = _options("background", "quality", "n", "mask", "size", "response_format")
 
 _CARRIED: dict[tuple[str, str], frozenset[str]] = {
     (GENERATE, "GPTImageGenerationConfig"): _OPENAI_GENERATION,
@@ -99,7 +100,8 @@ _CARRIED: dict[tuple[str, str], frozenset[str]] = {
     (GENERATE, "XInferenceImageGenerationConfig"): _OPENAI_GENERATION | {"response_format"},
     (GENERATE, "CometAPIImageGenerationConfig"): _OPENAI_GENERATION | {"response_format"},
     (GENERATE, "ModelScopeImageGenerationConfig"): _OPENAI_GENERATION | {"response_format"},
-    (GENERATE, "RecraftImageGenerationConfig"): _OPENAI_GENERATION | {"response_format"},
+    # Recraft's request keeps OpenAI's names but has no quality.
+    (GENERATE, "RecraftImageGenerationConfig"): (_OPENAI_GENERATION - {"quality"}) | {"response_format"},
     # Azure AI's FLUX 2 goes to Black Forest Labs' own API, which names none
     # of these the OpenAI way.
     (GENERATE, "AzureFoundryFluxImageGenerationConfig:flux2"): _options(),
@@ -144,7 +146,7 @@ _CARRIED: dict[tuple[str, str], frozenset[str]] = {
     (EDIT, "GeminiImageEditConfig:gemini"): _options("n", "size"),
     (EDIT, "OpenRouterImageEditConfig"): _options("n", "size"),
     (EDIT, "RecraftImageEditConfig"): _options("n", "response_format"),
-    (EDIT, "BedrockAmazonNovaCanvasImageEditConfig"): _options("seed", "n", "mask", "size"),
+    (EDIT, "BedrockAmazonNovaCanvasImageEditConfig"): _options("quality", "seed", "n", "mask", "size"),
     (EDIT, "BedrockStabilityImageEditConfig"): _options(
         "output_format", "seed", "strength", "negative_prompt", "mask", "size"
     ),

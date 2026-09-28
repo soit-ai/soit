@@ -11,7 +11,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import anyio
 from opentelemetry import trace
@@ -449,6 +449,51 @@ def _rerank_pricing(
     return calculation
 
 
+_IMAGE_VARIANT_KEYS = ("quality", "size")
+
+
+def _image_variant_rate(
+    pricing: dict[str, Any],
+    *,
+    size: str | None,
+    quality: str | None,
+) -> tuple[tuple[Decimal, str, int], dict[str, str]] | None:
+    """The ``image_variants`` price that fits the call best, and what it matched.
+
+    A variant names a ``quality``, a ``size`` or both, and a ``price`` (or
+    ``amount``) per image. It fits a call whose values equal every key it
+    names; the fitting variant naming more keys wins, and of equals the first
+    listed. Providers price by both: gpt-image's high quality at 1024x1536
+    costs several times its low quality at 1024x1024.
+    """
+    variants = pricing.get("image_variants")
+    if not isinstance(variants, list):
+        return None
+    call = {"quality": quality, "size": size}
+    best: tuple[tuple[Decimal, str, int], dict[str, str]] | None = None
+    for variant in cast(list[Any], variants):
+        if not isinstance(variant, dict):
+            continue
+        entry = cast(dict[str, Any], variant)
+        named = {key: str(entry[key]) for key in _IMAGE_VARIANT_KEYS if entry.get(key) is not None}
+        if not named or any(call[key] != value for key, value in named.items()):
+            continue
+        if best is not None and len(best[1]) >= len(named):
+            continue
+        unit = entry.get("unit", pricing.get("image_unit", pricing.get("unit")))
+        rate = _rate_definition(
+            {"image": entry.get("price", entry.get("amount")), **({"image_unit": unit} if unit else {})},
+            nested_key="image",
+            flat_key="image",
+            unit_key="image_unit",
+            unit_sizes=_IMAGE_UNIT_SIZES,
+            default_unit="image",
+        )
+        if rate is not None:
+            best = (rate, named)
+    return best
+
+
 def _image_pricing(
     pricing: dict[str, Any],
     *,
@@ -458,13 +503,14 @@ def _image_pricing(
     steps: int | None = None,
     unpriced_reason: str | None = None,
 ) -> _PricingCalculation:
-    """Images bill per generated image; pricing key "image" with unit "image".
+    """Images bill per generated image: an ``image_variants`` price, or the ``image`` rate.
 
     Diffusion cost tracks resolution and step count, not image count, so the
-    request shape is recorded alongside the quantity even while the rate stays
-    per-image. Without it the images column reconciles against a number that
-    cannot explain itself: four 4096px images and four 256px images bill
-    identically and leave no evidence of the difference.
+    request shape is recorded alongside the quantity. A model priced by
+    quality or size lists ``image_variants``; the variant the call fits
+    prices it, and the snapshot names which one. A call no variant fits takes
+    the plain ``image`` rate, and without one it is unpriced rather than
+    billed at another quality's price.
     """
     quantities: dict[str, Any] = {"images": image_count}
     if size:
@@ -482,23 +528,29 @@ def _image_pricing(
             quantities=quantities,
             reason=unpriced_reason,
         )
-    image_rate = _rate_definition(
-        pricing,
-        nested_key="image",
-        flat_key="image",
-        unit_key="image_unit",
-        unit_sizes=_IMAGE_UNIT_SIZES,
-        default_unit="image",
+    variant = _image_variant_rate(pricing, size=size, quality=quality)
+    image_rate = (
+        variant[0]
+        if variant is not None
+        else _rate_definition(
+            pricing,
+            nested_key="image",
+            flat_key="image",
+            unit_key="image_unit",
+            unit_sizes=_IMAGE_UNIT_SIZES,
+            default_unit="image",
+        )
     )
     if not currency or image_rate is None:
+        no_variant_fits = isinstance(pricing.get("image_variants"), list) and variant is None
         return _unpriced_calculation(
             pricing,
             billing_basis="images",
             quantities=quantities,
-            reason=unpriced_reason,
+            reason=unpriced_reason or ("image_variant_not_priced" if no_variant_fits and currency else None),
         )
     amount = Decimal(image_count) * image_rate[0] / Decimal(image_rate[2])
-    return _priced_calculation(
+    calculation = _priced_calculation(
         pricing,
         billing_basis="images",
         rates={"image": image_rate},
@@ -506,6 +558,9 @@ def _image_pricing(
         amount=amount,
         currency=currency,
     )
+    if variant is not None:
+        calculation.snapshot["image_variant"] = variant[1]
+    return calculation
 
 
 def unconfirmed_image_charge(
@@ -515,6 +570,7 @@ def unconfirmed_image_charge(
     target: LLMRuntimeTarget | None,
     images: int,
     size: str | None = None,
+    quality: str | None = None,
     unpriced_reason: str | None = None,
 ) -> tuple[_PricingCalculation, dict[str, str | None]]:
     """The charge for an image call whose answer never came, and its cost identity.
@@ -528,7 +584,9 @@ def unconfirmed_image_charge(
     """
     identity = _runtime_cost_fields(requested_model=requested_model, upstream_model=None, target=target)
     calculation = _with_runtime_identity(
-        _image_pricing(pricing, image_count=images, size=size, unpriced_reason=unpriced_reason),
+        _image_pricing(
+            pricing, image_count=images, size=size, quality=quality, unpriced_reason=unpriced_reason
+        ),
         requested_model=requested_model,
         identity=identity,
     )
@@ -1861,7 +1919,16 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
-            await self._note_image_call(step, route=route, model=model, target=target, images=n, edit=False)
+            await self._note_image_call(
+                step,
+                route=route,
+                model=model,
+                target=target,
+                images=n,
+                edit=False,
+                size=size,
+                quality=kwargs.get("quality"),
+            )
             asked = True
             with call_span(
                 self.otel_tracer,
@@ -1958,6 +2025,7 @@ class LLMPolicyGateway(LLMPort):
                         model=model,
                         images=n,
                         size=size,
+                        quality=kwargs.get("quality"),
                         operation="generate_image",
                         run_id=resolve_run_id(kwargs, self.ctx),
                         elapsed_ms=int((utc_now() - start_time).total_seconds() * 1000),
@@ -1981,30 +2049,35 @@ class LLMPolicyGateway(LLMPort):
         target: str,
         images: int,
         edit: bool,
+        size: str | None = None,
+        quality: str | None = None,
     ) -> None:
         """Make durable, before the provider is asked, what the call asks for.
 
         If its answer never comes, the gateway charges it on a timeout; if the
         process making the call is lost, the image job reaper tells the charge
-        from what this writes on the step: the count, the model asked for, and
-        the target and provider serving it.
+        from what this writes on the step: the count, its size and quality,
+        which a price can depend on, the model asked for, and the target and
+        provider serving it.
         """
         if not step or not self.trace_writer:
             return
         served_by = route.target
-        await self.trace_writer.update_step_status(
-            step.id,
-            "running",
-            metrics={
-                "requested_images": images,
-                "image_edit": edit,
-                "model": model,
-                "model_ref": target,
-                "provider_id": served_by.provider_id if served_by else None,
-                "provider_slug": served_by.provider_slug if served_by else None,
-                "provider_kind": served_by.provider_kind if served_by else None,
-            },
-        )
+        metrics: dict[str, Any] = {
+            "requested_images": images,
+            "image_edit": edit,
+            "model": model,
+            "model_ref": target,
+            "provider_id": served_by.provider_id if served_by else None,
+            "provider_slug": served_by.provider_slug if served_by else None,
+            "provider_kind": served_by.provider_kind if served_by else None,
+        }
+        # Only what was asked for: a price can depend on either.
+        if size:
+            metrics["image_size"] = size
+        if quality:
+            metrics["image_quality"] = quality
+        await self.trace_writer.update_step_status(step.id, "running", metrics=metrics)
         await self.trace_writer.release_before_wait()
 
     async def _charge_unanswered_images(
@@ -2018,6 +2091,7 @@ class LLMPolicyGateway(LLMPort):
         operation: str,
         run_id: str | None,
         elapsed_ms: int,
+        quality: str | None = None,
     ) -> None:
         """Charge an image call that timed out: the provider may still bill it."""
         assert self.trace_writer is not None
@@ -2027,6 +2101,7 @@ class LLMPolicyGateway(LLMPort):
             target=route.target,
             images=images,
             size=size,
+            quality=quality,
         )
         await self.trace_writer.record_cost(
             run_id=run_id,
@@ -2173,7 +2248,16 @@ class LLMPolicyGateway(LLMPort):
                 background=kwargs.get("background"),
                 seed=kwargs.get("seed"),
             )
-            await self._note_image_call(step, route=route, model=model, target=target, images=n, edit=True)
+            await self._note_image_call(
+                step,
+                route=route,
+                model=model,
+                target=target,
+                images=n,
+                edit=True,
+                size=size,
+                quality=kwargs.get("quality"),
+            )
             asked = True
             with call_span(
                 self.otel_tracer,
@@ -2278,6 +2362,7 @@ class LLMPolicyGateway(LLMPort):
                         model=model,
                         images=n,
                         size=size,
+                        quality=kwargs.get("quality"),
                         operation="edit_image",
                         run_id=resolve_run_id(kwargs, self.ctx),
                         elapsed_ms=int((utc_now() - start_time).total_seconds() * 1000),
