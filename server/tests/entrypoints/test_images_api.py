@@ -155,3 +155,47 @@ class TestGenerationOptions:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "VALIDATION_ERROR"
         assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
+
+
+class TestFieldsGenerationDoesNotTake:
+    """A field the request does not model is refused, not dropped while the image bills."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "field, value",
+        [
+            ("seed", 7),
+            ("strength", 0.5),
+            ("negative_prompt", "blurry"),
+            ("quality", "high"),
+            ("steps", 30),
+            ("style", "vivid"),
+        ],
+    )
+    async def test_it_is_refused_before_a_run_opens(self, async_client, async_db, field, value):
+        port = get_container().get("llm_port")
+        port.last_generate = None
+
+        response = await _generate(async_client, **{field: value})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["code"] == "VALIDATION_ERROR"
+        assert [error["field"] for error in body["details"]["errors"]] == [f"body.{field}"]
+        assert port.last_generate is None
+        assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
+        assert (await async_db.exec(select(RunCostEntry))).all() == []
+
+    @pytest.mark.asyncio
+    async def test_every_such_field_is_named(self, async_client):
+        response = await _generate(async_client, seed=7, quality="high")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        fields = {error["field"] for error in response.json()["details"]["errors"]}
+        assert fields == {"body.seed", "body.quality"}
+
+    @pytest.mark.asyncio
+    async def test_the_async_flag_is_still_taken_by_its_name(self, async_client):
+        response = await _generate(async_client, **{"async": True})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.text

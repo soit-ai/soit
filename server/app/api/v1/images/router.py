@@ -12,6 +12,10 @@ returns only as run artifacts: without a ``response_format`` it means
 Editing covers three shapes through one endpoint, because they are one provider
 call: inpainting (image + mask), outpainting (a pre-expanded canvas whose new
 margin is masked), and reference editing (image, no mask).
+
+A field neither request takes is refused rather than ignored: an option the
+caller believes was applied, such as a seed, would otherwise be dropped while
+the image is billed as if it had been honoured.
 """
 
 import base64
@@ -71,7 +75,7 @@ def _resolved_response_format(requested: str | None, run_async: bool) -> str:
 class ImageGenerationCreate(BaseModel):
     """Image generation request (OpenAI-compatible shape, reduced)."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     model: str = Field(min_length=1)
     prompt: str = Field(min_length=1, max_length=4000)
@@ -116,7 +120,7 @@ class ImageEditCreate(BaseModel):
     megabytes, and inline bytes make the request body carry them twice over.
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     model: str = Field(min_length=1)
     prompt: str = Field(min_length=1, max_length=4000)

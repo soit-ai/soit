@@ -84,6 +84,17 @@ record for operators.
   caller's snapshot can no longer mark an unpriced row as priced. An amount
   of `0` with a currency stays an explicit zero price.
 
+- `POST /api/v1/images/generations` and `/edits` now answer `400`
+  `VALIDATION_ERROR` to a field they do not take, naming each one in
+  `details.errors`, where they answered `201` (`202` with `async`) and
+  ignored it; nothing opens a run or bills. A `seed`, `strength`, `negative_prompt`, `quality` or
+  `steps` sent to generations, or a `quality` or `steps` sent to an edit,
+  was dropped while the image was billed as if it had been honoured.
+  Generations does not take the first three yet. An OpenAI-shaped body is
+  refused for fields such as `user` and `style` too, which `/v1` handles by
+  its own rules; the fields each endpoint takes are those in its OpenAPI
+  schema.
+
 ### Fixed
 
 - An asynchronous image job (`async: true` on `/api/v1/images/generations`

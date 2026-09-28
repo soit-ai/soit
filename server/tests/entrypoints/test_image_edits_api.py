@@ -313,3 +313,26 @@ class TestPassThroughParameters:
             response = await _edit(async_client, **overrides)
             assert response.status_code == status.HTTP_400_BAD_REQUEST, overrides
             assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+class TestFieldsEditDoesNotTake:
+    """A field the edit does not model is refused, not dropped while the image bills."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "field, value",
+        [("quality", "high"), ("steps", 30), ("input_fidelity", "high"), ("image", "x")],
+    )
+    async def test_it_is_refused_before_a_run_opens(self, async_client, async_db, field, value):
+        port = get_container().get("llm_port")
+        port.last_edit = None
+
+        response = await _edit(async_client, **{field: value})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["code"] == "VALIDATION_ERROR"
+        assert [error["field"] for error in body["details"]["errors"]] == [f"body.{field}"]
+        assert port.last_edit is None
+        assert (await async_db.exec(select(Run).where(Run.mode == "image"))).all() == []
+        assert (await async_db.exec(select(RunCostEntry))).all() == []
