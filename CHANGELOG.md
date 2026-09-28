@@ -205,6 +205,14 @@ record for operators.
 
 ### Fixed
 
+- A model server, tool or MCP server on a private or loopback address can be
+  reached once its network is listed in `EGRESS_PRIVATE_NETWORKS` (CIDR) and
+  the target is allowlisted. Before, every non-public address was refused
+  whatever the configuration, even with the egress policy off, so a local
+  Ollama or an on-premises model server could not be used although the docs
+  said an allowlist entry was enough. The list is empty by default, which
+  keeps refusing every non-public address; `0.0.0.0/0` is refused at startup.
+
 - An asynchronous image job (`async: true` on `/api/v1/images/generations`
   or `/edits`) no longer loses its images. Without a `response_format`, or
   with `b64_json` or `url`, the job billed the images and closed its run as

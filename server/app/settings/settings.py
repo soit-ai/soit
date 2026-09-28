@@ -550,6 +550,16 @@ class Settings(BaseSettings):
     egress_blocklist: list[str] = []
     """Global egress blocklist domains (wildcards supported)."""
 
+    egress_private_networks: list[str] = []
+    """Private or loopback networks (CIDR) governed calls may reach.
+
+    Outbound calls to a private, loopback or otherwise non-public address are
+    refused, which also keeps out a model server inside your own network (a
+    local Ollama, an on-premises vLLM). An address in one of these networks is
+    let through; the target still needs an egress allowlist entry like any
+    other. Empty, the default, refuses every non-public address.
+    """
+
     # API
     api_v1_prefix: str = "/api/v1"
     """API v1 prefix."""
@@ -599,6 +609,20 @@ class Settings(BaseSettings):
         if role not in ("all", "gateway"):
             raise ValueError(f"SOIT_ROLE must be all or gateway, not {value!r}")
         return role
+
+    @field_validator("egress_private_networks")
+    @classmethod
+    def _valid_private_networks(cls, value: list[str]) -> list[str]:
+        networks: list[str] = []
+        for entry in value:
+            try:
+                network = ipaddress.ip_network(entry.strip(), strict=False)
+            except ValueError as exc:
+                raise ValueError(f"EGRESS_PRIVATE_NETWORKS entry is not a CIDR: {entry}") from exc
+            if network.prefixlen == 0:
+                raise ValueError(f"EGRESS_PRIVATE_NETWORKS entry would open every address: {entry}")
+            networks.append(str(network))
+        return networks
 
     @field_validator("trusted_proxies")
     @classmethod

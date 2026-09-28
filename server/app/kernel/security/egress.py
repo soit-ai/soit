@@ -215,13 +215,14 @@ class EgressPolicy:
 
     @staticmethod
     def _is_public_endpoint(domain: str) -> bool:
-        """Return False for localhost and non-global IP literals."""
+        """Return False for localhost and non-global IP literals outside the permitted private networks."""
         if domain.rstrip(".").lower() == "localhost":
-            return False
+            return in_private_networks("127.0.0.1") and in_private_networks("::1")
         try:
-            return ipaddress.ip_address(domain).is_global
+            address = ipaddress.ip_address(domain)
         except ValueError:
             return True
+        return address.is_global or in_private_networks(str(address))
 
     def _matches_pattern(self, domain: str, patterns: list[re.Pattern]) -> bool:
         """Check if domain matches any pattern.
@@ -293,6 +294,18 @@ class EgressPolicy:
 
         # If allowlist exists but no match, deny
         return False
+
+
+def in_private_networks(address: str) -> bool:
+    """Whether a non-public address is in a network the operator opened (EGRESS_PRIVATE_NETWORKS)."""
+    networks = settings.egress_private_networks
+    if not networks:
+        return False
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(ip in ipaddress.ip_network(network, strict=False) for network in networks)
 
 
 # Global egress policy instance
@@ -620,7 +633,7 @@ class GovernedEgressGuard:
 
         for address in addresses:
             try:
-                is_public = ipaddress.ip_address(address).is_global
+                is_public = ipaddress.ip_address(address).is_global or in_private_networks(address)
             except ValueError as exc:
                 raise KernelError(
                     "EGRESS_DNS_FAILED",
