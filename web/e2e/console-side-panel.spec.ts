@@ -406,10 +406,9 @@ test('caption spacing follows the prototype after the first group', async ({ pag
   expect(await padding(1)).toBe('12px')
 })
 
-test('seats keeps a live numerator against the fixture cap', async ({ page }) => {
-  // The only tile that mixes a measurement with a fixture. If a later change
-  // swaps the whole value for the prototype's "4 / 25", the real member count
-  // stops being reported and nobody notices — so assert the numerator moves.
+test('members are counted from the member list, with no invented seat cap', async ({ page }) => {
+  // The tile once mixed the live member count with a fixture cap ("2 / 25").
+  // A licence carries no seat cap, so the tile counts members and says so.
   await json(page, '**/api/v1/workspaces/workspace-1/members', [
     { user_id: 'u1', email: 'a@x.io', role: 'Owner', status: 'active' },
     { user_id: 'u2', email: 'b@x.io', role: 'Admin', status: 'active' },
@@ -427,8 +426,10 @@ test('seats keeps a live numerator against the fixture cap', async ({ page }) =>
 
   await page.goto('/settings/billing', { waitUntil: 'domcontentloaded' })
 
-  // Two real members, not the prototype's four; the cap stays the fixture.
-  await expect(page.locator('.tile', { hasText: 'Seats' })).toContainText('2 / 25')
+  const tile = page.locator('.tile', { hasText: 'Members' })
+  await expect(tile).toContainText('2')
+  await expect(tile).toContainText('no seat cap in Community')
+  await expect(tile).not.toContainText('/')
 })
 
 test('head sub-line still identifies the workspace when the name cannot load', async ({
