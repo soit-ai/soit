@@ -35,6 +35,18 @@ export async function downloadRunEvidence(
 }
 
 /**
+ * Download a trace as OTLP/JSON: one span per run and per step with ids,
+ * statuses, timings and numeric metrics, as the server renders it.
+ */
+export async function downloadTraceOtlp(traceId: string): Promise<string> {
+  const config: RequestConfigWithToast = { responseType: 'blob', suppressErrorToast: true }
+  const response = await request.get<Blob>(`/runs/trace/${traceId}/otlp`, config)
+  const filename = filenameOf(response.headers?.['content-disposition'], `trace-${traceId}.otlp.json`)
+  save(response.data, filename)
+  return filename
+}
+
+/**
  * Download one kind of ledger record created in [since, until) as a file.
  * Owners and admins only; the server records the export in the audit ledger.
  */

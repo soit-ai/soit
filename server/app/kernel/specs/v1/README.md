@@ -7,6 +7,9 @@ Kernel v1 schemas:
 - ledger_spec: the runtime ledger as it leaves SOIT (runs, run steps, cost
   entries, audit entries, outbox events), written by
   `app/kernel/runtime/runs/ledger.py` for exports and run evidence bundles
+- otlp_trace_spec: a trace as an OTLP/JSON `ExportTraceServiceRequest` (one
+  span per run and per run step, identifiers and numbers only), written by
+  `app/kernel/runtime/runs/otlp.py` for `GET /api/v1/runs/trace/{trace_id}/otlp`
 
 Rules:
 - Keep v1 stable.

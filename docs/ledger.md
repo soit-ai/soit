@@ -157,3 +157,43 @@ so the digest in `X-SOIT-Evidence-SHA256` identifies the evidence. Each
 download is written to the audit ledger as `run.evidence_exported` with that
 digest, but not attached to the run, so downloading does not change the
 evidence. **Evidence bundle** on a run's detail page downloads it.
+
+## Trace export (OTLP)
+
+```
+GET /api/v1/runs/trace/{trace_id}/otlp
+```
+
+A trace, the runs sharing a `trace_id` and their steps, as an OTLP/JSON
+`ExportTraceServiceRequest` (`application/json`, downloaded as
+`trace-<id>.otlp.json`) that an OpenTelemetry collector, Jaeger or Tempo
+accepts on its OTLP/HTTP endpoint:
+
+- One resource (`service.name: soit`, `soit.tenant.id`, `soit.workspace.id`,
+  `soit.trace.id`) and one scope named `soit`.
+- One span per run, named `run <kind>`, whose parent is the parent run's
+  span when that run is in the trace, and one span per step, named by its
+  step type, under its run's span. A run without a parent is a `SERVER`
+  span, a model, tool or retrieval step a `CLIENT` span, everything else
+  `INTERNAL`.
+- The trace id is the stored id when it already is 32 hex characters, and
+  otherwise a 16-byte BLAKE2b hash of it; a span id is an 8-byte BLAKE2b
+  hash of the run or step id. An unchanged trace always gives the same
+  document.
+- `startTimeUnixNano` and `endTimeUnixNano` come from the record's
+  timestamps, as decimal strings; a run or step still open ends where it
+  started.
+- `status.code` is `OK` (1) for `succeeded`, `ERROR` (2) with the error code
+  as the message for `failed`, and `UNSET` (0) otherwise.
+- Attributes: `soit.run.*` (id, mode, kind, status, subject, attempt, parent
+  and source run, source, sandbox, error code), `soit.step.*` (id, step id,
+  type, node id, status, error code) and each numeric top-level step metric
+  as `soit.step.metric.<name>`.
+
+The document holds identifiers, enumerations, timings and numbers only:
+summaries, error text, tool arguments and results are never in it, so a
+content-free workspace exports the same shape. The contract is
+`kernel/specs/v1/otlp_trace_spec`. Each download is written to the audit
+ledger as `trace.otlp_exported` with the run and span counts. A trace with
+no run in the caller's workspace is `404`. **Export OTLP** on a trace's
+page downloads it.

@@ -4,9 +4,11 @@ Run API routes (FastAPI).
 """
 
 import hashlib
+import re
 from datetime import datetime
 from urllib.parse import quote
 
+import orjson
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -21,6 +23,7 @@ from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.runtime.db.models.audit import AuditEvent
+from app.kernel.runtime.runs.otlp import build_trace_export, load_trace
 from app.kernel.runtime.runs.schemas import (
     RunAuditLogResponse,
     RunCostByModelResponse,
@@ -515,6 +518,47 @@ async def list_runs_by_trace(
         trace_id=trace_id,
         page_token=page_token,
         page_size=page_size,
+    )
+
+
+@router.get("/trace/{trace_id}/otlp", response_class=Response)
+async def export_trace_otlp(
+    trace_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    db: AsyncSession = Depends(get_async_db),
+) -> Response:
+    """The trace's runs and steps as an OTLP/JSON ``ExportTraceServiceRequest``:
+    identifiers, kinds, statuses, timings and numeric metrics, never content."""
+
+    runs, steps = await load_trace(db, ctx, trace_id)
+    document = build_trace_export(
+        trace_id, runs, steps, tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id
+    )
+    db.add(
+        AuditEvent(
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            event_type="trace.otlp_exported",
+            resource_type="trace",
+            resource_id=trace_id,
+            operation="export",
+            actor_user_id=ctx.user_id,
+            trace_id=ctx.trace_id,
+            outcome="allowed",
+            scope="workspace",
+            payload_json={"runs": len(runs), "spans": len(runs) + len(steps)},
+        )
+    )
+    await db.commit()
+    # The stored id names the file; anything a filename cannot hold is replaced.
+    safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", trace_id)
+    return Response(
+        content=orjson.dumps(document),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="trace-{safe_id}.otlp.json"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

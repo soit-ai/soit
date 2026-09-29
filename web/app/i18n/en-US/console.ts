@@ -580,6 +580,7 @@ const translation = {
     back: 'Back to traces',
     openRun: 'Open run ledger',
     exportOtlp: 'Export OTLP',
+    otlpDownloaded: 'OTLP export downloaded · {{filename}}',
     waterfall: 'Span waterfall',
     waterfallHint: 'click a span to inspect',
     axis: { span: 'span', kind: 'kind', dur: 'dur' },

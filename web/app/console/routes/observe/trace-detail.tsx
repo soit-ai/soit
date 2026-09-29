@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { useParams } from 'react-router'
+import { toast } from 'sonner'
 
 import {
   Backlink,
@@ -18,11 +19,13 @@ import {
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor } from '../../adapters/palette'
 import { formatDurationMs } from '../../adapters/run-detail'
-import { useQuery } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { downloadTraceOtlp } from '@/services/ledger-service'
 import { listRunSteps, listRunsByTrace, type RunStepResponse } from '@/services/run-service'
+import { requestErrorMessage } from '@/utils/request'
 
 const STEP_PAGE_SIZE = 400
 
@@ -123,6 +126,19 @@ export default function ConsoleTraceDetail() {
     options: { enabled: Boolean(traceId), retry: false, refetchOnWindowFocus: false },
   })
 
+  // The server renders the trace as OTLP/JSON: one span per run and per
+  // step, with ids, statuses, timings and numeric metrics and no content.
+  const otlpMutation = useMutation({
+    mutationKey: ['console', 'trace-detail', 'otlp', traceId],
+    mutationFn: () => downloadTraceOtlp(traceId as string),
+    onSuccess: (filename) => {
+      toast.success(t('console.traceDetail.otlpDownloaded', { filename }))
+    },
+    onError: (error) => {
+      toast.error(requestErrorMessage(error, 'Failed to export the trace'))
+    },
+  })
+
   const runs = useMemo(() => runsQuery.data?.items || [], [runsQuery.data])
   const steps = useMemo(() => {
     const items = [...(stepsQuery.data?.items || [])]
@@ -204,8 +220,8 @@ export default function ConsoleTraceDetail() {
               value: attributeValue(value),
             })),
           ],
-          // BACKEND-PENDING: there is no span-event resource — a step only
-          // records its error, so that is the only event we can show honestly.
+          // A step records nothing event-like but its error, so the error is
+          // the span's only event.
           events: [
             ...(step.error_code ? [{ key: 'error.code', value: step.error_code }] : []),
             ...(step.error_message ? [{ key: 'error.message', value: step.error_message }] : []),
@@ -235,9 +251,6 @@ export default function ConsoleTraceDetail() {
           key: 'Started',
           value: starts.length ? new Date(windowStart).toISOString().replace('T', ' ') : '—',
         },
-        // BACKEND-PENDING: no trace-level evidence digest is exposed; artifact
-        // digests live on the run detail payload.
-        { key: 'Evidence digest', value: '—' },
       ] as Array<{ key: string; value: string; to?: string }>,
       ticks: [0, 1, 2, 3, 4].map((index) => seconds((windowMs * index) / 4)),
       breakdown: laneRows.map(([kind, value]) => ({
@@ -300,8 +313,12 @@ export default function ConsoleTraceDetail() {
           <IconChevronRight />
           {t('console.traceDetail.openRun')}
         </button>
-        {/* BACKEND-PENDING: no OTLP export endpoint — button stays inert. */}
-        <button type="button" className="btn">
+        <button
+          type="button"
+          className="btn"
+          disabled={otlpMutation.isPending}
+          onClick={() => otlpMutation.mutate(undefined)}
+        >
           <IconExport />
           {t('console.traceDetail.exportOtlp')}
         </button>

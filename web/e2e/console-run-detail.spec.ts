@@ -281,3 +281,41 @@ test('the evidence bundle downloads the server-built archive and names its diges
   expect((await download).suggestedFilename()).toBe('soit-evidence-run_01J9KD7Z2M.zip')
   await expect(page.getByText(`sha256 ${digest.slice(0, 12)}`, { exact: false })).toBeVisible()
 })
+
+test('the trace page downloads the server-built OTLP document', async ({ page }) => {
+  await page.route('**/api/v1/runs/trace/trace_4d19a2**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ items: [runDetail.run], page_size: 50, has_next: false }),
+    }),
+  )
+  await page.route('**/api/v1/runs/steps**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ items: runDetail.steps, page_size: 400, has_next: false }),
+    }),
+  )
+  // Registered after the trace listing so it wins for the export.
+  await page.route('**/api/v1/runs/trace/trace_4d19a2/otlp', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'content-disposition': 'attachment; filename="trace-trace_4d19a2.otlp.json"',
+        'access-control-expose-headers': 'Content-Disposition',
+      },
+      body: JSON.stringify({ resourceSpans: [] }),
+    }),
+  )
+
+  await page.goto('/observe/traces/trace_4d19a2', { waitUntil: 'domcontentloaded' })
+  const exported = page.waitForRequest('**/api/v1/runs/trace/trace_4d19a2/otlp')
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export OTLP' }).click()
+
+  expect((await exported).method()).toBe('GET')
+  expect((await download).suggestedFilename()).toBe('trace-trace_4d19a2.otlp.json')
+  await expect(page.getByText('OTLP export downloaded', { exact: false })).toBeVisible()
+})

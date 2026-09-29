@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OtlpTraceExport",
+  "description": "A trace as SOIT exports it: an OTLP/JSON ExportTraceServiceRequest with one resource, one scope named soit, one span per run and one span per run step. Identifiers are lowercase hex (16-byte trace id, 8-byte span id) and 64-bit integers are decimal strings, as the OTLP protobuf JSON mapping writes them. The document carries identifiers, kinds, statuses, timings and numeric metrics only, never run content. Written by app/kernel/runtime/runs/otlp.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resourceSpans"
+  ],
+  "properties": {
+    "resourceSpans": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/resource_spans"
+      }
+    }
+  },
+  "$defs": {
+    "hex_trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "hex_span_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "unix_nano": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "any_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "stringValue": {
+          "type": "string"
+        },
+        "intValue": {
+          "type": "string",
+          "pattern": "^-?[0-9]+$"
+        },
+        "doubleValue": {
+          "type": "number"
+        },
+        "boolValue": {
+          "type": "boolean"
+        }
+      }
+    },
+    "key_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "value"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "$ref": "#/$defs/any_value"
+        }
+      }
+    },
+    "attributes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/key_value"
+      }
+    },
+    "resource_spans": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource",
+        "scopeSpans"
+      ],
+      "properties": {
+        "resource": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attributes"
+          ],
+          "properties": {
+            "attributes": {
+              "$ref": "#/$defs/attributes"
+            }
+          }
+        },
+        "scopeSpans": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/scope_spans"
+          }
+        }
+      }
+    },
+    "scope_spans": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "spans"
+      ],
+      "properties": {
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "const": "soit"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "spans": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/span"
+          }
+        }
+      }
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "traceId",
+        "spanId",
+        "name",
+        "kind",
+        "startTimeUnixNano",
+        "endTimeUnixNano",
+        "attributes",
+        "status"
+      ],
+      "properties": {
+        "traceId": {
+          "$ref": "#/$defs/hex_trace_id"
+        },
+        "spanId": {
+          "$ref": "#/$defs/hex_span_id"
+        },
+        "parentSpanId": {
+          "$ref": "#/$defs/hex_span_id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "startTimeUnixNano": {
+          "$ref": "#/$defs/unix_nano"
+        },
+        "endTimeUnixNano": {
+          "$ref": "#/$defs/unix_nano"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributes"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "type": "integer",
+              "enum": [
+                0,
+                1,
+                2
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

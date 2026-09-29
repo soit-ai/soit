@@ -40,6 +40,14 @@ record for operators.
   document as YAML and `soit agent import FILE [--name NAME]` reads YAML
   or JSON. The model, tool and knowledge refs a file names must exist in
   the importing workspace.
+- `GET /api/v1/runs/trace/{trace_id}/otlp` exports a trace, the runs sharing
+  the id and their steps, as an OTLP/JSON `ExportTraceServiceRequest` an
+  OpenTelemetry collector, Jaeger or Tempo can ingest: one span per run and
+  per step with stable ids, parent links, nanosecond timings, statuses and
+  numeric metrics, and no run content. The contract is
+  `kernel/specs/v1/otlp_trace_spec`, each download is audited as
+  `trace.otlp_exported`, and **Export OTLP** on the console's trace page
+  downloads it.
 
 ### Changed
 
