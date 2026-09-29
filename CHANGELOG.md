@@ -64,6 +64,12 @@ record for operators.
 
 ### Changed
 
+- The agent detail page drops the inputs that saved nothing: the Trigger
+  select, the Output schema chip with its Edit schema button, the
+  Governance preview rail, the budget Alert at select, and the Rate limit,
+  Retry and On failure settings. The agent record and its version spec
+  carry none of those fields; the cost ceiling and timeout stay, since
+  `spec.limits.budget` and `spec.limits.timeout_ms` are real.
 - The server moves to LiteLLM 1.103.0 and the OpenAI SDK 2.54.0 (LiteLLM
   still caps the SDK below 3), with the image route table checked against
   the new library. Image edits routed to OpenAI, Azure OpenAI, a LiteLLM

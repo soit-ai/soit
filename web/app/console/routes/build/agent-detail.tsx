@@ -10,7 +10,6 @@ import {
   ConsoleModal,
   DataStateNote,
   IconExport,
-  KeyValueList,
   StatTile,
   StatTileGrid,
   StatusChip,
@@ -645,18 +644,6 @@ export default function ConsoleAgentDetail() {
                 />
               </div>
               <div className="frow">
-                <label>{t('console.agentDetail.fields.trigger')}</label>
-                {/* The agent record has no trigger column and the runtime spec
-                    carries none either; the option list stays the prototype's
-                    and the choice is not saved anywhere. */}
-                <select key={`trigger-${agent?.id}`} className="input" style={{ maxWidth: 220 }} defaultValue="">
-                  <option>webhook</option>
-                  <option>chat</option>
-                  <option>schedule</option>
-                  <option>api</option>
-                </select>
-              </div>
-              <div className="frow">
                 <label>{t('console.agentDetail.fields.model')}</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {/* No model-catalogue endpoint drives this select yet; the
@@ -714,17 +701,6 @@ export default function ConsoleAgentDetail() {
                     setDraft((state) => ({ ...state, systemPrompt: event.target.value }))
                   }
                 />
-              </div>
-              <div className="frow">
-                <label>{t('console.agentDetail.fields.outputSchema')}</label>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  {/* The agent spec has no output-schema slot (only workflows
-                      carry outputs_schema), so there is nothing to name here. */}
-                  <span className="chip">—</span>
-                  <ConsoleButton variant="ghost" size="sm">
-                    {t('console.agentDetail.fields.editSchema')}
-                  </ConsoleButton>
-                </div>
               </div>
             </WorkbenchPanel>
 
@@ -811,18 +787,6 @@ export default function ConsoleAgentDetail() {
           </div>
 
           <div className="rail">
-            <WorkbenchPanel title={t('console.agentDetail.governance')}>
-              {/* No policy-bundle, gate-preview, publish-review or secret-scope
-                  field exists on the agent, its version spec, or its releases. */}
-              <KeyValueList
-                items={[
-                  { key: 'Policy bundle', value: '—' },
-                  { key: 'Gates that apply', value: '—' },
-                  { key: 'Publish review', value: '—' },
-                  { key: 'Secrets', value: '—' },
-                ]}
-              />
-            </WorkbenchPanel>
             <WorkbenchPanel title={t('console.agentDetail.budget')}>
               <div className="frow" style={{ gridTemplateColumns: '1fr', gap: 5 }}>
                 <label>{t('console.agentDetail.dailyCap')}</label>
@@ -836,15 +800,6 @@ export default function ConsoleAgentDetail() {
                   }
                   style={{ maxWidth: 120 }}
                 />
-              </div>
-              <div className="frow" style={{ gridTemplateColumns: '1fr', gap: 5 }}>
-                <label>{t('console.agentDetail.alertAt')}</label>
-                {/* No budget-alert threshold is stored anywhere, so this
-                    select has nothing to save into. */}
-                <select className="input" style={{ maxWidth: 120 }} defaultValue="">
-                  <option>80%</option>
-                  <option>50%</option>
-                </select>
               </div>
             </WorkbenchPanel>
             <WorkbenchPanel title={t('console.agentDetail.testTitle')}>
@@ -1192,17 +1147,6 @@ export default function ConsoleAgentDetail() {
             </select>
           </div>
           <div className="frow">
-            <label>{t('console.agentDetail.settingsFields.rateLimit')}</label>
-            {/* No rate-limit field on the agent or its spec — nothing to save. */}
-            <input className="input" defaultValue="" style={{ maxWidth: 200 }} />
-          </div>
-          <div className="frow">
-            <label>{t('console.agentDetail.settingsFields.retry')}</label>
-            {/* No retry policy is stored; spec.limits.max_failures is a failure
-                budget for a single run, not a retry schedule. Not saved. */}
-            <input className="input" defaultValue="" style={{ maxWidth: 200 }} />
-          </div>
-          <div className="frow">
             <label>{t('console.agentDetail.settingsFields.timeout')}</label>
             {/* This one is real: spec.limits.timeout_ms. It is part of the
                 version spec, so it ships with "Save draft" like the rest. */}
@@ -1214,11 +1158,6 @@ export default function ConsoleAgentDetail() {
               }
               style={{ maxWidth: 200 }}
             />
-          </div>
-          <div className="frow">
-            <label>{t('console.agentDetail.settingsFields.onFailure')}</label>
-            {/* No notification target is stored on the agent — nothing to save. */}
-            <input className="input" defaultValue="" style={{ maxWidth: 260 }} />
           </div>
           <div className="frow">
             <label style={{ color: 'var(--danger-foreground)' }}>
