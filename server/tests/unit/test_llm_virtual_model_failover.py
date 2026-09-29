@@ -36,11 +36,34 @@ class _ProviderError(Exception):
 class _Port:
     """One provider: answers, or fails with a status, before or after streaming."""
 
-    def __init__(self, name: str, *, fail: int | None = None, fail_mid_stream: bool = False) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        fail: int | None = None,
+        fail_mid_stream: bool = False,
+        cannot_carry: str | None = None,
+    ) -> None:
         self.name = name
         self.fail = fail
         self.fail_mid_stream = fail_mid_stream
+        self.cannot_carry = cannot_carry
         self.calls: list[str] = []
+
+    async def check_image_request(self, model: str, *, operation: str, **options: Any) -> None:
+        # The way a LiteLLM route refuses an image option it cannot carry.
+        if self.cannot_carry and options.get(self.cannot_carry) is not None:
+            raise KernelError(
+                "MODEL_IMAGE_CAPABILITY_UNAVAILABLE",
+                f"the route has no place for {self.cannot_carry}",
+                {
+                    "model": model,
+                    "capability": self.cannot_carry,
+                    "param": self.cannot_carry,
+                    "reason": "route_cannot_carry",
+                    "route": f"{self.name}Route",
+                },
+            )
 
     def _check(self, model: str) -> None:
         self.calls.append(model)
@@ -222,6 +245,41 @@ async def test_images_take_the_first_available_target_and_never_repeat_a_call() 
 
     image = await _gateway({BACKUP: backup}).generate_image("a cat", "vmodel:fast")
     assert image.model == "backup"
+
+
+@pytest.mark.asyncio
+async def test_an_image_option_a_target_cannot_carry_moves_the_call_on() -> None:
+    primary, backup = _Port("primary", cannot_carry="seed"), _Port("backup")
+    writer = _writer()
+
+    image = await _gateway({PRIMARY: primary, BACKUP: backup}, writer).generate_image(
+        "a cat", "vmodel:fast", run_id="run_1", seed=7
+    )
+
+    # Nothing reached the first provider, so nothing was billed there.
+    assert image.model == "backup"
+    assert primary.calls == []
+    assert _step_metrics(writer)["attempts"] == [
+        {
+            "model_ref": PRIMARY,
+            "outcome": "unavailable",
+            "reason": "MODEL_IMAGE_CAPABILITY_UNAVAILABLE",
+            "param": "seed",
+        },
+        {"model_ref": BACKUP, "outcome": "selected"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_when_no_target_carries_the_option_the_last_refusal_is_raised() -> None:
+    primary, backup = _Port("primary", cannot_carry="seed"), _Port("backup", cannot_carry="seed")
+
+    with pytest.raises(KernelError) as refused:
+        await _gateway({PRIMARY: primary, BACKUP: backup}).edit_image(b"png", "a cat", "vmodel:fast", seed=7)
+
+    assert refused.value.details["model"] == BACKUP
+    assert refused.value.details["reason"] == "route_cannot_carry"
+    assert primary.calls == backup.calls == []
 
 
 @pytest.mark.asyncio

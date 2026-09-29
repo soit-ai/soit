@@ -146,6 +146,19 @@ _UNAVAILABLE_ROUTE_CODES = frozenset(
 )
 
 
+def _refuses_an_option(exc: KernelError) -> bool:
+    """Whether a target refused an image option, which another target may carry."""
+    return exc.code == "MODEL_IMAGE_CAPABILITY_UNAVAILABLE"
+
+
+def _option_refused_attempt(target: str, exc: KernelError) -> dict[str, Any]:
+    attempt: dict[str, Any] = {"model_ref": target, "outcome": "unavailable", "reason": exc.code}
+    param = exc.details.get("param") or exc.details.get("capability")
+    if param:
+        attempt["param"] = param
+    return attempt
+
+
 @dataclass(frozen=True)
 class _ResolvedPolicyRoute:
     port: LLMPort
@@ -1003,15 +1016,20 @@ class LLMPolicyGateway(LLMPort):
         *,
         timeout_fallback: float | None = None,
         max_retries_cap: int | None = None,
+        admits: Callable[[_ResolvedPolicyRoute, str], Awaitable[None]] | None = None,
     ) -> tuple[_ResolvedPolicyRoute, str, list[dict[str, Any]]]:
-        """The first target whose route resolves, without failing over on calls.
+        """The first target whose route resolves and admits the request.
 
         Image calls use this: a failed image call may still have been billed,
-        so it is not repeated on another provider.
+        so it is not repeated on another provider. ``admits`` refuses a
+        resolved target the request could not be served by as asked, an image
+        option its route cannot carry; the call moves on to the next target,
+        and the last target's refusal is the caller's.
         """
         targets = await self._targets(model)
         attempts: list[dict[str, Any]] = []
         for index, target in enumerate(targets):
+            last = index == len(targets) - 1
             try:
                 route = await self._resolve_call_route(
                     target,
@@ -1020,14 +1038,51 @@ class LLMPolicyGateway(LLMPort):
                     max_retries_cap=max_retries_cap,
                 )
             except KernelError as exc:
-                if index == len(targets) - 1 or exc.code not in _UNAVAILABLE_ROUTE_CODES:
+                if last or exc.code not in _UNAVAILABLE_ROUTE_CODES:
                     raise
                 attempts.append({"model_ref": target, "outcome": "unavailable", "reason": exc.code})
                 continue
+            if admits is not None:
+                try:
+                    await admits(route, target)
+                except KernelError as exc:
+                    if last or not _refuses_an_option(exc):
+                        raise
+                    attempts.append(_option_refused_attempt(target, exc))
+                    continue
             if len(targets) > 1:
                 attempts.append({"model_ref": target, "outcome": "selected"})
             return route, target, attempts
         raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
+
+    async def _admit_image_request(
+        self,
+        port: Any,
+        image_capabilities: dict[str, Any],
+        target: str,
+        *,
+        operation: str,
+        n: int,
+        size: str | None,
+        has_mask: bool,
+        options: dict[str, Any],
+    ) -> None:
+        """Refuse what ``target`` declared it cannot do, or its route cannot carry.
+
+        The checks the call makes before the provider: the model's declared
+        traits, then what its route can carry, which the port knows.
+        """
+        validate_image_request(
+            image_capabilities,
+            model=target,
+            size=size,
+            has_mask=has_mask,
+            background=options.get("background"),
+            seed=options.get("seed"),
+        )
+        check = getattr(port, "check_image_request", None)
+        if check is not None:
+            await check(target, operation=operation, n=n, size=size, has_mask=has_mask, **options)
 
     async def _open_stream(
         self,
@@ -1904,20 +1959,24 @@ class LLMPolicyGateway(LLMPort):
         target = model
         asked = False
         try:
+            # Refuse against what a target declared, or its route cannot
+            # carry, before the provider is called, so an impossible request
+            # is never billed; a virtual model moves on to a target that can.
             route, target, attempts = await self._first_available_route(
                 model,
                 ("image_generation",),
                 timeout_fallback=self.image_timeout_seconds,
                 max_retries_cap=self.image_max_retries,
-            )
-            # Refuse against what the model declared before the provider is
-            # called, so an impossible request is never billed.
-            validate_image_request(
-                route.image_capabilities,
-                model=target,
-                size=size,
-                background=kwargs.get("background"),
-                seed=kwargs.get("seed"),
+                admits=lambda route, target: self._admit_image_request(
+                    route.port,
+                    route.image_capabilities,
+                    target,
+                    operation="generate",
+                    n=n,
+                    size=size,
+                    has_mask=False,
+                    options=kwargs,
+                ),
             )
             await self._note_image_call(
                 step,
@@ -2130,56 +2189,54 @@ class LLMPolicyGateway(LLMPort):
     ) -> None:
         """Refuse, before a run opens, an image request the call would refuse.
 
-        Picks the target the call would, the first available one, and applies
-        the checks the call makes before the provider: the credential's model
-        list, the model's declared traits, and what its route can carry. The
-        route is described, not connected: no secret is resolved and nothing
-        reaches the network. It admits, records and bills nothing, so an
-        asynchronous job is refused on submission instead of failing after it
-        was accepted. Anything else wrong with the route is left to the call,
-        which reports it as it always has, on a run.
+        Walks the targets the call would, from provider configuration alone,
+        and applies the checks the call makes before the provider: the
+        credential's model list, each target's declared traits, and what its
+        route can carry. A target that cannot serve the request as asked is
+        passed over for the next, as the call passes it over; the last
+        target's refusal is the caller's. Routes are described, not
+        connected: no secret is resolved and nothing reaches the network. It
+        admits, records and bills nothing, so an asynchronous job is refused
+        on submission instead of failing after it was accepted. Anything else
+        wrong with a route is left to the call, which reports it as it always
+        has, on a run.
         """
         self._check_model_allowed(model)
+        required = ("image_edit",) if operation == "edit" else ("image_generation",)
+        describer = getattr(type(self.gateway), "describe_route", None)
         try:
-            port, image_capabilities, target = await self._first_described_route(
-                model, ("image_edit",) if operation == "edit" else ("image_generation",)
-            )
+            targets = await self._targets(model)
         except KernelError:
             return
-        validate_image_request(
-            image_capabilities,
-            model=target,
-            size=size,
-            has_mask=has_mask,
-            background=options.get("background"),
-            seed=options.get("seed"),
-        )
-        check = getattr(port, "check_image_request", None)
-        if check is not None:
-            await check(target, operation=operation, n=n, size=size, has_mask=has_mask, **options)
-
-    async def _first_described_route(
-        self, model: str, required_capabilities: tuple[str, ...]
-    ) -> tuple[Any, dict[str, Any], str]:
-        """The port, declared image traits and target an image call would pick.
-
-        Mirrors ``_first_available_route`` through the gateway's
-        ``describe_route``, which connects nothing. A gateway without one is
-        its own route, as in ``_resolve_call_route``.
-        """
-        describer = getattr(type(self.gateway), "describe_route", None)
-        targets = await self._targets(model)
         for index, target in enumerate(targets):
-            if describer is None:
-                return self.gateway, {}, target
+            last = index == len(targets) - 1
+            port: Any = self.gateway
+            image_capabilities: dict[str, Any] = {}
+            if describer is not None:
+                try:
+                    route = await describer(self.gateway, target, self.ctx, required)
+                except KernelError as exc:
+                    if last or exc.code not in _UNAVAILABLE_ROUTE_CODES:
+                        return
+                    continue
+                port = route.port
+                image_capabilities = getattr(route, "image_capabilities", None) or {}
             try:
-                route = await describer(self.gateway, target, self.ctx, required_capabilities)
+                await self._admit_image_request(
+                    port,
+                    image_capabilities,
+                    target,
+                    operation=operation,
+                    n=n,
+                    size=size,
+                    has_mask=has_mask,
+                    options=options,
+                )
             except KernelError as exc:
-                if index == len(targets) - 1 or exc.code not in _UNAVAILABLE_ROUTE_CODES:
+                if last or not _refuses_an_option(exc):
                     raise
                 continue
-            return route.port, getattr(route, "image_capabilities", None) or {}, target
-        raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
+            return
 
     async def edit_image(
         self,
@@ -2239,14 +2296,16 @@ class LLMPolicyGateway(LLMPort):
                 ("image_edit",),
                 timeout_fallback=self.image_timeout_seconds,
                 max_retries_cap=self.image_max_retries,
-            )
-            validate_image_request(
-                route.image_capabilities,
-                model=target,
-                size=size,
-                has_mask=mask is not None,
-                background=kwargs.get("background"),
-                seed=kwargs.get("seed"),
+                admits=lambda route, target: self._admit_image_request(
+                    route.port,
+                    route.image_capabilities,
+                    target,
+                    operation="edit",
+                    n=n,
+                    size=size,
+                    has_mask=mask is not None,
+                    options=kwargs,
+                ),
             )
             await self._note_image_call(
                 step,

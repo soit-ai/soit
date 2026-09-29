@@ -66,6 +66,14 @@ record for operators.
   moves to 2.5.18, the newest client for the Milvus 2.5 server the compose
   files run.
 
+- A virtual model's image call moves on to its next target when a target's
+  route cannot carry an option the call asks for (a `seed`, a mask, more
+  than one image, a size) or the target declared the trait missing, instead
+  of being refused by its first available target; the last target's
+  refusal is the caller's, and each passed-over target is recorded on the
+  run step as an attempt naming the option in `param`. The check before an
+  asynchronous job is accepted walks the targets the same way.
+
 ### Fixed
 
 - Retrying a task of a type nothing can re-execute answered a generic

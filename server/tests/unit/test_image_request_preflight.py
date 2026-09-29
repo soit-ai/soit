@@ -258,7 +258,7 @@ class TestGatewayPreflight:
         await gateway.check_image_request("model:openai-main:gpt-image-1", operation="edit", seed=7)
 
     @pytest.mark.asyncio
-    async def test_a_virtual_model_is_judged_by_the_target_the_call_would_take(self) -> None:
+    async def test_a_virtual_model_is_judged_by_the_targets_the_call_would_take(self) -> None:
         class _Targets:
             async def resolve_targets(self, _ctx: RequestContext, slug: str) -> list[str]:
                 assert slug == "painter"
@@ -272,26 +272,25 @@ class TestGatewayPreflight:
         )
         gateway = _gateway(router, virtual_models=_Targets())
 
-        # The first target cannot edit at all, so the call would skip it.
+        # The first target cannot edit at all and the last cannot carry a
+        # seed, so the call would be refused by the last.
         with pytest.raises(KernelError) as refused:
             await gateway.check_image_request("vmodel:painter", operation="edit", seed=7)
 
         assert refused.value.details["model"] == "model:openai-main:gpt-image-1"
         assert refused.value.details["reason"] == "route_cannot_carry"
 
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("targets", "refused_by"),
+        "targets",
         [
-            (["model:openai-main:gpt-image-1", "model:stab:sd3-large"], "model:openai-main:gpt-image-1"),
-            (["model:stab:sd3-large", "model:openai-main:gpt-image-1"], None),
+            ["model:openai-main:gpt-image-1", "model:stab:sd3-large"],
+            ["model:stab:sd3-large", "model:openai-main:gpt-image-1"],
         ],
     )
-    async def test_a_virtual_model_is_judged_by_its_first_available_target_only(
-        self, targets: list[str], refused_by: str | None
-    ) -> None:
-        # Both targets resolve; only the first is judged, as only it is called.
+    async def test_a_target_that_cannot_carry_an_option_is_passed_over(self, targets: list[str]) -> None:
+        # Both targets resolve; Stability's edit carries a seed and OpenAI's
+        # does not, so the request passes whichever comes first.
         class _Targets:
             async def resolve_targets(self, _ctx: RequestContext, _slug: str) -> list[str]:
                 return targets
@@ -302,13 +301,28 @@ class TestGatewayPreflight:
                 "stab": _config("stab", "sd3-large", kind="openai_compatible", litellm_provider="stability"),
             }
         )
-        check = _gateway(router, virtual_models=_Targets()).check_image_request(
+
+        await _gateway(router, virtual_models=_Targets()).check_image_request(
             "vmodel:painter", operation="edit", seed=7
         )
 
-        if refused_by is None:
-            await check
-            return
+    @pytest.mark.asyncio
+    async def test_when_no_target_carries_the_option_the_last_refusal_is_raised(self) -> None:
+        class _Targets:
+            async def resolve_targets(self, _ctx: RequestContext, _slug: str) -> list[str]:
+                return ["model:openai-main:gpt-image-1", "model:openai-spare:dall-e-2"]
+
+        router = _router(
+            {
+                "openai-main": _config("openai-main", "gpt-image-1"),
+                "openai-spare": _config("openai-spare", "dall-e-2"),
+            }
+        )
+
         with pytest.raises(KernelError) as refused:
-            await check
-        assert refused.value.details["model"] == refused_by
+            await _gateway(router, virtual_models=_Targets()).check_image_request(
+                "vmodel:painter", operation="edit", seed=7
+            )
+
+        assert refused.value.details["model"] == "model:openai-spare:dall-e-2"
+        assert refused.value.details["reason"] == "route_cannot_carry"

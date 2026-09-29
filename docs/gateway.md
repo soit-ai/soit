@@ -118,8 +118,11 @@ A route LiteLLM cannot generate or edit with at all, or a provider on the
 native adapter, which serves no images, is refused as a missing capability
 (`MODEL_CAPABILITY_UNAVAILABLE`, `reason` `no_litellm_route` or
 `native_adapter`) when the route is chosen, so a virtual model moves on to
-its next target. Otherwise a virtual model is judged against the target the
-call would take. A provider's `drop_params` setting no longer decides what
+its next target. An option a target's route cannot carry, or a trait it
+declared it lacks, also moves a virtual model on to its next target, before
+anything is billed; the last target's refusal is the one the caller gets,
+and each passed-over target is recorded on the run step as an attempt with
+the option in `param`. A provider's `drop_params` setting no longer decides what
 an image provider receives: what a route cannot carry is refused either
 way, and Bedrock's SDXL and SD3 generations, Black Forest Labs edits and
 Vertex AI Gemini edits no longer need it.
@@ -315,7 +318,8 @@ ordered list of up to eight `model:` refs. Edit them under **Build â€º Models â€
 Virtual models** or with `/api/v1/modelhub/virtual-models`.
 
 A call tries the targets in order. A target that is unavailable (disabled,
-removed, or missing a capability the call needs) is skipped. A call that
+removed, or missing a capability the call needs) is skipped, and so is a
+target whose route cannot carry an image option the call asks for. A call that
 fails with a timeout, `408`, `409`, `429`, a `5xx` or a lost connection moves
 to the next target once that target's own retries are spent. An invalid
 request or a policy refusal is not repeated elsewhere; a stream moves on only
