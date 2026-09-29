@@ -157,7 +157,7 @@ wheels = [
 ]
 
 [[package]]
-name = "soit-cli"
+name = "soit-ai-cli"
 version = "1.4.0"
 source = { editable = "." }
 dependencies = [

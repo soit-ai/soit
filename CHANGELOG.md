@@ -21,6 +21,15 @@ record for operators.
   context and output limits stay unset. DeepSeek offers no embeddings
   endpoint: the embeddings test and the runtime `embed` and `rerank` calls
   now say so instead of asking the API and reporting its 404.
+- The `soit` command line is published to PyPI as `soit-ai-cli` by the
+  release workflow, through PyPI trusted publishing from the same
+  `v*.*.*` tag as the images, so it installs with
+  `uv tool install soit-ai-cli` or `pipx install soit-ai-cli`; installing
+  from the repository (`uv tool install ./cli`) still works. The
+  distribution name is `soit-ai-cli` because `soit` and `soit-cli` belong to
+  unrelated projects on PyPI; the command stays `soit`. The release check
+  now also requires `cli/pyproject.toml` and `soit_cli.__version__` to match
+  the tag.
 
 ### Changed
 

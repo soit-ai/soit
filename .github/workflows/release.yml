@@ -37,6 +37,7 @@ jobs:
           python - "$version" <<'PY'
           import json
           import pathlib
+          import re
           import sys
           import tomllib
 
@@ -44,10 +45,18 @@ jobs:
           root = pathlib.Path.cwd()
           server_version = tomllib.loads((root / "server" / "pyproject.toml").read_text())["project"]["version"]
           web_version = json.loads((root / "web" / "package.json").read_text())["version"]
-          if server_version != version or web_version != version:
-              raise SystemExit(
-                  f"tag version {version} does not match server={server_version} web={web_version}"
-              )
+          cli_version = tomllib.loads((root / "cli" / "pyproject.toml").read_text())["project"]["version"]
+          cli_module = (root / "cli" / "soit_cli" / "__init__.py").read_text()
+          cli_module_version = re.search(r'^__version__ = "([^"]+)"$', cli_module, re.MULTILINE).group(1)
+          manifests = {
+              "server": server_version,
+              "web": web_version,
+              "cli": cli_version,
+              "cli module": cli_module_version,
+          }
+          if any(found != version for found in manifests.values()):
+              found = " ".join(f"{name}={found}" for name, found in manifests.items())
+              raise SystemExit(f"tag version {version} does not match {found}")
           release_notes = root / "docs" / "releases" / f"v{version}.md"
           if not release_notes.is_file():
               raise SystemExit(f"missing release notes: {release_notes}")
@@ -215,6 +224,54 @@ jobs:
           name: image-metadata-${{ matrix.component }}
           path: artifacts/image-${{ matrix.component }}.json
           if-no-files-found: error
+
+  publish-cli:
+    name: publish-cli
+    needs:
+      - quality
+      - security
+      - validate-release
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/soit-ai-cli/${{ needs.validate-release.outputs.version }}/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel and sdist
+        working-directory: cli
+        run: uv build
+
+      - name: Check the distributions carry the tag version
+        env:
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "cli/dist/soit_ai_cli-${RELEASE_VERSION}-py3-none-any.whl"
+          test -f "cli/dist/soit_ai_cli-${RELEASE_VERSION}.tar.gz"
+          ls -l cli/dist
+
+      # Trusted publishing: PyPI accepts the job's OIDC token for the
+      # publisher registered on the project (owner soit-ai, repository soit,
+      # workflow release.yml, environment pypi). No API token is stored.
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: cli/dist
+          print-hash: true
 
   publish-release:
     name: publish-release

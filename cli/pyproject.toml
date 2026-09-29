@@ -1,11 +1,40 @@
 [project]
-name = "soit-cli"
+name = "soit-ai-cli"
 version = "1.4.0"
 description = "Command-line client for SOIT: sign in, run agents, replay regressions, export evidence"
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Jude", email = "jude@soit.ai" }
+]
+maintainers = [
+    { name = "SOIT maintainers", email = "jude@soit.ai" }
+]
 requires-python = ">=3.11"
+keywords = ["soit", "cli", "agents", "llm", "governance", "evaluation", "evidence"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Utilities",
+]
 dependencies = ["httpx>=0.27"]
+
+[project.urls]
+Homepage = "https://soit.ai"
+Documentation = "https://docs.soit.ai"
+Repository = "https://github.com/soit-ai/soit"
+Changelog = "https://github.com/soit-ai/soit/blob/main/CHANGELOG.md"
+Issues = "https://github.com/soit-ai/soit/issues"
 
 [project.scripts]
 soit = "soit_cli.main:main"
@@ -14,8 +43,11 @@ soit = "soit_cli.main:main"
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = ["soit_cli", "tests", "LICENSE", "README.md", "pyproject.toml"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["soit_cli"]

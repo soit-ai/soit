@@ -4,8 +4,16 @@ A small client for the SOIT API: sign in with an API key, run an agent,
 replay regression sets on a new model, and take evidence out.
 
 ```bash
-uv tool install ./cli        # or: pipx install ./cli
+uv tool install soit-ai-cli        # or: pipx install soit-ai-cli
 soit login --url https://soit.example.com
+```
+
+The package on PyPI is [`soit-ai-cli`](https://pypi.org/project/soit-ai-cli/);
+the command it installs is `soit`. To run the checkout instead, for example
+to try a change before it is released, install from the repository:
+
+```bash
+uv tool install ./cli        # or: pipx install ./cli
 ```
 
 `soit login` asks for an API key (create one under **Settings › API**), checks
@@ -19,8 +27,8 @@ environment wins over the stored file. `SOIT_CONFIG` names another file.
 | `soit whoami` | show who the stored key signs in as |
 | `soit logout` | forget the stored key |
 | `soit run AGENT_ID "message" [--thread ID] [--json]` | run an agent's published version once; the answer on stdout, the run on stderr |
-| `soit eval MODEL_REF [--agent ID]... [--dataset NAME] [--max-cases N] [--json] [--fail-on-regression]` | replay agents' regression sets on a model next to the one they use ([model replays](../docs/model-replays.md)) |
-| `soit export evidence RUN_ID [-o FILE]` | save a run's evidence bundle, after checking it against the server's SHA-256 ([ledger](../docs/ledger.md)) |
+| `soit eval MODEL_REF [--agent ID]... [--dataset NAME] [--max-cases N] [--json] [--fail-on-regression]` | replay agents' regression sets on a model next to the one they use ([model replays](https://github.com/soit-ai/soit/blob/main/docs/model-replays.md)) |
+| `soit export evidence RUN_ID [-o FILE]` | save a run's evidence bundle, after checking it against the server's SHA-256 ([ledger](https://github.com/soit-ai/soit/blob/main/docs/ledger.md)) |
 | `soit export runs\|steps\|costs\|audit\|events --since ISO [--until ISO] [--format jsonl\|csv] [-o FILE\|-]` | save one kind of ledger record for a window |
 
 Exit codes: `0` success, `1` a refusal or failure, `2` a usage error, `3` an
