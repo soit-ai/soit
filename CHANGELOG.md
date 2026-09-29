@@ -12,6 +12,16 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- A DeepSeek provider now has a model catalog: refreshing it lists the
+  models DeepSeek's OpenAI-compatible `/models` answers, at the provider's
+  base URL (`https://api.deepseek.com` or its `/v1` address), and the
+  provider healthcheck uses the same call. The listing carries ids only, so
+  context and output limits stay unset. DeepSeek offers no embeddings
+  endpoint: the embeddings test and the runtime `embed` and `rerank` calls
+  now say so instead of asking the API and reporting its 404.
+
 ### Changed
 
 - The server moves to LiteLLM 1.103.0 and the OpenAI SDK 2.54.0 (LiteLLM

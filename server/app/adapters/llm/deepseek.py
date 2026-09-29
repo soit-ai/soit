@@ -4,7 +4,11 @@ DeepSeek LLM port adapter implementation.
 """
 
 
+from typing import Any
+
 from app.adapters.llm.openai import OpenAILLMPort
+from app.kernel.commons.errors import ValidationError
+from app.kernel.ports.llm.interface import EmbeddingResponse, RerankResponse
 from app.settings.settings import settings
 
 
@@ -19,6 +23,26 @@ class DeepSeekLLMPort(OpenAILLMPort):
         resolved_api_key = api_key or settings.deepseek_api_key
         resolved_base_url = base_url or settings.deepseek_base_url
         super().__init__(api_key=resolved_api_key, base_url=resolved_base_url)
+
+    async def embed(
+        self,
+        texts: list[str],
+        model: str,
+        **kwargs: Any,
+    ) -> EmbeddingResponse:
+        # The OpenAI-compatible API has no /embeddings; refuse before a call
+        # that would only come back as a 404.
+        raise ValidationError("DeepSeek offers no embeddings endpoint")
+
+    async def rerank(
+        self,
+        query: str,
+        documents: list[str],
+        model: str,
+        top_n: int | None = None,
+        **kwargs: Any,
+    ) -> RerankResponse:
+        raise ValidationError("DeepSeek offers no embeddings endpoint, so it cannot rerank")
 
     @staticmethod
     def _resolve_model_name(model: str) -> str:

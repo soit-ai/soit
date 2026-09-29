@@ -25,6 +25,8 @@ from app.kernel.security.egress import GovernedEgressGuard
 ANTHROPIC_API_VERSION = "2023-06-01"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_NO_EMBEDDINGS = "DeepSeek offers no embeddings endpoint, so there is nothing to test"
 OLLAMA_SHOW_CONCURRENCY = 4
 """How many ``/api/show`` lookups a catalog refresh runs at once."""
 OLLAMA_EMBEDDING_FAMILIES = frozenset({"bert", "nomic-bert"})
@@ -338,6 +340,77 @@ class ProviderCatalogAdapter:
         return [self._ollama_model(tag, detail) for tag, detail in zip(tags, shows, strict=True)]
 
     @staticmethod
+    def _deepseek_model(item: dict[str, Any]) -> dict[str, Any]:
+        """One catalog entry from DeepSeek's OpenAI-compatible ``/models``.
+
+        The listing carries ids only, so context and output limits stay
+        unset; every listed model chats and none embeds.
+        """
+        model_id = str(item["id"])
+
+        def entry(supported: bool) -> dict[str, Any]:
+            return {
+                "catalog": supported,
+                "diagnostics": None,
+                "runtime": None,
+                "merged": supported,
+                "user_override": "auto",
+            }
+
+        modelhub_meta = {
+            "architecture_json": {
+                "provider": "deepseek",
+                "family": "deepseek",
+            },
+            "capability_matrix_json": {
+                "chat": entry(True),
+                "embeddings": entry(False),
+            },
+            "parameter_config_json": {"limits": {"context_window": None}},
+            "pricing_json": None,
+            "diagnostics_json": {
+                "test_chat_supported": True,
+                "test_embeddings_supported": False,
+            },
+        }
+        return {
+            "model_id": model_id,
+            "display_name": model_id,
+            "capabilities_json": {
+                "model_type": "llm",
+                "capabilities": ["chat"],
+                "chat_supported": True,
+                "embeddings_supported": False,
+            },
+            "context_window": None,
+            "max_output_tokens": None,
+            "lifecycle_status": "stable",
+            "raw_meta": {**item, "modelhub": modelhub_meta},
+        }
+
+    async def _list_deepseek_models(
+        self,
+        *,
+        ctx: RequestContext,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> list[dict[str, Any]]:
+        # DeepSeek answers /models at the root and under /v1 alike, so the
+        # address an operator pasted is used as it stands.
+        async with self._http_client(ctx, "model-provider:deepseek:catalog") as client:
+            response = await client.get(
+                self._provider_url(base_url, DEEPSEEK_DEFAULT_BASE_URL, "/models"),
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        return [
+            self._deepseek_model(item)
+            for item in (payload.get("data") or [])
+            if isinstance(item, dict) and item.get("id")
+        ]
+
+    @staticmethod
     def _extract_anthropic_text(payload: dict[str, Any]) -> str:
         contents = payload.get("content", []) or []
         parts: list[str] = []
@@ -373,6 +446,8 @@ class ProviderCatalogAdapter:
         """List models for a provider kind."""
         if provider_kind == "ollama":
             return await self._list_ollama_models(ctx=ctx, api_key=api_key, base_url=base_url)
+        if provider_kind == "deepseek":
+            return await self._list_deepseek_models(ctx=ctx, api_key=api_key, base_url=base_url)
         if provider_kind in {"openai", "openai_compatible"}:
             async with self._openai_client(
                 ctx=ctx,
@@ -478,7 +553,9 @@ class ProviderCatalogAdapter:
         if provider_kind == "ollama":
             api_key = api_key or OLLAMA_PLACEHOLDER_KEY
             base_url = ollama_openai_base_url(base_url)
-        if provider_kind in {"openai", "openai_compatible", "ollama"}:
+        if provider_kind == "deepseek":
+            base_url = base_url or DEEPSEEK_DEFAULT_BASE_URL
+        if provider_kind in {"openai", "openai_compatible", "ollama", "deepseek"}:
             token_limit_param = (
                 "max_completion_tokens"
                 if model_id.lower().startswith(("gpt-5", "o1", "o3", "o4"))
@@ -579,6 +656,8 @@ class ProviderCatalogAdapter:
         input_text: str,
     ) -> dict[str, Any]:
         """Run a lightweight embeddings test."""
+        if provider_kind == "deepseek":
+            raise ValueError(DEEPSEEK_NO_EMBEDDINGS)
         if provider_kind not in {"openai", "openai_compatible", "ollama"}:
             raise ValueError(f"Embedding test not supported for provider: {provider_kind}")
         if provider_kind == "ollama":

@@ -207,8 +207,13 @@ class ModelHubService:
             "support_status": "supported",
             "chat_supported": True,
             "embeddings_supported": False,
-            "catalog_supported": False,
-            "notes": "Runtime uses the OpenAI-compatible chat adapter; catalog and embeddings diagnostics are not implemented yet.",
+            "catalog_supported": True,
+            "notes": (
+                "Runtime uses the OpenAI-compatible chat adapter. The catalog "
+                "lists the models /models answers, without context limits. "
+                "DeepSeek offers no embeddings endpoint, so the embeddings "
+                "test reports it as unsupported."
+            ),
         },
         {
             "provider_kind": "openai_compatible",
