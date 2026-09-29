@@ -213,6 +213,8 @@ class WorkflowWorkbenchRow(BaseModel):
     last_run_at: datetime | None
     action_enabled: bool
     updated_at: datetime
+    node_count: int | None = None
+    recent_outcomes: list[str] = Field(default_factory=list)
 
 
 class WorkflowWorkbenchResponse(BaseModel):

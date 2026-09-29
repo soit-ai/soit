@@ -25,9 +25,9 @@ const workflowWorkbench = {
   },
   tabs: { all: 3, high_volume: 1, publishing: 1, abnormal: 0, draft: 1 },
   items: [
-    { id: 'ticket-escalation', name: 'ticket-escalation', summary: 'triage → enrich → route', status: 'running', linked_agents: [], linked_agent_count: 0, today_runs: 412, avg_latency_ms: 1800, success_rate: 0.992, recent_exception_count: 0, owner: 'Jude', last_run_at: NOW, action_enabled: true, updated_at: NOW },
-    { id: 'docs-nightly-sync', name: 'docs-nightly-sync', summary: 'crawl → chunk → embed', status: 'publishing', linked_agents: [], linked_agent_count: 0, today_runs: 96, avg_latency_ms: 4200, success_rate: 0.974, recent_exception_count: 1, owner: 'Wei', last_run_at: NOW, action_enabled: true, updated_at: NOW },
-    { id: 'churn-signal-scan', name: 'churn-signal-scan', summary: 'query → score → draft', status: 'draft', linked_agents: [], linked_agent_count: 0, today_runs: 0, avg_latency_ms: null, success_rate: null, recent_exception_count: 0, owner: 'Jude', last_run_at: null, action_enabled: false, updated_at: NOW },
+    { id: 'ticket-escalation', name: 'ticket-escalation', summary: 'triage → enrich → route', status: 'running', linked_agents: [], linked_agent_count: 0, today_runs: 412, avg_latency_ms: 1800, success_rate: 0.992, recent_exception_count: 0, owner: 'Jude', last_run_at: NOW, action_enabled: true, updated_at: NOW, node_count: 7, recent_outcomes: ['succeeded', 'succeeded', 'failed', 'succeeded', 'running'] },
+    { id: 'docs-nightly-sync', name: 'docs-nightly-sync', summary: 'crawl → chunk → embed', status: 'publishing', linked_agents: [], linked_agent_count: 0, today_runs: 96, avg_latency_ms: 4200, success_rate: 0.974, recent_exception_count: 1, owner: 'Wei', last_run_at: NOW, action_enabled: true, updated_at: NOW, node_count: 5, recent_outcomes: ['succeeded', 'failed'] },
+    { id: 'churn-signal-scan', name: 'churn-signal-scan', summary: 'query → score → draft', status: 'draft', linked_agents: [], linked_agent_count: 0, today_runs: 0, avg_latency_ms: null, success_rate: null, recent_exception_count: 0, owner: 'Jude', last_run_at: null, action_enabled: false, updated_at: NOW, node_count: null, recent_outcomes: [] },
   ],
   next_page_token: null,
   page_size: 50,
@@ -603,6 +603,15 @@ test('workflow list renders workbench rows and opens the builder', async ({ page
   // Tiles come from the workbench summary, not from row arithmetic.
   await expect(page.getByText('2,148')).toBeVisible()
   await expect(page.getByText('98.4%')).toBeVisible()
+
+  // The node count and the outcome strip come straight from the row: five
+  // outcomes fill the right of the 28 slots, the failed run as its own slot.
+  await expect(page.getByRole('cell', { name: '7', exact: true })).toBeVisible()
+  const strip = page.locator('.hist').first()
+  await expect(strip.locator('i')).toHaveCount(28)
+  await expect(strip.locator('i.e')).toHaveCount(23)
+  await expect(strip.locator('i.f')).toHaveCount(1)
+  await expect(strip.locator('i.d')).toHaveCount(1)
 
   await page.getByText('docs-nightly-sync').first().click()
   await expect(page).toHaveURL(/\/build\/workflows\/docs-nightly-sync/)

@@ -9,7 +9,11 @@ from sqlalchemy import select
 
 from app.kernel.runtime.db.models.responses import Response
 from app.kernel.runtime.db.models.runs import Run
-from app.modules.workflow.domain.models import WorkflowPublish, WorkflowVersion
+from app.modules.workflow.domain.models import (
+    Workflow,
+    WorkflowPublish,
+    WorkflowVersion,
+)
 from tests.fixtures.workflow_specs import canonical_workflow_spec
 
 
@@ -443,6 +447,8 @@ class TestWorkflowAPI:
     @pytest.mark.asyncio
     async def test_workflow_workbench_returns_rows_and_runtime_metrics(self, async_client, async_db):
         """Workflow workbench should aggregate workflow state and run health."""
+        from datetime import timedelta
+
         from app.kernel.commons.time import utc_now
 
         headers = {"X-Tenant-Id": "test-tenant", "X-Workspace-Id": "test-workspace"}
@@ -470,6 +476,16 @@ class TestWorkflowAPI:
         )
         assert draft_response.status_code == status.HTTP_201_CREATED
 
+        # A workflow row without any version: nothing to count nodes in.
+        async_db.add(
+            Workflow(
+                id="wf_workbench_bare",
+                tenant_id="test-tenant",
+                workspace_id="test-workspace",
+                name="Bare Workflow",
+                status="draft",
+            )
+        )
         now = utc_now()
         async_db.add_all(
             [
@@ -485,8 +501,8 @@ class TestWorkflowAPI:
                     status="succeeded",
                     input_summary="{}",
                     output_summary="done",
-                    started_at=now,
-                    ended_at=now,
+                    started_at=now - timedelta(seconds=30),
+                    ended_at=now - timedelta(seconds=29),
                     duration_ms=1000,
                 ),
                 Run(
@@ -513,15 +529,15 @@ class TestWorkflowAPI:
 
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()["data"]
-        assert payload["summary"]["total_workflows"] == 2
+        assert payload["summary"]["total_workflows"] == 3
         assert payload["summary"]["published_workflows"] == 1
         assert payload["summary"]["running_workflows"] == 1
         assert payload["summary"]["today_runs"] == 2
         assert payload["summary"]["avg_latency_ms"] == 2000
         assert payload["summary"]["success_rate"] == 50.0
         assert payload["summary"]["recent_exceptions"] == 1
-        assert payload["tabs"]["all"] == 2
-        assert payload["tabs"]["draft"] == 1
+        assert payload["tabs"]["all"] == 3
+        assert payload["tabs"]["draft"] == 2
         assert payload["tabs"]["abnormal"] == 1
 
         published_row = next(item for item in payload["items"] if item["id"] == workflow_id)
@@ -532,10 +548,21 @@ class TestWorkflowAPI:
         assert published_row["recent_exception_count"] == 1
         assert published_row["action_enabled"] is True
         assert published_row["last_run_at"] is not None
+        # The default spec carries a transform and an output node.
+        assert published_row["node_count"] == 2
+        # Oldest first, so the strip's newest slot is the failed run.
+        assert published_row["recent_outcomes"] == ["succeeded", "failed"]
 
         draft_row = next(item for item in payload["items"] if item["name"] == "Draft Workflow")
         assert draft_row["status"] == "draft"
         assert draft_row["action_enabled"] is False
+        assert draft_row["node_count"] == 2
+        assert draft_row["recent_outcomes"] == []
+
+        bare_row = next(item for item in payload["items"] if item["id"] == "wf_workbench_bare")
+        assert bare_row["status"] == "draft"
+        assert bare_row["node_count"] is None
+        assert bare_row["recent_outcomes"] == []
 
         items_response = await async_client.get(
             "/api/v1/workflows/workbench/items?tab=abnormal&keyword=Published&page_size=1",

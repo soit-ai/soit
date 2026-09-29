@@ -40,6 +40,8 @@ const workflowWorkbench = {
       last_run_at: null,
       action_enabled: true,
       updated_at: NOW,
+      node_count: 5,
+      recent_outcomes: [],
     },
   ],
   next_page_token: null,

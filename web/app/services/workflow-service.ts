@@ -126,6 +126,10 @@ export interface WorkflowWorkbenchRow {
   last_run_at?: string | null
   action_enabled: boolean
   updated_at: string
+  /** Nodes in the current version's graph; null when the workflow has no version. */
+  node_count?: number | null
+  /** Statuses of the most recent runs, oldest first, at most 28. */
+  recent_outcomes: string[]
 }
 
 export interface WorkflowWorkbenchResponse {

@@ -18,6 +18,7 @@ import {
   StatusChip,
   Workbench,
   WorkbenchPanel,
+  outcomePattern,
   type ConsoleStatus,
 } from '../../components'
 import {
@@ -57,15 +58,6 @@ const STATUS_TO_CONSOLE: Record<WorkflowWorkbenchRow['status'], ConsoleStatus> =
   draft: 'draft',
 }
 
-// The prototype's 28-slot outcome strip has no server-side source: there is no
-// per-workflow run-outcome history endpoint (GET /workflows/{id}/runs/outcomes
-// or equivalent). Render the strip with every slot empty rather than inventing
-// a pass/fail pattern.
-const NO_OUTCOME_HISTORY = 'e'.repeat(28)
-
-// BACKEND-PENDING: outcome history (the .hist strip), the node count per
-// workflow and the archived list have no endpoint yet. Everything else on this
-// page reads /workflows/workbench.
 export default function ConsoleWorkflows() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
@@ -257,10 +249,7 @@ export default function ConsoleWorkflows() {
                       </span>
                     </TableCell>
                     <TableCell className="mono dim">{row.status}</TableCell>
-                    {/* The workbench payload has no node count — the graph only
-                        exists on GET /workflows/{id}/version/current, which the
-                        list cannot fan out to. */}
-                    <TableCell className="num dim">—</TableCell>
+                    <TableCell className="num dim">{row.node_count ?? '—'}</TableCell>
                     <TableCell>
                       <StatusChip
                         status={STATUS_TO_CONSOLE[row.status]}
@@ -268,7 +257,7 @@ export default function ConsoleWorkflows() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Hist pattern={NO_OUTCOME_HISTORY} label="last 28 run outcomes" />
+                      <Hist pattern={outcomePattern(row.recent_outcomes ?? [])} label="last 28 run outcomes" />
                     </TableCell>
                     <TableCell className="num dim">{percent(row.success_rate)}</TableCell>
                     <TableCell className="num dimmer">{relativeTime(row.updated_at)}</TableCell>

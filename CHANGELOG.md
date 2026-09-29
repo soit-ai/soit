@@ -61,6 +61,11 @@ record for operators.
   than one currency, which are never added together. The agent and workflow
   detail pages show it in the cost column of their recent runs instead of a
   dash.
+- The Workflows list shows each workflow's node count and its recent run
+  outcomes. `GET /api/v1/workflows/workbench` rows carry `node_count`, the
+  number of nodes in the current version's graph (null for a workflow with
+  no version), and `recent_outcomes`, the statuses of the workflow's last
+  28 runs oldest first, so the console's outcome strip reads real history.
 
 ### Changed
 

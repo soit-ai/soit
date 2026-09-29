@@ -65,6 +65,9 @@ from app.modules.workflow.runtime.resume import assess_resume
 from app.modules.workflow.templates.ticket_triage import build_ticket_triage_template
 from app.settings.settings import settings
 
+# How many of a workflow's most recent run outcomes the workbench row carries.
+WORKBENCH_OUTCOME_SLOTS = 28
+
 
 @dataclass(frozen=True)
 class PreparedRedrive:
@@ -355,8 +358,13 @@ class WorkflowService:
         workflows = await self._list_workbench_workflows()
         workflow_ids = [workflow.id for workflow in workflows]
         runs_by_workflow = await self._workbench_runs_by_workflow(workflow_ids)
+        node_counts = await self._workbench_node_counts(workflows)
         rows = [
-            self._build_workbench_row(workflow, runs_by_workflow.get(workflow.id, []))
+            self._build_workbench_row(
+                workflow,
+                runs_by_workflow.get(workflow.id, []),
+                node_count=node_counts.get(workflow.id),
+            )
             for workflow in workflows
         ]
         owner_names = await resolve_user_display_names_async(self.db, (row.owner for row in rows))
@@ -440,7 +448,37 @@ class WorkflowService:
                 grouped[run.subject_id].append(run)
         return grouped
 
-    def _build_workbench_row(self, workflow: Workflow, runs: list[Run]) -> WorkflowWorkbenchRow:
+    async def _workbench_node_counts(self, workflows: list[Workflow]) -> dict[str, int]:
+        """Count the nodes in each workflow's current version graph with one query."""
+        version_ids = [workflow.current_version_id for workflow in workflows if workflow.current_version_id]
+        if not version_ids:
+            return {}
+        query = select(WorkflowVersion).where(
+            and_(
+                WorkflowVersion.tenant_id == self.ctx.tenant_id,
+                WorkflowVersion.workspace_id == self.ctx.workspace_id,
+                WorkflowVersion.id.in_(version_ids),
+            )
+        )
+        results = list((await self.db.exec(query)).all())
+        counts: dict[str, int] = {}
+        for item in results:
+            version = item if isinstance(item, WorkflowVersion) else item[0]
+            graph = version.spec_json.get("graph") if isinstance(version.spec_json, dict) else None
+            nodes = graph.get("nodes") if isinstance(graph, dict) else None
+            if isinstance(nodes, list):
+                counts[version.workflow_id] = len(nodes)
+        return counts
+
+    def _build_workbench_row(
+        self,
+        workflow: Workflow,
+        runs: list[Run],
+        *,
+        node_count: int | None = None,
+    ) -> WorkflowWorkbenchRow:
+        # Runs arrive newest first; the strip reads oldest to newest.
+        recent_outcomes = [run.status for run in reversed(runs[:WORKBENCH_OUTCOME_SLOTS])]
         today_runs = [run for run in runs if self._is_today(run.started_at)]
         metric_runs = today_runs if today_runs else runs
         avg_latency_ms = self._average_latency(metric_runs)
@@ -463,6 +501,8 @@ class WorkflowService:
             last_run_at=runs[0].started_at if runs else None,
             action_enabled=workflow.status == "active" and bool(workflow.published_version_id),
             updated_at=workflow.updated_at,
+            node_count=node_count,
+            recent_outcomes=recent_outcomes,
         )
 
     def _resolve_workbench_status(
