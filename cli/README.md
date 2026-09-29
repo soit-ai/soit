@@ -28,6 +28,8 @@ environment wins over the stored file. `SOIT_CONFIG` names another file.
 | `soit logout` | forget the stored key |
 | `soit run AGENT_ID "message" [--thread ID] [--json]` | run an agent's published version once; the answer on stdout, the run on stderr |
 | `soit eval MODEL_REF [--agent ID]... [--dataset NAME] [--max-cases N] [--json] [--fail-on-regression]` | replay agents' regression sets on a model next to the one they use ([model replays](https://github.com/soit-ai/soit/blob/main/docs/model-replays.md)) |
+| `soit agent export AGENT_ID [-o FILE]` | write an agent and its published (or current) version's specification as YAML, without ids |
+| `soit agent import FILE [--name NAME]` | create an agent, and its version as a draft, from such a file; the model, tool and knowledge refs it names must exist in the workspace |
 | `soit export evidence RUN_ID [-o FILE]` | save a run's evidence bundle, after checking it against the server's SHA-256 ([ledger](https://github.com/soit-ai/soit/blob/main/docs/ledger.md)) |
 | `soit export runs\|steps\|costs\|audit\|events --since ISO [--until ISO] [--format jsonl\|csv] [-o FILE\|-]` | save one kind of ledger record for a window |
 

@@ -30,6 +30,16 @@ record for operators.
   unrelated projects on PyPI; the command stays `soit`. The release check
   now also requires `cli/pyproject.toml` and `soit_cli.__version__` to match
   the tag.
+- An agent moves in and out as a file. `GET /api/v1/agents/{id}/export`
+  answers the agent's fields and its published (or current) version's
+  specification in the shape a new version is created from, without ids;
+  `POST /api/v1/agents/import` creates an agent, and its version as a
+  draft, from such a document, through the same validation and binding
+  resolution as creating them by hand, so a re-created version has the
+  exported version's checksum. `soit agent export ID [-o FILE]` writes the
+  document as YAML and `soit agent import FILE [--name NAME]` reads YAML
+  or JSON. The model, tool and knowledge refs a file names must exist in
+  the importing workspace.
 
 ### Changed
 

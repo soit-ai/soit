@@ -59,6 +59,11 @@ from app.modules.agent.application.contracts import (
     AgentCapabilityCatalogPort,
     EmptyAgentCapabilityCatalog,
 )
+from app.modules.agent.application.portable import (
+    AgentFile,
+    AgentFileAgent,
+    version_create_from_spec,
+)
 from app.modules.agent.application.schemas import (
     AgentCreate,
     AgentRunRequest,
@@ -1241,6 +1246,30 @@ class AgentApplicationService:
             spec_json=spec,
             metadata={"checksum": self._build_checksum(spec)},
         )
+
+    @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
+    async def export_agent(self, agent_id: str) -> AgentFile:
+        """The agent as a file, with its published version or, failing that, its current draft."""
+        agent = await self._get_agent(agent_id)
+        version_id = agent.published_version_id or agent.current_version_id
+        version = await self.version_repo.get_by_id(version_id) if version_id else None
+        return AgentFile(
+            agent=AgentFileAgent(
+                name=agent.name,
+                description=agent.description,
+                visibility=agent.visibility,
+                category=agent.category,
+                icon_url=agent.icon_url,
+                tags=agent.tags,
+            ),
+            version=version_create_from_spec(version.spec_json or {}) if version else None,
+        )
+
+    async def import_agent(self, data: AgentFile) -> tuple[Agent, AgentVersion | None]:
+        """A new agent from a file, with its version as a draft; each step keeps its own checks."""
+        agent = await self.create_agent(data.agent.as_create())
+        version = await self.create_version(agent.id, data.version) if data.version else None
+        return agent, version
 
     @rbac_guard(RESOURCE_AGENT, "read", resource_id_arg="agent_id")
     async def list_versions(self, agent_id: str, limit: int = 20, offset: int = 0) -> list[AgentVersion]:

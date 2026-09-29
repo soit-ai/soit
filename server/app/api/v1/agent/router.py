@@ -26,6 +26,7 @@ from app.kernel.runtime.db.models.responses import generate_response_interaction
 from app.kernel.runtime.db.models.threads import generate_thread_message_id
 from app.kernel.runtime.responses.orchestrator import ResponseProjectionCoordinator
 from app.modules.agent.application.application_service import AgentApplicationService
+from app.modules.agent.application.portable import AgentFile, AgentImportResponse
 from app.modules.agent.application.schemas import (
     AgentBindingResponse,
     AgentCancelResponse,
@@ -69,6 +70,17 @@ async def create_agent(
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.create_agent(ctx, agent_in)
+
+
+@router.post("/import", response_model=AgentImportResponse, status_code=status.HTTP_201_CREATED)
+async def import_agent(
+    agent_file: AgentFile,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    """Create an agent, and its draft version, from an exported agent file."""
+    handlers = AgentAppHandlers(service)
+    return await handlers.import_agent(ctx, agent_file)
 
 
 @router.get("", response_model=PaginatedResponse[AgentResponse])
@@ -182,6 +194,17 @@ async def create_version(
 ):
     handlers = AgentAppHandlers(service)
     return await handlers.create_version(ctx, agent_id, version_in)
+
+
+@router.get("/{agent_id}/export", response_model=AgentFile)
+async def export_agent(
+    agent_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: AgentApplicationService = Depends(get_agent_application_service),
+):
+    """The agent as a file: its fields and its published or current version's specification."""
+    handlers = AgentAppHandlers(service)
+    return await handlers.export_agent(ctx, agent_id)
 
 
 @router.get("/{agent_id}/versions", response_model=PaginatedResponse[AgentVersionResponse])

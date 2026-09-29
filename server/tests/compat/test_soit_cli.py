@@ -110,6 +110,50 @@ async def test_ledger_records_are_exported_end_to_end(async_client, async_db, ct
     assert "0.03" in row
 
 
+async def test_an_agent_round_trips_through_a_file(async_client, async_db, ctx, tmp_path, capsys) -> None:
+    async def build() -> AgentApplicationService:
+        return AgentApplicationService(db=async_db, ctx=ctx, llm_port=_NoAnswer(), tool_port=_NoTools())
+
+    app.dependency_overrides[get_agent_application_service] = build
+    try:
+        agent_id = (await async_client.post("/api/v1/agents", json={"name": "file-agent"})).json()["data"]["id"]
+        version = await async_client.post(
+            f"/api/v1/agents/{agent_id}/versions",
+            json={"system_prompt": "Be brief.", "bindings": {"model_ref": "model:test:chat"}},
+        )
+        path = tmp_path / "agent.yaml"
+
+        assert await _soit(async_client, "agent", "export", agent_id, "-o", str(path)) == EXIT_OK
+        assert await _soit(async_client, "agent", "import", str(path), "--name", "file-agent-copy") == EXIT_OK
+
+        out = capsys.readouterr()
+        copy_id = out.out.splitlines()[-1].strip()
+        assert copy_id and copy_id != agent_id
+        versions = await async_client.get(f"/api/v1/agents/{copy_id}/versions")
+    finally:
+        app.dependency_overrides.pop(get_agent_application_service, None)
+
+    assert path.read_text(encoding="utf-8").startswith("soit: agent/v1\n")
+    [copied] = versions.json()["data"]["items"]
+    assert copied["checksum"] == version.json()["data"]["checksum"]
+
+
+class _NoAnswer(LLMPort):
+    async def chat(self, messages, model, temperature=None, max_tokens=None, **kwargs):
+        raise NotImplementedError
+
+    async def embed(self, texts, model, **kwargs):
+        raise NotImplementedError
+
+    async def rerank(self, query, documents, model, top_n=None, **kwargs):
+        raise NotImplementedError
+
+
+class _NoTools(ToolPort):
+    async def invoke(self, tool_ref, parameters, **kwargs):
+        raise NotImplementedError
+
+
 async def test_an_agent_runs_end_to_end(async_client, async_db, ctx, capsys) -> None:
     class _Answer(LLMPort):
         async def chat(self, messages, model, temperature=None, max_tokens=None, **kwargs):

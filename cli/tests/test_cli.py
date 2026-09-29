@@ -270,6 +270,89 @@ def test_ledger_records_are_exported_for_a_window(tmp_path: Path, capsys) -> Non
     assert "ledger contract 1.0" in capsys.readouterr().err
 
 
+AGENT_FILE = {
+    "soit": "agent/v1",
+    "agent": {
+        "name": "support-triage",
+        "description": None,
+        "visibility": "private",
+        "category": None,
+        "icon_url": None,
+        "tags": None,
+    },
+    "version": {
+        "system_prompt": "Answer briefly.",
+        "bindings": {"model_ref": "model:openai:gpt-6", "tool_refs": ["tool:echo"]},
+    },
+}
+
+
+def test_an_agent_is_exported_as_yaml(tmp_path: Path, capsys) -> None:
+    _signed_in()
+    api = Api({("GET", "/api/v1/agents/agt_1/export"): lambda _: ok(AGENT_FILE)})
+    out = tmp_path / "agent.yaml"
+
+    assert main(["agent", "export", "agt_1", "-o", str(out)], transport=api.transport()) == EXIT_OK
+
+    assert capsys.readouterr().out.strip() == str(out)
+    text = out.read_text(encoding="utf-8")
+    assert text.startswith("soit: agent/v1\n")
+    assert "system_prompt: Answer briefly." in text
+    assert "model_ref: model:openai:gpt-6" in text
+
+
+def test_an_agent_export_goes_to_stdout_by_default(capsys) -> None:
+    _signed_in()
+    api = Api({("GET", "/api/v1/agents/agt_1/export"): lambda _: ok(AGENT_FILE)})
+
+    assert main(["agent", "export", "agt_1"], transport=api.transport()) == EXIT_OK
+
+    assert capsys.readouterr().out.startswith("soit: agent/v1\n")
+
+
+def test_an_agent_file_is_imported_with_a_new_name(tmp_path: Path, capsys) -> None:
+    _signed_in()
+    received: list[dict] = []
+
+    def create(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(
+            201,
+            json={
+                "success": True,
+                "data": {"agent": {"id": "agt_2", "name": "copy"}, "version": {"id": "ver_2", "version": 1}},
+            },
+        )
+
+    api = Api({("POST", "/api/v1/agents/import"): create})
+    path = tmp_path / "agent.yaml"
+    path.write_text(
+        "soit: agent/v1\nagent:\n  name: support-triage\nversion:\n  bindings:\n    model_ref: model:openai:gpt-6\n",
+        encoding="utf-8",
+    )
+
+    assert main(["agent", "import", str(path), "--name", "copy"], transport=api.transport()) == EXIT_OK
+
+    out = capsys.readouterr()
+    assert out.out.strip() == "agt_2"
+    assert "imported copy as agt_2, version 1 as a draft" in out.err
+    assert received == [
+        {"soit": "agent/v1", "agent": {"name": "copy"}, "version": {"bindings": {"model_ref": "model:openai:gpt-6"}}}
+    ]
+
+
+def test_a_file_that_is_not_an_agent_is_refused_before_the_request(tmp_path: Path, capsys) -> None:
+    _signed_in()
+    api = Api({})
+    path = tmp_path / "notes.yaml"
+    path.write_text("- just\n- a list\n", encoding="utf-8")
+
+    assert main(["agent", "import", str(path)], transport=api.transport()) == EXIT_FAILED
+
+    assert "is not an agent file" in capsys.readouterr().err
+    assert api.requests == []
+
+
 def test_a_ledger_export_needs_a_window(capsys) -> None:
     _signed_in()
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import yaml
 
 from soit_cli import __version__, config
 from soit_cli.client import SoitClient, SoitError
@@ -186,6 +187,37 @@ def _export(client: SoitClient, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _agent_export(client: SoitClient, args: argparse.Namespace) -> int:
+    document = client.export_agent(args.agent_id)
+    # YAML, for people and version control; the API speaks the same document as JSON.
+    text = yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
+    if not args.output or args.output == "-":
+        sys.stdout.write(text)
+        return EXIT_OK
+    path = _write(Path(args.output), text.encode("utf-8"))
+    print(path)
+    return EXIT_OK
+
+
+def _agent_import(client: SoitClient, args: argparse.Namespace) -> int:
+    raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+    document = yaml.safe_load(raw)
+    if not isinstance(document, dict):
+        _err(f"{args.file} is not an agent file")
+        return EXIT_FAILED
+    if args.name:
+        agent = document.setdefault("agent", {})
+        if isinstance(agent, dict):
+            agent["name"] = args.name
+    result = client.import_agent(document)
+    agent_id = result.get("agent", {}).get("id", "")
+    version = result.get("version") or {}
+    print(agent_id)
+    what = f"version {version.get('version')} as a draft" if version else "no version"
+    print(f"imported {result.get('agent', {}).get('name', '')} as {agent_id}, {what}", file=sys.stderr)
+    return EXIT_OK
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="soit", description="Command-line client for SOIT.")
     parser.add_argument("--version", action="version", version=f"soit {__version__}")
@@ -226,6 +258,17 @@ def _parser() -> argparse.ArgumentParser:
         help=f"exit {EXIT_REGRESSED} when a case passes on the current model and fails on the candidate",
     )
     evaluate.set_defaults(handler=_eval, signed_in=True)
+
+    agent = commands.add_parser("agent", help="move an agent in or out as a file")
+    agent_commands = agent.add_subparsers(dest="agent_command", required=True, metavar="ACTION")
+    agent_export = agent_commands.add_parser("export", help="write an agent and its version's spec as YAML")
+    agent_export.add_argument("agent_id")
+    agent_export.add_argument("-o", "--output", help="the file to write (default: standard output)")
+    agent_export.set_defaults(handler=_agent_export, signed_in=True)
+    agent_import = agent_commands.add_parser("import", help="create an agent, and its draft version, from a file")
+    agent_import.add_argument("file", help="the YAML or JSON agent file; '-' reads standard input")
+    agent_import.add_argument("--name", help="the name for the new agent, instead of the file's")
+    agent_import.set_defaults(handler=_agent_import, signed_in=True)
 
     export = commands.add_parser("export", help="export a run's evidence bundle, or ledger records")
     export.add_argument("what", choices=("evidence", *LEDGER_KINDS))

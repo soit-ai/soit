@@ -111,6 +111,16 @@ class SoitClient:
             body["max_cases"] = max_cases
         return self._data("POST", "/api/v1/evaluations/model-replays", json=body, timeout=REPLAY_TIMEOUT)
 
+    def export_agent(self, agent_id: str) -> dict[str, Any]:
+        """The agent as a file: its fields and its published or current version's specification."""
+
+        return self._data("GET", f"/api/v1/agents/{agent_id}/export")
+
+    def import_agent(self, document: dict[str, Any]) -> dict[str, Any]:
+        """A new agent, and its draft version, from an agent file."""
+
+        return self._data("POST", "/api/v1/agents/import", json=document)
+
     def evidence(self, run_id: str) -> tuple[str, bytes, str]:
         """A run's evidence bundle: file name, bytes, and its checked digest."""
 

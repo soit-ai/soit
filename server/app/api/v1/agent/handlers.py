@@ -7,6 +7,7 @@ Agent handlers (thin orchestration).
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
 from app.modules.agent.application.application_service import AgentApplicationService
+from app.modules.agent.application.portable import AgentFile, AgentImportResponse
 from app.modules.agent.application.schemas import (
     AgentBindingResponse,
     AgentCancelResponse,
@@ -202,6 +203,16 @@ class AgentAppHandlers:
     ) -> AgentVersionResponse:
         version = await self.service.create_version(agent_id, data)
         return self._as_version_response(version)
+
+    async def export_agent(self, ctx: RequestContext, agent_id: str) -> AgentFile:
+        return await self.service.export_agent(agent_id)
+
+    async def import_agent(self, ctx: RequestContext, data: AgentFile) -> AgentImportResponse:
+        agent, version = await self.service.import_agent(data)
+        return AgentImportResponse(
+            agent=self._as_agent_response(agent),
+            version=self._as_version_response(version) if version else None,
+        )
 
     async def list_versions(
         self,
