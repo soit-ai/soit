@@ -52,6 +52,13 @@ record for operators.
 - Rotating an API key that has an expiry answered `500` on PostgreSQL: the
   expiry read back with its offset and the creation time without one, so
   the lifetime the new key carries over could not be computed.
+- An image generation routed to Vertex AI's Imagen sent the provider's
+  `vertex_project` and `vertex_location` in the request body, among
+  Imagen's own parameters beside `sampleCount`. They now reach only the
+  endpoint URL built from them. The connection-settings wire tests now
+  cover Vertex AI's and Bedrock's generations, edits and embeddings, with
+  and without an `api_base`, and check that Bedrock still signs with its
+  keys in its region.
 
 ## [1.4.0] - 2026-09-29
 

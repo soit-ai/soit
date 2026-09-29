@@ -62,6 +62,10 @@ _SETTINGS_AN_OPENAI_EDIT_WOULD_SEND = frozenset(
     }
 )
 
+# Vertex AI's project and location, which its image generation reads from
+# LiteLLM's own parameters to build the endpoint URL.
+_VERTEX_SETTINGS = ("vertex_project", "vertex_location")
+
 
 def _value(obj: Any, name: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
@@ -480,6 +484,15 @@ class LiteLLMPort(LLMPort):
             "prompt": prompt,
             **self._body_safe_connection_params(model_name, headers_param="headers"),
         }
+        # LiteLLM's image generation copies each keyword it does not know
+        # into the provider's parameters, Vertex AI's project and location
+        # among them: Imagen's request carried both beside sampleCount. It
+        # takes additional_drop_params as its own and leaves the names listed
+        # there out of the request, while the parameters it builds the URL
+        # from still hold them.
+        dropped = [name for name in _VERTEX_SETTINGS if name in params]
+        if dropped:
+            params["additional_drop_params"] = dropped
         if "n" in carried:
             params["n"] = n
         # LiteLLM's generic image handler ignores the headers parameter and
