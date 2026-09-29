@@ -25,6 +25,10 @@ application and the bundled infrastructure are separate Compose files, so you
 can start only what you are missing. See
 [Use Infrastructure You Already Run](../docker/README.md#use-infrastructure-you-already-run).
 
+Trying SOIT on a small machine? [minimal-topology.md](minimal-topology.md)
+says which of the twelve services a demo can leave out and what stops working
+when it does.
+
 ## Seed the Demo Workspace
 
 After migrations are available, seed the deterministic Phase 1 demo data:

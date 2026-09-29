@@ -22,6 +22,9 @@ anything: an existing quickstart keeps its data.
 
 Requires Docker Compose v2.24 or later.
 
+Which services a demo can leave out, and what stops working when it does, is
+in [docs/minimal-topology.md](../docs/minimal-topology.md).
+
 ## Lite Profile
 
 The smallest install that runs every feature, for trying SOIT on a laptop:

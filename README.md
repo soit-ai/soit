@@ -169,6 +169,10 @@ verified with `gh attestation verify`. The released `web` image serves the
 API at the default `http://localhost:9200/api/v1`; if you override the API
 host port, build the web image from source with `VITE_BASE_URL` instead.
 
+Not every demo needs all of these services. [docs/minimal-topology.md](./docs/minimal-topology.md)
+lists what each container is for, which ones a scenario can leave out, and
+what stops working when it does.
+
 For a local development setup with hot reload (Python and Node), see [docs/development.md](./docs/development.md).
 
 For the Phase 1 bilingual quickstart, demo seed, and smoke evidence path, see [docs/quickstart.md](./docs/quickstart.md).
