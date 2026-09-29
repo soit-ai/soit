@@ -32,12 +32,14 @@ record for operators.
   migration.
 - The web console moves to assistant-ui 0.15 (`@assistant-ui/react`
   0.15.22 with its 0.3 internals, `react-ag-ui` 0.0.62, `react-markdown`
-  0.14.17), `@ag-ui/client` 0.0.59 and `@hookform/resolvers` 5.9.1. The
-  overrides that held assistant-ui's internals at 0.2 are gone; an override
-  lets the resolvers' optional valibot peer take the 1.x the router
-  already installs. The console chat's attachment handling, a failed
-  upload leaving the composer and a file removed before sending, is now
-  covered by its own end-to-end tests.
+  0.14.17), `@ag-ui/client` 0.0.59 and `@hookform/resolvers` 5.9.1. A chat
+  message whose attachment fails to upload now comes back to the composer
+  with its text and the file, marked "Upload failed", and sending again
+  uploads it again; before, the file was dropped and had to be picked
+  again. The overrides that held assistant-ui's internals at 0.2 for the
+  old behaviour are gone; an override lets the resolvers' optional valibot
+  peer take the 1.x the router already installs. The console chat's
+  attachment handling is covered by its own end-to-end tests.
 
 ### Fixed
 

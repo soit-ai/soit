@@ -129,7 +129,7 @@ test.beforeEach(async ({ page }) => {
   await mockChat(page)
 })
 
-test('a failed attachment upload is reported and the file can be sent again', async ({ page }) => {
+test('a failed attachment upload comes back to the composer and sending again retries it', async ({ page }) => {
   let uploads = 0
   let sent: any = null
   await page.route('**/api/v1/attachments', (route) => {
@@ -180,17 +180,22 @@ test('a failed attachment upload is reported and the file can be sent again', as
   })
 
   await page.goto('/chat', { waitUntil: 'domcontentloaded' })
+  const composer = page.getByRole('textbox').last()
+  await composer.fill('summarize the attached file')
   await pickFile(page, 'retry.txt', 'retry')
   const send = page.getByRole('button', { name: 'Send message' })
   await send.click()
 
   await expect.poll(() => uploads).toBe(1)
   await expect(page.getByText('Attachment upload temporarily unavailable')).toBeVisible()
-  // The failed file leaves the composer, so nothing is left to send.
-  await expect(send).toBeDisabled()
-
-  await pickFile(page, 'retry.txt', 'retry')
+  // Nothing was sent: the text and the file are back in the composer, the
+  // file marked as failed.
+  expect(sent).toBeNull()
+  await expect(composer).toHaveValue('summarize the attached file')
+  await expect(page.getByText('retry.txt')).toBeVisible()
+  await expect(page.getByText('Upload failed')).toBeVisible()
   await expect(send).toBeEnabled()
+
   await send.click()
   await expect.poll(() => uploads).toBe(2)
   await expect.poll(() => sent).not.toBeNull()

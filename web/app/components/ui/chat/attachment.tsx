@@ -159,6 +159,12 @@ const AttachmentUI: FC = () => {
   const canRemove = useAuiState(({ attachment }) => {
     return (attachment as { source?: string }).source !== "message";
   });
+  // A send whose upload failed comes back to the composer with the file
+  // marked; sending again uploads it again.
+  const failed = useAuiState(
+    ({ attachment }) =>
+      attachment.status.type === "incomplete" && attachment.status.reason === "error",
+  );
   const typeLabel = useAuiState(({ attachment }) => {
     const type = attachment.type;
     switch (type) {
@@ -177,13 +183,15 @@ const AttachmentUI: FC = () => {
       <Tooltip>
         <AttachmentPrimitive.Root className="relative mt-3">
           <AttachmentPreviewDialog>
-            <TooltipTrigger render={<div className="flex h-12 w-40 items-center justify-center gap-2 rounded-lg border p-1">
+            <TooltipTrigger render={<div className={cn("flex h-12 w-40 items-center justify-center gap-2 rounded-lg border p-1", failed && "border-destructive")}>
                 <AttachmentThumb />
                 <div className="flex-grow basis-0">
                   <p className="text-muted-foreground line-clamp-1 text-ellipsis break-all text-xs font-bold">
                     <AttachmentPrimitive.Name />
                   </p>
-                  <p className="text-muted-foreground text-xs">{typeLabel}</p>
+                  <p className={cn("text-xs", failed ? "text-destructive" : "text-muted-foreground")}>
+                    {failed ? "Upload failed" : typeLabel}
+                  </p>
                 </div>
               </div>} />
           </AttachmentPreviewDialog>
