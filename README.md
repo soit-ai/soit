@@ -105,7 +105,7 @@ Enterprise platforms live and die by what they refuse to do. SOIT treats governa
 - Tenant and workspace scoping enforced at every API and data layer
 - RBAC with resource-level permissions and grant inheritance
 - Vault-backed secret management with workspace-scoped visibility
-- Egress policy enforcement for outbound HTTP calls and tool adapters
+- Egress policy enforcement for outbound HTTP calls and tool adapters, with [example policies](./docs/examples/egress-policies.md) for the common scenarios
 - Per-version capability allowlists for models, knowledge, workflows, tools, plugins, and MCP servers
 - Full audit log of privileged operations and runtime tool use, searchable by actor, object, outcome and time window
 - Versioned governance policy: every save of a workspace's egress rules and usage limits appends a revision, an earlier one can be restored, and the policy in force carries a content-derived identifier that refused requests are recorded against
