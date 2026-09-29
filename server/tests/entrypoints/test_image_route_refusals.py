@@ -139,8 +139,8 @@ class TestNativeImages:
         assert sent["n"] == 2
         assert sent["background"] == "transparent"
         assert "mask" in sent
-        # OpenAI's edit answers in PNG and has no field for the format.
-        assert "output_format" not in sent
+        # OpenAI's edit form takes the format under its own name.
+        assert sent["output_format"] == "png"
 
     @pytest.mark.asyncio
     async def test_an_edit_asking_for_no_format_is_sent_none(self, async_client, litellm_calls) -> None:
@@ -162,13 +162,16 @@ class TestNativeImages:
 
 class TestOpenAICompatibleImages:
     @pytest.mark.asyncio
-    async def test_a_format_the_openai_edit_cannot_carry_is_refused_by_name(
+    async def test_a_format_the_edit_route_cannot_carry_is_refused_by_name(
         self, async_client, async_db, litellm_calls
     ) -> None:
+        # Recraft's edit has no field for the format.
+        get_container().get("llm_port").litellm_provider = "recraft"
+
         response = await async_client.post(
             "/v1/images/edits",
             files={"image": ("source.png", _png(), "image/png")},
-            data={"model": MODEL, "prompt": "fill it", "output_format": "webp"},
+            data={"model": "model:recraft:recraftv3", "prompt": "fill it", "output_format": "webp"},
         )
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
