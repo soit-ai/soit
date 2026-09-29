@@ -281,7 +281,7 @@ We ship in tight, themed iterations. The current focus areas:
 - [x] Standalone gateway processes (`SOIT_ROLE=gateway`) and model servers on private networks
 - [x] Signed Enterprise licenses and extension packages
 - [ ] Cost-aware multi-model routing policies
-- [ ] MCP marketplace for one-click tool installation
+- [ ] Agent specifications as YAML files, exported and imported
 
 See the full [roadmap](./docs/roadmap.md) and [contributing guide](./CONTRIBUTING.md) to track direction and propose changes.
 
