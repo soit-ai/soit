@@ -40,6 +40,12 @@ record for operators.
   old behaviour are gone; an override lets the resolvers' optional valibot
   peer take the 1.x the router already installs. The console chat's
   attachment handling is covered by its own end-to-end tests.
+- Passwords are hashed and checked with bcrypt 5 directly instead of
+  through passlib, which is no longer maintained and held bcrypt at 4.0.1.
+  Stored hashes verify unchanged, a password past bcrypt's 72 bytes is cut
+  there as passlib cut it, and new hashes keep the same cost. pymilvus
+  moves to 2.5.18, the newest client for the Milvus 2.5 server the compose
+  files run.
 
 ### Fixed
 

@@ -38,7 +38,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 
 **核心框架与运行时：**
 - **Web 框架**: FastAPI 0.114+ (Python 3.12)
-- **ORM**: SQLModel 0.0.24 (基于 SQLAlchemy 2.0.31)
+- **ORM**: SQLModel 0.0.47 (基于 SQLAlchemy 2.0.54)
 - **异步支持**: asyncio, httpx
 - **包管理**: uv (现代 Python 包管理器)
 
@@ -46,7 +46,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 - **主数据库**: PostgreSQL 15 (使用 psycopg[binary] 3.1+)
 - **缓存/消息队列**: Redis 7 (使用 aioredis 2.0+, redis 5.2+)
 - **后台任务**: 基于 PostgreSQL 租约的持久 worker（outbox 分发、知识入库、定时调度、对话交互）
-- **向量数据库**: Milvus 2.5.11 (使用 pymilvus 2.5.11)，或 PostgreSQL 内的 pgvector
+- **向量数据库**: Milvus 2.5.12 (使用 pymilvus 2.5.18)，或 PostgreSQL 内的 pgvector
 - **对象存储**: MinIO (支持 S3/OSS/COS/GCS，使用 boto3/oss2/cos-python-sdk-v5/google-cloud-storage)，或本地文件
 
 **数据库迁移与版本控制：**
@@ -54,7 +54,7 @@ SOIT 采用前后端分离架构。当前产品主结构已经收敛到 Agent �
 
 **认证与安全：**
 - **JWT**: PyJWT 2.8+ (身份认证)
-- **密码加密**: passlib[bcrypt] 1.7+ (bcrypt 4.0.1)
+- **密码加密**: bcrypt 5.0
 - **密钥管理**: HashiCorp Vault (通过适配器)；评估安装可用数据库密封存储（`SECRETS_BACKEND=sealed`）
 
 **可观测性与监控：**

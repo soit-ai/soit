@@ -9,7 +9,6 @@ import secrets
 from collections.abc import Callable
 from datetime import UTC, timedelta
 
-from passlib.context import CryptContext
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import (
@@ -36,6 +35,7 @@ from app.kernel.identity.rbac import (
 )
 from app.kernel.ports.mail.interface import MailMessage, MailPort
 from app.kernel.runtime.db.models.audit import AuditEvent
+from app.modules.identity.application.passwords import hash_password, verify_password
 from app.modules.identity.application.ports import (
     AccountDeletionRequestRepositoryPort,
     ApiKeyRepositoryPort,
@@ -84,9 +84,6 @@ from app.modules.identity.domain.models import (
     WorkspaceInvitation,
     WorkspaceMembership,
 )
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 MFA_CHALLENGE_PURPOSE = "mfa_challenge"
 """Marks a token that may only complete a sign-in, never authorize a request."""
@@ -262,7 +259,7 @@ class IdentityService:
             raise ValidationError("User with this email already exists")
 
         # Create user
-        password_hash = pwd_context.hash(user_data.password)
+        password_hash = hash_password(user_data.password)
         user = User(
             email=user_data.email,
             password_hash=password_hash,
@@ -336,7 +333,7 @@ class IdentityService:
         if not user.is_active:
             raise UnauthorizedError("User account is inactive")
 
-        if not pwd_context.verify(password, user.password_hash):
+        if not verify_password(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password")
 
         # Get user's primary tenant (first membership)
@@ -796,7 +793,7 @@ class IdentityService:
         the reset pointless.
         """
         user = await self._consume_identity_token(token, "password_reset")
-        user.password_hash = pwd_context.hash(new_password)
+        user.password_hash = hash_password(new_password)
         user.updated_at = utc_now()
         await self.user_repo.update(user)
         for session in await self.session_repo.list_by_user(user.id):
@@ -1042,7 +1039,7 @@ class IdentityService:
         so a live session alone must not be enough to drop it.
         """
         user = await self.user_repo.get_by_id(ctx.user_id)
-        if user is None or not pwd_context.verify(password, user.password_hash):
+        if user is None or not verify_password(password, user.password_hash):
             raise UnauthorizedError("Password is incorrect")
         enrolment = await self.mfa_repo.get_by_user(ctx.user_id)
         if enrolment is None:
@@ -1504,9 +1501,9 @@ class IdentityService:
     ) -> None:
         """Change current user password."""
         user = await self.get_user(ctx.user_id)
-        if not pwd_context.verify(data.current_password, user.password_hash):
+        if not verify_password(data.current_password, user.password_hash):
             raise UnauthorizedError("Current password is incorrect")
-        user.password_hash = pwd_context.hash(data.new_password)
+        user.password_hash = hash_password(data.new_password)
         user.updated_at = utc_now()
         await self.user_repo.update(user)
 

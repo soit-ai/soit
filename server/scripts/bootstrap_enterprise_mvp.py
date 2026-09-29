@@ -26,8 +26,8 @@ from app.kernel.ports.llm.interface import (
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.agent.application.schemas import AgentCreate, AgentVersionCreate
 from app.modules.agent.domain.models import Agent, AgentVersion
+from app.modules.identity.application.passwords import hash_password
 from app.modules.identity.application.schemas import UserCreate
-from app.modules.identity.application.service import pwd_context
 from app.modules.identity.domain.models import (
     Tenant,
     TenantMembership,
@@ -148,7 +148,7 @@ async def _ensure_context(db: AsyncSession, args: argparse.Namespace) -> Request
         user = await identity.user_repo.create(
             User(
                 email=args.email,
-                password_hash=pwd_context.hash(args.password),
+                password_hash=hash_password(args.password),
                 name=args.name,
             )
         )
