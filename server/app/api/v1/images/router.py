@@ -111,7 +111,11 @@ class ImageGenerationCreate(BaseModel):
 class ImageDatum(BaseModel):
     b64_json: str | None = None
     url: str | None = None
+    artifact_id: str | None = None
+    """The run artifact holding the image; fetch it through the run's artifacts."""
     attachment_id: str | None = None
+    """The same artifact id under the field's former name, kept for callers
+    written against it; it never named an attachment."""
 
 
 class ImageGenerationRead(BaseModel):
@@ -235,7 +239,8 @@ def _to_data(results: list[ImageResult]) -> list[ImageDatum]:
         ImageDatum(
             b64_json=result.b64_json,
             url=result.url,
-            attachment_id=result.attachment_id,
+            artifact_id=result.artifact_id,
+            attachment_id=result.artifact_id,
         )
         for result in results
     ]

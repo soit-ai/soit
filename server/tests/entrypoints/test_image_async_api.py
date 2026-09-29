@@ -75,7 +75,7 @@ class TestSynchronousBehaviourIsUnchanged:
         assert body["status"] == "succeeded"
         assert len(body["data"]) == 2
         assert all(image["b64_json"] for image in body["data"])
-        assert all(image["attachment_id"] is None for image in body["data"])
+        assert all(image["artifact_id"] is None for image in body["data"])
 
     @pytest.mark.asyncio
     async def test_edit_still_returns_images_inline(self, async_client):
@@ -94,13 +94,17 @@ class TestArtifactResponses:
         assert len(body["data"]) == 2
         # The bytes moved into governed storage, so the response carries
         # references rather than megabytes of base64.
-        assert all(image["attachment_id"] for image in body["data"])
+        assert all(image["artifact_id"] for image in body["data"])
+        # The former name carries the same id for callers written against it.
+        assert [image["attachment_id"] for image in body["data"]] == [
+            image["artifact_id"] for image in body["data"]
+        ]
         assert all(image["b64_json"] is None for image in body["data"])
 
         artifacts = await _artifacts(async_db, body["run_id"])
         assert len(artifacts) == 2
         assert {artifact.id for artifact in artifacts} == {
-            image["attachment_id"] for image in body["data"]
+            image["artifact_id"] for image in body["data"]
         }
         for artifact in artifacts:
             assert artifact.type == "file"
@@ -112,7 +116,7 @@ class TestArtifactResponses:
     @pytest.mark.asyncio
     async def test_artifact_content_is_downloadable(self, async_client, async_db):
         body = (await _generate(async_client, response_format="artifact")).json()["data"]
-        artifact_id = body["data"][0]["attachment_id"]
+        artifact_id = body["data"][0]["artifact_id"]
 
         download = await async_client.get(
             f"/api/v1/runs/{body['run_id']}/artifacts/{artifact_id}/content"
@@ -533,7 +537,7 @@ class TestProviderHostedResults:
         [datum] = response.json()["data"]["data"]
         [artifact] = await _artifacts(async_db, response.json()["data"]["run_id"])
         assert datum["url"] == _HOSTED
-        assert datum["attachment_id"] == artifact.id
+        assert datum["artifact_id"] == artifact.id
 
     @pytest.mark.asyncio
     async def test_every_billed_image_of_a_mixed_answer_is_kept(self, async_client, async_db):

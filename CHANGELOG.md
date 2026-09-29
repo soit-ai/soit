@@ -74,6 +74,10 @@ record for operators.
   run step as an attempt naming the option in `param`. The check before an
   asynchronous job is accepted walks the targets the same way.
 
+- `/api/v1/images/*` results name the run artifact holding an image as
+  `artifact_id`. `attachment_id` keeps carrying the same id for callers
+  written against it: the field never named an attachment.
+
 ### Fixed
 
 - Retrying a task of a type nothing can re-execute answered a generic

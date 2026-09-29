@@ -126,7 +126,8 @@ class ImageResult:
 
     b64_json: str | None = None
     url: str | None = None
-    attachment_id: str | None = None
+    artifact_id: str | None = None
+    """The run artifact holding the image, on an ``artifact`` job."""
 
 
 @dataclass(frozen=True)
@@ -255,7 +256,7 @@ async def _store_provider_link(
             "inspected": False,
         },
     )
-    return ImageResult(url=url, attachment_id=artifact.id)
+    return ImageResult(url=url, artifact_id=artifact.id)
 
 
 async def _store_as_artifacts(
@@ -312,7 +313,7 @@ async def _store_as_artifacts(
             sha256=hashlib.sha256(data).hexdigest(),
             meta=meta,
         )
-        results.append(ImageResult(attachment_id=artifact.id))
+        results.append(ImageResult(artifact_id=artifact.id))
     return results
 
 
@@ -411,14 +412,14 @@ async def execute_image_job(
             run_id=run_id,
             request=request,
         )
-        if any(result.attachment_id is None for result in results):
+        if any(result.artifact_id is None for result in results):
             # Every billed image of an artifact job is retrievable from the
             # run, or the job fails (its cost stays recorded): it never ends
             # succeeded with less to fetch than it was charged for.
             raise KernelError(
                 "IMAGE_UNDELIVERABLE",
                 "The provider returned an image that could not be kept as a run artifact",
-                {"images": len(results), "stored": sum(1 for r in results if r.attachment_id)},
+                {"images": len(results), "stored": sum(1 for r in results if r.artifact_id)},
             )
     else:
         results = [
