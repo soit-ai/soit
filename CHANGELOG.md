@@ -30,6 +30,14 @@ record for operators.
   alike, and a model refuses a naive datetime instead of storing it as it
   stands. The columns and the values in them are unchanged, so there is no
   migration.
+- The web console moves to assistant-ui 0.15 (`@assistant-ui/react`
+  0.15.22 with its 0.3 internals, `react-ag-ui` 0.0.62, `react-markdown`
+  0.14.17), `@ag-ui/client` 0.0.59 and `@hookform/resolvers` 5.9.1. The
+  overrides that held assistant-ui's internals at 0.2 are gone; an override
+  lets the resolvers' optional valibot peer take the 1.x the router
+  already installs. The console chat's attachment handling, a failed
+  upload leaving the composer and a file removed before sending, is now
+  covered by its own end-to-end tests.
 
 ### Fixed
 
