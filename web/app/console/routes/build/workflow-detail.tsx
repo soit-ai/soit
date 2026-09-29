@@ -15,7 +15,7 @@ import {
   runStatusToConsole,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { relativeTime } from '../../adapters/palette'
+import { money, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { requestErrorMessage } from '@/utils/request'
@@ -101,6 +101,13 @@ function formatDuration(ms?: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+/** The run record carries its priced total as a decimal string. */
+function formatRunCost(amount?: string | null, currency?: string | null): string {
+  if (amount == null) return '—'
+  const value = Number(amount)
+  return Number.isFinite(value) ? money(value, currency) : '—'
+}
+
 function formatStarted(iso?: string | null): string {
   if (!iso) return '—'
   const date = new Date(iso)
@@ -108,11 +115,10 @@ function formatStarted(iso?: string | null): string {
   return `${date.toISOString().slice(11, 19)}Z`
 }
 
-// BACKEND-PENDING: per-run cost is not on the run record (only aggregate
-// /runs/cost/* endpoints), and there is no publish-validation or legacy-node
-// migration-target endpoint. Everything else on this page reads
-// workflow-service (/workflows/{id}, /version/current, /versions,
-// /capabilities) and run-service (/runs).
+// Everything on this page reads workflow-service (/workflows/{id},
+// /version/current, /versions, /capabilities) and run-service (/runs, whose
+// rows carry each run's cost). There is no publish-validation or legacy-node
+// migration-target endpoint, so the page offers neither.
 export default function ConsoleWorkflowDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
@@ -392,9 +398,7 @@ export default function ConsoleWorkflowDetail() {
                         {!warn && <span className="mono dimmer">{policy}</span>}
                       </td>
                       <td className="num dim">{formatDuration(run.duration_ms)}</td>
-                      {/* Per-run cost is not on the run record; /runs/cost/* only
-                          aggregates across a filter set. */}
-                      <td className="num dim">—</td>
+                      <td className="num dim">{formatRunCost(run.cost_amount, run.cost_currency)}</td>
                       <td>
                         <StatusChip status={runStatusToConsole(run.status)} />
                       </td>

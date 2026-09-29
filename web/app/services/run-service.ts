@@ -41,6 +41,13 @@ export interface RunResponse {
   created_at: string
   updated_at: string
   observe_summary?: RunObserveSummary | null
+  /**
+   * Sum of the run's priced cost entries as a decimal string; null when
+   * nothing was priced or the entries span more than one currency.
+   */
+  cost_amount?: string | null
+  /** Currency of `cost_amount`; null whenever `cost_amount` is null. */
+  cost_currency?: string | null
 }
 
 export interface RunObserveSummary {

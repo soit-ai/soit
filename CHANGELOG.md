@@ -55,6 +55,12 @@ record for operators.
   `kernel/specs/v1/otlp_trace_spec`, each download is audited as
   `trace.otlp_exported`, and **Export OTLP** on the console's trace page
   downloads it.
+- Each run on `GET /api/v1/runs` and `GET /api/v1/runs/{run_id}` carries
+  `cost_amount` and `cost_currency`: the sum of its priced cost entries in
+  their currency, or null when nothing was priced or the entries span more
+  than one currency, which are never added together. The agent and workflow
+  detail pages show it in the cost column of their recent runs instead of a
+  dash.
 
 ### Changed
 

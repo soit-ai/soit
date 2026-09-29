@@ -159,6 +159,13 @@ function formatDuration(ms?: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+/** The run record carries its priced total as a decimal string. */
+function formatRunCost(amount?: string | null, currency?: string | null): string {
+  if (amount == null) return '—'
+  const value = Number(amount)
+  return Number.isFinite(value) ? money(value, currency) : '—'
+}
+
 function formatStarted(iso?: string | null): string {
   if (!iso) return '—'
   const date = new Date(iso)
@@ -208,14 +215,13 @@ function capabilityRows(
   return rows
 }
 
-// BACKEND-PENDING: no per-run cost on the run record (/runs/costs/* only
-// aggregates across a filter set), no per-agent spend total, and the agent
-// record carries no trigger, output schema, rate limit, retry policy,
-// on-failure target, budget-alert threshold, or governance bundle/gate/review
-// fields — the "Governance preview" rail and those inputs have nothing to read.
-// Everything else comes from agent-service (/agents/{id}, /versions, /releases,
-// /bindings, /workbench/items), capability-service (/agents/capabilities) and
-// run-service (/runs).
+// Everything on this page reads agent-service (/agents/{id}, /versions,
+// /releases, /bindings, /workbench/items), capability-service
+// (/agents/capabilities) and run-service (/runs, whose rows carry each run's
+// cost, and /runs/costs/summary for the spend tile). The agent record carries
+// no trigger, output schema, rate limit, retry policy, on-failure target,
+// budget-alert threshold, or governance bundle/gate/review fields, so the
+// page shows no inputs for them.
 export default function ConsoleAgentDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
@@ -949,8 +955,7 @@ export default function ConsoleAgentDetail() {
                           </span>
                         </td>
                         <td className="num dim">{formatDuration(run.duration_ms)}</td>
-                        {/* Per-run cost is not on the run record. */}
-                        <td className="num dim">—</td>
+                        <td className="num dim">{formatRunCost(run.cost_amount, run.cost_currency)}</td>
                         <td>
                           <StatusChip status={runStatusToConsole(run.status)} />
                         </td>

@@ -1013,7 +1013,66 @@ class RunService:
                 run.model_copy(update={"observe_summary": summaries.get(run.id, RunObserveSummaryResponse())})
                 for run in responses
             ]
+        if responses:
+            totals = await self._load_run_cost_totals([run.id for run in responses])
+            responses = [self._with_cost_total(run, totals.get(run.id)) for run in responses]
         return responses
+
+    async def _load_run_cost_totals(self, run_ids: list[str]) -> dict[str, tuple[Decimal, str] | None]:
+        """Sum the priced cost entries of ``run_ids`` in one grouped query.
+
+        Returns ``run_id -> (amount, currency)`` for runs priced in a single
+        currency, ``run_id -> None`` for runs whose entries span more than one
+        currency, and no key at all for runs without a priced entry.
+        """
+        if not run_ids:
+            return {}
+        query = (
+            select(RunCostEntry.run_id, RunCostEntry.currency, func.sum(RunCostEntry.amount))
+            .where(
+                and_(
+                    RunCostEntry.run_id.in_(run_ids),
+                    RunCostEntry.tenant_id == self.ctx.tenant_id,
+                    RunCostEntry.workspace_id == self.ctx.workspace_id,
+                    RunCostEntry.amount.is_not(None),
+                    RunCostEntry.currency.is_not(None),
+                )
+            )
+            .group_by(RunCostEntry.run_id, RunCostEntry.currency)
+        )
+        rows = list((await self.db.exec(query)).all())
+        return self._fold_cost_totals(
+            [(str(run_id), str(currency), Decimal(str(amount))) for run_id, currency, amount in rows]
+        )
+
+    @staticmethod
+    def _fold_cost_totals(
+        rows: list[tuple[str, str, Decimal]],
+    ) -> dict[str, tuple[Decimal, str] | None]:
+        """Fold ``(run_id, currency, amount)`` rows into one total per run.
+
+        Amounts in different currencies are never added together: a run
+        priced in more than one currency folds to ``None``.
+        """
+        by_currency: dict[str, dict[str, Decimal]] = {}
+        for run_id, currency, amount in rows:
+            per_run = by_currency.setdefault(run_id, {})
+            per_run[currency] = per_run.get(currency, Decimal("0")) + amount
+        totals: dict[str, tuple[Decimal, str] | None] = {}
+        for run_id, per_run in by_currency.items():
+            if len(per_run) == 1:
+                ((currency, amount),) = per_run.items()
+                totals[run_id] = (amount, currency)
+            else:
+                totals[run_id] = None
+        return totals
+
+    @staticmethod
+    def _with_cost_total(run: RunResponse, total: tuple[Decimal, str] | None) -> RunResponse:
+        if total is None:
+            return run
+        amount, currency = total
+        return run.model_copy(update={"cost_amount": amount, "cost_currency": currency})
 
     def _build_step_clauses(
         self,
@@ -1295,6 +1354,17 @@ class RunService:
             cost_entries = [RunCostEntryResponse.model_validate(item) for item in entries]
             usage_summary = self._summarize_entries(entries)
             charge_summary = self._summarize_charges(entries)
+            # Priced entries are already in hand; folding them per currency
+            # gives the run total without a second query.
+            cost_total = self._fold_cost_totals(
+                [
+                    (entry.run_id, entry.currency, entry.amount)
+                    for entry in entries
+                    if entry.currency and entry.amount is not None
+                ]
+            ).get(run_id)
+        else:
+            cost_total = (await self._load_run_cost_totals([run_id])).get(run_id)
 
         responses = await self._list_responses_for_run(run_id)
         response_events = await self._list_response_events_for_run(run_id)
@@ -1321,7 +1391,7 @@ class RunService:
         )
 
         return RunDetailResponse(
-            run=RunResponse.model_validate(run),
+            run=self._with_cost_total(RunResponse.model_validate(run), cost_total),
             steps=steps,
             artifacts=artifacts,
             usage_summary=usage_summary,

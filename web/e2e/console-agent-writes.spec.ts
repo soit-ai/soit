@@ -509,3 +509,32 @@ test('the review tab lists drafts the workspace is waiting on and answers them',
   await expect.poll(() => reviewed).not.toBeNull()
   expect(reviewed).toMatchObject({ action: 'approve' })
 })
+
+test('the Monitor tab shows each run the cost its own ledger priced', async ({ page }) => {
+  const run = {
+    attempt_no: 1,
+    mode: 'agent',
+    subject_kind: 'agent',
+    subject_id: 'ag_1',
+    status: 'succeeded',
+    started_at: NOW,
+    ended_at: NOW,
+    duration_ms: 3100,
+    created_at: NOW,
+    updated_at: NOW,
+  }
+  await json(page, '**/api/v1/runs?**', {
+    items: [
+      { ...run, id: 'run_priced', cost_amount: '0.750000', cost_currency: 'USD' },
+      { ...run, id: 'run_unpriced', cost_amount: null, cost_currency: null },
+    ],
+    next_page_token: null,
+    page_size: 20,
+  })
+
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await page.locator('.tabs button', { hasText: 'Monitor' }).click()
+
+  await expect(page.locator('tr', { hasText: 'run_priced' })).toContainText('$0.75')
+  await expect(page.locator('tr', { hasText: 'run_unpriced' })).not.toContainText('$')
+})

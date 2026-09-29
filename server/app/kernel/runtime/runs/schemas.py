@@ -45,6 +45,11 @@ class RunResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     observe_summary: RunObserveSummaryResponse | None = None
+    cost_amount: Decimal | None = None
+    """Sum of the run's priced cost entries; None when nothing was priced or
+    the entries span more than one currency, which are never added together."""
+    cost_currency: str | None = None
+    """Currency of ``cost_amount``; None whenever ``cost_amount`` is None."""
 
     model_config = ConfigDict(from_attributes=True)
 
