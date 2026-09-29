@@ -30,6 +30,13 @@ record for operators.
   unrelated projects on PyPI; the command stays `soit`. The release check
   now also requires `cli/pyproject.toml` and `soit_cli.__version__` to match
   the tag.
+- An agent's regression set runs on demand: `POST /api/v1/evaluations/run`
+  runs every case of a dataset on the published version, or on a named
+  draft, and records the report the publish gate would record, compared to
+  the last comparable one; `regression-reports/latest` and the trend read
+  it afterwards. With `model_ref` the cases run on that model instead: the
+  report says so in its summary and is never taken as a baseline. Runs
+  that would exceed `max_cases` or have no cases are refused first.
 - An agent moves in and out as a file. `GET /api/v1/agents/{id}/export`
   answers the agent's fields and its published (or current) version's
   specification in the shape a new version is created from, without ids;

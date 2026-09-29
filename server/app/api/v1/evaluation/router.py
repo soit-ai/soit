@@ -12,6 +12,7 @@ from app.api.v1.permissions import (
 from app.kernel.contracts.context import RequestContext
 from app.modules.agent.application.application_service import AgentApplicationService
 from app.modules.evaluation.application.schemas import (
+    EvaluationRunCreate,
     ModelReplayCreate,
     ModelReplayResponse,
     ModelReplaySummaryResponse,
@@ -100,6 +101,33 @@ async def get_latest_regression_report(
         subject_id=subject_id,
         subject_version_id=subject_version_id,
     )
+
+
+@router.post(
+    "/run",
+    response_model=RegressionReportResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_workspace_write_ctx)],
+)
+async def run_evaluation(
+    payload: EvaluationRunCreate,
+    agents: AgentApplicationService = Depends(get_agent_application_service),
+    evaluations: RegressionEvaluationService = Depends(get_evaluation_service),
+):
+    """Run an agent version's regression set now and answer with its report.
+
+    The evaluation the publish gate makes, on demand; every case runs as a
+    rehearsal and the report is recorded, so ``regression-reports/latest`` and
+    the trend read it afterwards.
+    """
+    result = await agents.run_regressions(
+        agent_id=payload.subject_id,
+        version_id=payload.subject_version_id,
+        dataset=payload.dataset,
+        model_ref=payload.model_ref,
+        max_cases=payload.max_cases,
+    )
+    return await EvaluationHandlers(evaluations).get_report(result.report_id)
 
 
 @router.post(

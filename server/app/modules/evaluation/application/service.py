@@ -107,7 +107,14 @@ class RegressionEvaluationService:
         subject_version_id: str,
         runner: RegressionRunner,
         dataset: str = "default",
+        model_ref: str | None = None,
     ) -> RegressionEvaluationResult:
+        """Run every case of the dataset on the version and record the report.
+
+        ``model_ref`` names a model the cases ran on instead of the version's
+        own; such a report is recorded with it in its summary and is never a
+        baseline, since it measures another model.
+        """
         cases = await self.list_cases(
             subject_kind=subject_kind,
             subject_id=subject_id,
@@ -133,6 +140,8 @@ class RegressionEvaluationService:
             "dataset": dataset,
             "dataset_revision": revision,
         }
+        if model_ref:
+            summary["model_ref"] = model_ref
         metrics = self._aggregate_metrics(case_results)
         report = RegressionReport(
             tenant_id=self.ctx.tenant_id,
@@ -301,7 +310,8 @@ class RegressionEvaluationService:
 
         Comparability requires the same dataset at the same revision. A report
         over a different set of cases would make an unrelated difference look
-        like a quality change.
+        like a quality change, and one that ran the cases on another model
+        (``model_ref`` in its summary) measures that model, not the version.
         """
         conditions = [
             RegressionReport.tenant_id == self.ctx.tenant_id,
@@ -313,13 +323,16 @@ class RegressionEvaluationService:
         ]
         if exclude_report_id is not None:
             conditions.append(RegressionReport.id != exclude_report_id)
-        return _unwrap_row(
-            (await self.db.exec(
-                select(RegressionReport)
-                .where(and_(*conditions))
-                .order_by(desc(RegressionReport.created_at))
-            )).first()
-        )
+        rows = (await self.db.exec(
+            select(RegressionReport)
+            .where(and_(*conditions))
+            .order_by(desc(RegressionReport.created_at))
+        )).all()
+        for row in rows:
+            report = _unwrap_row(row)
+            if report is not None and not (report.summary_json or {}).get("model_ref"):
+                return report
+        return None
 
     @staticmethod
     def compare_to_baseline(
@@ -495,6 +508,9 @@ class RegressionEvaluationService:
         if case is None:
             raise NotFoundError(f"Regression case not found: {case_id}")
         return case
+
+    async def get_report(self, report_id: str) -> RegressionReport:
+        return await self._get_report(report_id)
 
     async def _get_report(self, report_id: str) -> RegressionReport:
         report = _unwrap_row(

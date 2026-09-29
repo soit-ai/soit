@@ -24,6 +24,27 @@ cost.
 - Agents without a published version, or without cases, are listed as
   skipped.
 
+## Running a regression set on demand
+
+The evaluation the publish gate makes can be run at any time, on the version
+that is published or on a draft, and its report is recorded the same way:
+
+```
+POST /api/v1/evaluations/run
+{"subject_id": "agt_…", "subject_version_id": "ver_…", "dataset": "smoke", "model_ref": "model:openai:gpt-6", "max_cases": 50}
+```
+
+Only `subject_id` is required: the published version and the `default`
+dataset are taken when nothing else is named, and an agent with no published
+version needs `subject_version_id`. Every case runs as a rehearsal before the
+request answers with the report (`201`, the same shape as
+`regression-reports/latest`), compared to the last comparable report as a
+publish would be. With `model_ref` the cases run on that model instead of the
+version's own: the report carries `model_ref` in its summary and is never a
+baseline, since it measures another model. An evaluation that would run more
+than `max_cases` cases (at most 200), or has no cases to run, is refused
+before anything runs. The request needs workspace write access.
+
 ## Starting one
 
 In the console: **Build › Models › Regression replays**, **Replay on a

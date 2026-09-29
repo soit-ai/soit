@@ -49,6 +49,10 @@ class EvaluationHandlers:
             raise NotFoundError("Regression report not found")
         return RegressionReportResponse.model_validate(report)
 
+    async def get_report(self, report_id: str) -> RegressionReportResponse:
+        report = await self.service.get_report(report_id)
+        return RegressionReportResponse.model_validate(report)
+
     async def annotate_case(
         self,
         ctx: RequestContext,

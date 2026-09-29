@@ -93,6 +93,25 @@ class RegressionReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EvaluationRunCreate(BaseModel):
+    """Run a subject version's regression set now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject_kind: Literal["agent"] = "agent"
+    subject_id: str = Field(..., min_length=1, max_length=255)
+    subject_version_id: str | None = Field(
+        default=None, max_length=255, description="The version to run; the published one when omitted"
+    )
+    dataset: str = Field(default="default", min_length=1, max_length=255)
+    model_ref: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Run the cases on this model instead of the version's own; the report is then no baseline",
+    )
+    max_cases: int = Field(default=50, ge=1, le=200, description="Refuse an evaluation that would run more cases")
+
+
 class ModelReplayCreate(BaseModel):
     """Replay regression sets on a candidate model."""
 

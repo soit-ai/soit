@@ -94,6 +94,7 @@ from app.modules.agent.infra.repository import (
 )
 from app.modules.agent.runtime.emitter import EventEmitter
 from app.modules.evaluation.application.service import (
+    RegressionEvaluationResult,
     RegressionEvaluationService,
     RegressionRunResult,
 )
@@ -1465,6 +1466,60 @@ class AgentApplicationService:
             latency_ms=int((time.perf_counter() - started) * 1000),
             cost={"amount": 0.0, "currency": "USD"},
             error=error[:500],
+        )
+
+    @workspace_guard("write")
+    async def run_regressions(
+        self,
+        *,
+        agent_id: str,
+        version_id: str | None = None,
+        dataset: str = "default",
+        model_ref: str | None = None,
+        max_cases: int = 50,
+    ) -> RegressionEvaluationResult:
+        """Run an agent version's regression set now and record the report.
+
+        The evaluation the publish gate makes, on demand: each case of the
+        dataset runs as a rehearsal of the version (the published one unless
+        ``version_id`` names another), on its own model or on ``model_ref``,
+        and the report is recorded and compared to the last baseline. A report
+        on another model is recorded with it and never becomes a baseline.
+        """
+        if self.regression_evaluator is None:
+            raise ValidationError("Regression evaluation is not available here")
+        evaluator = self.regression_evaluator
+        agent = await self._get_agent(agent_id)
+        if version_id:
+            version = await self._get_version(version_id)
+            if version.agent_id != agent.id:
+                raise NotFoundError(f"Version not found: {version_id}")
+        else:
+            if not agent.published_version_id:
+                raise ValidationError(
+                    "The agent has no published version; name a version to evaluate",
+                    {"agent_id": agent.id, "reason": "no_published_version"},
+                )
+            version = await self._resolve_execution_version(agent)
+        candidate = (model_ref or "").strip() or None
+        cases = await evaluator.list_cases(subject_kind="agent", subject_id=agent.id, dataset=dataset)
+        if not cases:
+            raise ValidationError(
+                "There are no regression cases to run", {"agent_id": agent.id, "dataset": dataset}
+            )
+        limit = max(1, min(int(max_cases), self.MAX_MODEL_REPLAY_CASES))
+        if len(cases) > limit:
+            raise ValidationError(
+                f"This evaluation would run {len(cases)} cases; the limit is {limit}.",
+                {"case_count": len(cases), "max_cases": limit},
+            )
+        return await evaluator.evaluate_subject_version(
+            subject_kind="agent",
+            subject_id=agent.id,
+            subject_version_id=version.id,
+            runner=lambda case: self._replay_case_on_model(agent.id, version.id, case, candidate),
+            dataset=dataset,
+            model_ref=candidate,
         )
 
     @workspace_guard("write")
