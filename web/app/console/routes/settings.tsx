@@ -938,12 +938,10 @@ export default function ConsoleSettings() {
   }
 
   const endpoints = endpointsQuery.data || []
-  const emailEndpoint = endpoints.find((item) => item.kind === 'email' && item.status === 'active')
   const chatEndpoint = endpoints.find((item) => item.kind !== 'email' && item.status === 'active')
-  // Channel copy names the workspace's real endpoints. Per-row channel routing
+  // Channel copy names the workspace's real endpoint. Per-row channel routing
   // has no backend — a preference carries one global delivery_mode plus the
-  // endpoint list, so these labels describe where a category would land.
-  const emailLabel = emailEndpoint ? `Email · ${emailEndpoint.display_target}` : 'Email'
+  // endpoint list, so the label describes where a category would land.
   const chatLabel = chatEndpoint
     ? `${chatEndpoint.kind} · ${chatEndpoint.display_target}`
     : 'External endpoint'
@@ -1588,27 +1586,17 @@ export default function ConsoleSettings() {
                 {t('console.settings.securityPane.sso')}
                 <small>{t('console.settings.securityPane.ssoHint')}</small>
               </label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {/* BACKEND-PENDING: no SSO/SAML configuration endpoint. SSO is an
-                    Enterprise feature (README, "Open source and commercial
-                    editions"), so Community will not grow one. */}
-                <StatusChip status="info" label="NOT CONFIGURED" />
-                <ConsoleButton style={{ height: 24, fontSize: 11 }}>
-                  {t('console.settings.securityPane.configureSso')}
-                </ConsoleButton>
-              </div>
-            </div>
-            <div className="frow">
-              <label>{t('console.settings.securityPane.sessionTimeout')}</label>
-              {/* BACKEND-PENDING: session lifetime is an instance setting
-                  (ACCESS_TOKEN_EXPIRE_MINUTES), not a workspace one. Not built
-                  rather than withheld: it needs a per-workspace override the
-                  token issuer would have to read. */}
-              <select className="input" style={{ maxWidth: 200 }} defaultValue="12 hours">
-                <option>12 hours</option>
-                <option>24 hours</option>
-                <option>7 days</option>
-              </select>
+              {/* Single sign-on is an Enterprise feature: the runtime reports it
+                  among the enabled feature keys when an installed extension
+                  provides it, and that extension owns its configuration. */}
+              <StatusChip
+                status="info"
+                label={
+                  diagnostics?.edition?.enabled_features.includes('security.sso')
+                    ? t('console.settings.securityPane.ssoAvailable')
+                    : t('console.settings.securityPane.ssoEnterprise')
+                }
+              />
             </div>
             <div className="frow">
               <label>
@@ -1627,14 +1615,9 @@ export default function ConsoleSettings() {
             </div>
             <div className="frow">
               <label>{t('console.settings.securityPane.auditAccess')}</label>
-              {/* BACKEND-PENDING: audit-log access follows the workspace role.
-                Making it settable is advanced RBAC, an Enterprise feature
-                (README, "Open source and commercial editions"). */}
-              <select className="input" style={{ maxWidth: 280 }} defaultValue="owner & admin">
-                <option>owner &amp; admin</option>
-                <option>owner only</option>
-                <option>all members · read-only</option>
-              </select>
+              {/* Audit log access follows the workspace role and is not
+                  settable in Community. */}
+              <span className="mono dim">{t('console.settings.securityPane.auditAccessValue')}</span>
             </div>
             <div className="frow">
               <label style={{ color: 'var(--danger-foreground)' }}>
@@ -1805,26 +1788,6 @@ export default function ConsoleSettings() {
               </div>
             </div>
             <div className="frow">
-              <label>
-                {t('console.settings.notificationsPane.approvals')}
-                <small>{t('console.settings.notificationsPane.approvalsHint')}</small>
-              </label>
-              <div className="checks">
-                {/* BACKEND-PENDING: no approval category — the preference
-                    vocabulary is system/security/account/agent/workflow/task.
-                    Not built: it needs a category the notification service
-                    emits, not only one the console offers. */}
-                <label>
-                  <input type="checkbox" defaultChecked />
-                  {emailLabel}
-                </label>
-                <label>
-                  <input type="checkbox" defaultChecked />
-                  {chatLabel}
-                </label>
-              </div>
-            </div>
-            <div className="frow">
               <label>{t('console.settings.notificationsPane.policyBlocks')}</label>
               <div className="checks">
                 {/* Policy blocks map onto the "security" category — the only real
@@ -1838,12 +1801,6 @@ export default function ConsoleSettings() {
                     }
                   />
                   {chatLabel}
-                </label>
-                {/* BACKEND-PENDING: per-channel digest cadence has no backend.
-                    Not built: preferences are per category, not per channel. */}
-                <label>
-                  <input type="checkbox" />
-                  {emailLabel}
                 </label>
               </div>
             </div>
@@ -1880,20 +1837,6 @@ export default function ConsoleSettings() {
                     }
                   />
                   {chatLabel}
-                </label>
-              </div>
-            </div>
-            <div className="frow">
-              <label>
-                {t('console.settings.notificationsPane.digest')}
-                <small>{t('console.settings.notificationsPane.digestHint')}</small>
-              </label>
-              <div className="checks">
-                {/* BACKEND-PENDING: no scheduled-digest preference. Not built:
-                    notifications are delivered per event, never batched. */}
-                <label>
-                  <input type="checkbox" defaultChecked />
-                  {emailLabel}
                 </label>
               </div>
             </div>
@@ -1998,11 +1941,10 @@ export default function ConsoleSettings() {
           </div>
         )}
 
-        {/* BACKEND-PENDING: edition, seats and invoices have no server object;
-            the credits ledger is the only real billing surface and backs the
-            spend tile and the entries table below. Seats and invoicing belong
-            to SOIT Cloud (README, "Open source and commercial editions"), so
-            Community will not grow them. */}
+        {/* Edition and seats read the licence the runtime reports and the
+            member list; the credits ledger is the only billing surface and
+            backs the spend tile and the entries table below. Invoicing
+            belongs to SOIT Cloud, so Community has none. */}
         {active === 'billing' && (
           <>
             <div className="tiles cols-3">
@@ -2156,11 +2098,6 @@ export default function ConsoleSettings() {
                   key: t('console.settings.aboutPane.runtime'),
                   value: diagnostics ? `soit-server ${diagnostics.version} · ${diagnostics.environment}` : '—',
                 },
-                // BACKEND-PENDING: /diagnostics reports no policy-engine version. Not
-                // built: policy is enforced by the runtime itself and carries no
-                // separate version. The policy bundle identifier on the Policies
-                // page is what identifies the rules in force.
-                { key: t('console.settings.aboutPane.policyEngine'), value: '—' },
                 { key: t('console.settings.aboutPane.edition'), value: editionLabel(diagnostics?.edition, t) },
                 // Project fact, not workspace data.
                 { key: t('console.settings.aboutPane.license'), value: 'Apache 2.0 · open source' },
