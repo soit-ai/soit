@@ -29,6 +29,43 @@ Trying SOIT on a small machine? [minimal-topology.md](minimal-topology.md)
 says which of the twelve services a demo can leave out and what stops working
 when it does.
 
+## Published Ports
+
+Every host port of the quickstart topology is published through a
+`*_PUBLISHED_PORT` variable. Set one in `.env` when a service on your machine
+already owns the default; only the host side changes, the container port and
+the service-to-service addresses (`postgres:5432`, `minio:9000`, ...) stay
+the same.
+
+| Variable | Service | Host port (default) | Container port | What it exposes |
+| --- | --- | --- | --- | --- |
+| `DATABASE_PUBLISHED_PORT` | `postgres` | 5432 | 5432 | PostgreSQL, for `psql` and the backup scripts |
+| `REDIS_PUBLISHED_PORT` | `redis` | 6379 | 6379 | Redis |
+| `MINIO_API_PUBLISHED_PORT` | `minio` | 9000 | 9000 | The S3 API of the bundled object store |
+| `MINIO_CONSOLE_PUBLISHED_PORT` | `minio` | 9001 | 9001 | The MinIO web console |
+| `ETCD_PUBLISHED_PORT` | `etcd` | 2379 | 2379 | The etcd client API that Milvus uses |
+| `MILVUS_PUBLISHED_PORT` | `milvus` | 19530 | 19530 | The Milvus gRPC API |
+| `MILVUS_METRICS_PUBLISHED_PORT` | `milvus` | 9091 | 9091 | Milvus metrics and its `/healthz` probe |
+| `VAULT_PUBLISHED_PORT` | `vault` | 8200 | 8200 | The dev-mode Vault API and UI |
+| `API_PUBLISHED_PORT` | `api` | 9200 | 9200 | The SOIT API: `/api/v1`, the OpenAI-compatible `/v1`, `/mcp` and `/health` |
+| `WEB_PUBLISHED_PORT` | `web` | 5000 | 5000 | The web UI |
+
+Notes:
+
+- The variables are read when Compose interpolates the files, so pass
+  `--env-file .env`. `.env.example` lists `DATABASE_PUBLISHED_PORT`,
+  `MINIO_API_PUBLISHED_PORT` and `MINIO_CONSOLE_PUBLISHED_PORT`; add the
+  others to `.env` as you need them.
+- The `web` image is built with `VITE_BASE_URL`, `http://localhost:9200/api/v1`
+  by default. After changing `API_PUBLISHED_PORT`, build the web image from
+  source with `VITE_BASE_URL=http://localhost:<port>/api/v1`; the released
+  `web` image only knows the default.
+- The `outbox-dispatcher` metrics port (`9201`) is exposed on the Compose
+  network only and is not published.
+- The lite profile (`docker/docker-compose.lite.yml`) publishes only
+  `API_PUBLISHED_PORT` and `WEB_PUBLISHED_PORT`; its PostgreSQL and Redis are
+  not reachable from the host.
+
 ## Seed the Demo Workspace
 
 After migrations are available, seed the deterministic Phase 1 demo data:
