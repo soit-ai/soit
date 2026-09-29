@@ -2,17 +2,15 @@ import { type RouteConfig, index, route, layout, prefix } from '@react-router/de
 
 /**
  * The console is the application. It was built in parallel under `/v2` and now
- * takes the root; `app/routes_old/` keeps the pre-rebuild tree for one release
- * so anything the console has not absorbed is still recoverable from git rather
- * than only from history.
+ * takes the root; the pre-rebuild route tree is gone and lives only in history.
  *
  * Two families of redirect keep old links working: the `/v2/*` paths this
  * rebuild used while it was parallel, and the pre-rebuild paths that the new
  * information architecture renamed.
  */
 export default [
-  // Auth sits outside the console shell, and outside the backup: it is live
-  // code the rebuild never replaced.
+  // Auth sits outside the console shell: it is live code the rebuild never
+  // replaced.
   route('/sign-in', './auth/sign-in.tsx'),
   route('/sign-up', './auth/sign-up.tsx'),
   route('/forgot-password', './auth/forgot-password.tsx'),

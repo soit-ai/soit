@@ -9,7 +9,7 @@ const queryClient = new QueryClient()
  * remaining effect was to write `light` onto the document element on mount,
  * after `ConsoleThemeProvider` had already written the console's own choice --
  * so a dark console kept a light page canvas. Everything that read its context
- * lives under `app/routes_old/`, which the route table no longer serves.
+ * was in the pre-rebuild route tree, which is gone.
  */
 export default function AppProviders({ children }: { children: ReactNode }) {
   return (

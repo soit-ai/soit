@@ -110,6 +110,14 @@ record for operators.
   and without an `api_base`, and check that Bedrock still signs with its
   keys in its region.
 
+### Removed
+
+- The pre-rebuild route tree (`web/app/routes_old/`) and the Playwright
+  specs that drove it (`web/e2e/legacy/`) are gone. They were kept for one
+  release after the console took the root so anything it had not absorbed
+  was recoverable from the working tree; the console's routes are now the
+  only routes, and the old ones remain in history.
+
 ## [1.4.0] - 2026-09-29
 
 ### Added
