@@ -15,12 +15,37 @@ from collections.abc import Awaitable, Callable
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.kernel.commons.errors import KernelError
 from app.kernel.runtime.db.models.tasks import Task
 
 TaskDriver = Callable[[AsyncSession, Task], Awaitable[None]]
 """Re-drives one task. Responsible for moving it out of its queued state."""
 
+TASK_NOT_RERUNNABLE_ERROR_CODE = "TASK_NOT_RERUNNABLE"
+"""Error code of a retry refused because nothing re-executes the task type."""
+
 _DRIVERS: dict[str, TaskDriver] = {}
+
+
+def not_rerunnable_reason(task_type: str) -> str:
+    """The reason a task of ``task_type`` cannot be re-run, for callers to record."""
+    return f"No driver re-executes task type {task_type!r}"
+
+
+class TaskNotRerunnableError(KernelError):
+    """A retry was refused: no driver re-executes tasks of this type.
+
+    This is a property of the task type, not a transient state: the task keeps
+    its terminal status, and the response names the type so the caller can
+    tell it apart from a task that is simply not finished yet.
+    """
+
+    def __init__(self, *, task_id: str, task_type: str) -> None:
+        super().__init__(
+            TASK_NOT_RERUNNABLE_ERROR_CODE,
+            not_rerunnable_reason(task_type),
+            {"task_id": task_id, "task_type": task_type, "reason": "task_not_rerunnable"},
+        )
 
 
 def register_task_driver(task_type: str, driver: TaskDriver) -> None:

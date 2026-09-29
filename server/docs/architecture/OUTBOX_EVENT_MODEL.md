@@ -30,7 +30,9 @@ The outbox carries only facts whose consumer needs exactly-once delivery:
 
 - `run.created` and the terminal `run.status.updated` (failure notifications, trace metrics);
 - `cost.recorded` (credit deduction);
-- `task.retried` (the re-drive of a retried task);
+- `task.retried` (the re-drive of a retried task; when no driver is registered for
+  the task type, the handler returns the task to the terminal status the retry left
+  and records `task.retry_refused` rather than failing it);
 - `workflow.node.*`, `approval.*`, `notification.*` and the billing facts their handlers act on.
 
 Step lifecycle, intermediate run transitions and the other task lifecycle facts

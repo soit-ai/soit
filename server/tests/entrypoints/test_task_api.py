@@ -185,6 +185,45 @@ async def test_task_handling_returns_available_actions_and_runtime_context(async
 
 
 @pytest.mark.asyncio
+async def test_retry_is_refused_with_a_reason_when_nothing_can_rerun_the_task_type(
+    async_client, async_db
+):
+    await _seed_tasks(async_db)
+
+    refused = await async_client.post("/api/v1/tasks/task_failed_contract/retry", headers=_headers())
+
+    assert refused.status_code == status.HTTP_409_CONFLICT, refused.text
+    body = refused.json()
+    assert body["code"] == "TASK_NOT_RERUNNABLE"
+    assert body["message"] == "No driver re-executes task type 'wf_step'"
+    assert body["details"] == {
+        "task_id": "task_failed_contract",
+        "task_type": "wf_step",
+        "reason": "task_not_rerunnable",
+    }
+    detail = await async_client.get("/api/v1/tasks/task_failed_contract", headers=_headers())
+    assert detail.json()["data"]["task"]["status"] == TaskStatus.FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_retry_requeues_the_task_once_a_driver_is_registered(async_client, async_db):
+    await _seed_tasks(async_db)
+    drivers.register_task_driver("wf_step", lambda _db, _task: None)
+    try:
+        retried = await async_client.post(
+            "/api/v1/tasks/task_failed_contract/retry", headers=_headers()
+        )
+    finally:
+        drivers.clear_task_drivers()
+
+    assert retried.status_code == status.HTTP_200_OK, retried.text
+    payload = retried.json()["data"]
+    assert payload["action"] == "retry"
+    assert payload["task"]["status"] == TaskStatus.QUEUED.value
+    assert payload["task"]["error_code"] is None
+
+
+@pytest.mark.asyncio
 async def test_task_handling_offers_retry_once_a_driver_is_registered(async_client, async_db):
     await _seed_tasks(async_db)
     drivers.register_task_driver("wf_step", lambda _db, _task: None)

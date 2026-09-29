@@ -59,6 +59,15 @@ record for operators.
 
 ### Fixed
 
+- Retrying a task of a type nothing can re-execute answered a generic
+  `409 CONFLICT` saying the re-execution "is not implemented", and a
+  retry that reached the outbox without a driver marked the task failed
+  with `TASK_TYPE_NOT_DRIVABLE`, reporting a failure that never happened.
+  The retry API now refuses with `TASK_NOT_RERUNNABLE`, naming the
+  `task_type` in the details, and the task keeps its terminal status. A
+  retry records the status it left; when the outbox finds no driver it
+  returns the task to that status, sets the same error code and reason,
+  and records a `task.retry_refused` event instead of failing it.
 - Rotating an API key that has an expiry answered `500` on PostgreSQL: the
   expiry read back with its offset and the creation time without one, so
   the lifetime the new key carries over could not be computed.

@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.errors import ConflictError, NotFoundError
+from app.kernel.commons.errors import NotFoundError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.observe.execution_metrics import observe_task_lifecycle
@@ -17,7 +17,7 @@ from app.kernel.runtime.runs.content_capture import (
     resolve_content_capture,
 )
 from app.kernel.runtime.status import TaskStatus, validate_task_transition
-from app.kernel.runtime.tasks.drivers import is_drivable
+from app.kernel.runtime.tasks.drivers import TaskNotRerunnableError, is_drivable
 from app.kernel.runtime.tasks.events import TaskEventType
 from app.kernel.runtime.tasks.protocols import TaskRepositoryProtocol
 from app.kernel.runtime.tasks.repository import TaskRepository
@@ -190,17 +190,16 @@ class TaskService:
         return task
 
     def _require_driver(self, task: Task) -> None:
-        """Reject a retry of a task type that nothing can run.
+        """Refuse a retry of a task type that nothing can run.
 
         Without this the status would flip to queued and the task would wait
-        forever, which reads as accepted work that never completes. Resuming is
-        not gated: approval and agent flows drive that path themselves.
+        forever, which reads as accepted work that never completes. The task
+        keeps its terminal status; the error names the type. Resuming is not
+        gated: approval and agent flows drive that path themselves.
         """
 
         if not is_drivable(task.task_type):
-            raise ConflictError(
-                f"Re-execution of task type {task.task_type!r} is not implemented"
-            )
+            raise TaskNotRerunnableError(task_id=task.id, task_type=task.task_type)
 
     async def cancel_task(self, *, task_id: str) -> Task:
         """Cancel an in-flight or waiting task."""
@@ -246,12 +245,15 @@ class TaskService:
         }:
             return task
         self._require_driver(task)
+        # The status the retry leaves behind: if nothing ends up driving the
+        # requeued task, the outbox handler returns it to this state.
+        retried_from = task.status
         task.started_at = None
         task.finished_at = None
         task.error_code = None
         task.error_message = None
         task.output_json = {}
-        task.progress_json = {"action": "retry"}
+        task.progress_json = {"action": "retry", "retried_from": retried_from}
         task.status = TaskStatus.RETRYING.value
         task = await self.task_repo.update_task(task, outbox_events=[TaskEventType.RETRIED])
         await self.add_task_event(
@@ -262,7 +264,7 @@ class TaskService:
         return await self.transition_task(
             task_id=task.id,
             status=TaskStatus.QUEUED.value,
-            progress={"action": "requeued"},
+            progress={"action": "requeued", "retried_from": retried_from},
         )
 
     async def add_checkpoint(

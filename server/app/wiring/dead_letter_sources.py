@@ -29,7 +29,7 @@ from app.kernel.runtime.deadletter.contracts import (
     register_dead_letter_source,
 )
 from app.kernel.runtime.status import TaskStatus
-from app.kernel.runtime.tasks.drivers import is_drivable
+from app.kernel.runtime.tasks.drivers import is_drivable, not_rerunnable_reason
 from app.kernel.runtime.tasks.service import TaskService
 from app.modules.knowledge.domain.models import KnowledgeIngestTask
 from app.modules.workflow.domain.models import WorkflowRun
@@ -153,7 +153,7 @@ class TaskDeadLetterSource:
         if not is_drivable(task.task_type):
             return RedriveResult(
                 outcome=RedriveOutcome.UNSUPPORTED,
-                detail=f"No driver re-executes task type {task.task_type!r}",
+                detail=not_rerunnable_reason(task.task_type),
             )
         retried = await service.retry_task(task_id=task.id)
         return RedriveResult(outcome=RedriveOutcome.REDRIVEN, redriven_as=retried.id)

@@ -4,6 +4,15 @@ A task records one execution attempt. Retrying therefore cannot resume the
 original attempt: replaying its snapshot produces a new run and a new task.
 The driver closes out the attempt being retried and points it at the new one,
 so nothing is left sitting in a state that never completes.
+
+The agent task types are the only ones the runtime creates. Workflow runs,
+knowledge ingestion, image jobs and schedules keep their own ledgers and
+their own redrive paths (checkpoint redrive, ingest task retry, the image
+reaper, the schedule worker), and a governed tool call retries on its own
+control record; none of them is a task row. A task of any other type, such
+as seeded demo data or a type an older release wrote, has nothing that can
+run it: its retry is refused as ``TASK_NOT_RERUNNABLE`` and the task keeps
+its terminal status.
 """
 
 from __future__ import annotations
