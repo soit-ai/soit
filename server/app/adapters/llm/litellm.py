@@ -45,6 +45,23 @@ SDKCall = Callable[..., Awaitable[Any]]
 
 logger = logging.getLogger(__name__)
 
+# Provider settings LiteLLM does not take as parameters of its own. An image
+# edit for OpenAI, Azure or a provider LiteLLM treats as OpenAI-compatible
+# copies every keyword it does not know into its multipart form, and none of
+# these is read on those routes: the cloud credentials are Bedrock's and
+# Vertex AI's, and drop_params would reach the provider as a form field.
+_SETTINGS_AN_OPENAI_EDIT_WOULD_SEND = frozenset(
+    {
+        "aws_access_key_id",
+        "aws_secret_access_key",
+        "aws_session_token",
+        "aws_region_name",
+        "vertex_project",
+        "vertex_location",
+        "drop_params",
+    }
+)
+
 
 def _value(obj: Any, name: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
@@ -533,10 +550,10 @@ class LiteLLMPort(LLMPort):
         only a handful of OpenAI keys, so a background passed to gpt-image as
         a plain argument never reaches the wire, while extra_body is merged
         into the body; other providers take the options as plain arguments.
-        An edit never sends extra_body: its OpenAI-style request keeps a fixed
-        field list, background among them, and its Bedrock, Stability and
-        Black Forest Labs requests take plain arguments, each reading the ones
-        it knows.
+        An edit never sends extra_body: its OpenAI-style request copies each
+        plain argument into its form under the argument's name, and its
+        Bedrock, Stability and Black Forest Labs requests take plain
+        arguments, each reading the ones it knows.
         """
         body = dict(kwargs.get("extra_body") or {})
         for name in names:
@@ -765,13 +782,17 @@ class LiteLLMPort(LLMPort):
         route, carried = self._check_image_route(
             model, model_name, operation=EDIT, n=n, size=size, has_mask=mask is not None, options=kwargs
         )
+        # An asynchronous edit drops the extra_headers keyword; every edit
+        # route sends the headers parameter.
+        connection = self._body_safe_connection_params(model_name, headers_param="headers")
+        if self._merges_extra_body(model_name):
+            for name in _SETTINGS_AN_OPENAI_EDIT_WOULD_SEND:
+                connection.pop(name, None)
         params: dict[str, Any] = {
             "model": model_name,
             "image": image,
             "prompt": prompt,
-            # An asynchronous edit drops the extra_headers keyword; every edit
-            # route sends the headers parameter.
-            **self._body_safe_connection_params(model_name, headers_param="headers"),
+            **connection,
         }
         if "n" in carried:
             params["n"] = n

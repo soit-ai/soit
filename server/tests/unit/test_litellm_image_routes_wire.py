@@ -33,6 +33,7 @@ from app.adapters.llm.litellm_image_routes import (
     EDIT_OPTIONS,
     GENERATE,
     GENERATE_OPTIONS,
+    OPENAI_EDIT_ROUTES,
     OPENAI_PROTOCOL_ROUTES,
     carried_options,
     image_route,
@@ -56,6 +57,8 @@ class _Example:
     litellm_provider: str | None = None
     litellm_params: dict[str, Any] = field(default_factory=dict)
     api_base: str | None = _BASE
+    # The sizes a size is tried at, where the usual two are not both taken.
+    sizes: tuple[str, ...] = ()
 
 
 def _custom(provider: str, model: str, **kwargs: Any) -> _Example:
@@ -92,8 +95,9 @@ _EXAMPLES: dict[tuple[str, str], _Example] = {
     (GENERATE, "AzureFoundryDallE3ImageGenerationConfig"): _custom(
         "azure_ai", "my-dalle3", litellm_params=_API_VERSION, api_base=_AZURE
     ),
+    # MAI's default is 1024x1024 and 1536x1024 is over its pixel limit.
     (GENERATE, "AzureFoundryMAIImageGenerationConfig"): _custom(
-        "azure_ai", "mai-image-1", litellm_params=_API_VERSION, api_base=_AZURE
+        "azure_ai", "mai-image-1", litellm_params=_API_VERSION, api_base=_AZURE, sizes=("1024x768",)
     ),
     (GENERATE, "openai_compatible"): _custom(
         "volcengine", "doubao-seedream-3-0-t2i", api_base="https://provider.test/api/v3"
@@ -111,6 +115,8 @@ _EXAMPLES: dict[tuple[str, str], _Example] = {
         "vertex_ai", "gemini-2.5-flash-image", litellm_params=_VERTEX
     ),
     (GENERATE, "DashScopeImageGenerationConfig"): _Example("dashscope", "qwen-image-plus"),
+    (GENERATE, "QwenCloudImageGenerationConfig"): _custom("qwencloud", "qwen-image-plus"),
+    (GENERATE, "QwenAIPlatformImageGenerationConfig"): _custom("qwen_ai_platform", "qwen-image-plus"),
     (GENERATE, "OpenRouterImageGenerationConfig"): _Example("openrouter", "google/gemini-2.5-flash-image"),
     (GENERATE, "AmazonStabilityConfig"): _Example(
         "bedrock", "stability.stable-diffusion-xl-v1", litellm_params=_AWS, api_base=None
@@ -151,6 +157,7 @@ _EXAMPLES: dict[tuple[str, str], _Example] = {
     (EDIT, "DallE2ImageEditConfig"): _Example("openai", "dall-e-2"),
     (EDIT, "AzureImageEditConfig"): _Example("azure_openai", "gpt-image-1", litellm_params=_API_VERSION, api_base=_AZURE),
     (EDIT, "LiteLLMProxyImageEditConfig"): _custom("litellm_proxy", "gpt-image-1"),
+    (EDIT, "HostedVLLMImageEditConfig"): _custom("hosted_vllm", "Qwen/Qwen-Image-Edit"),
     (EDIT, "AzureFoundryFluxImageEditConfig"): _custom(
         "azure_ai", "flux.1-kontext-pro", litellm_params=_API_VERSION, api_base=_AZURE
     ),
@@ -201,6 +208,9 @@ _SENTINELS: dict[str, Any] = {
     "response_format": "b64_json",
 }
 _SIZES = ("1024x1024", "1536x1024")
+# The fields OpenAI's image edit request has, which an OpenAI-style edit route
+# carries under their own names.
+_OPENAI_EDIT_FIELDS = frozenset(GENERATE_OPTIONS) | {"mask"}
 _PART = re.compile(
     rb'Content-Disposition: form-data; name="([^"]+)"[^\r\n]*\r\n(?:[^\r\n]+\r\n)*\r\n(.*?)\r\n--', re.S
 )
@@ -353,7 +363,8 @@ async def _verdict(wire: _Wire, operation: str, route: str, option: str) -> str:
     canary = await _send(wire, _port(example, response_format=False), operation, example.model, zz_canary=_CANARY)
     copied_under = {path[:-1] for path in (_where(canary, "canary", _CANARY, masks) if canary else set())}
 
-    tries = [{"size": size} for size in _SIZES] if option == "size" else [{option: _SENTINELS.get(option)}]
+    sizes = example.sizes or _SIZES
+    tries = [{"size": size} for size in sizes] if option == "size" else [{option: _SENTINELS.get(option)}]
     if option == "response_format":
         tries = [{}]
     verdicts = []
@@ -392,9 +403,11 @@ def _options(operation: str) -> tuple[str, ...]:
     return EDIT_OPTIONS if operation == EDIT else GENERATE_OPTIONS
 
 
-def _reaches(route: str, operation: str, verdict: str) -> bool:
+def _reaches(route: str, operation: str, option: str, verdict: str) -> bool:
     """What counts as carried: mapped, or under OpenAI's name to an OpenAI-style API."""
     if operation == GENERATE and route in OPENAI_PROTOCOL_ROUTES:
+        return verdict in ("mapped", "copied")
+    if operation == EDIT and route in OPENAI_EDIT_ROUTES and option in _OPENAI_EDIT_FIELDS:
         return verdict in ("mapped", "copied")
     return verdict == "mapped"
 
@@ -420,7 +433,7 @@ def test_every_listed_route_has_an_example_that_takes_it(operation: str, route: 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("operation", "route", "option"), _CARRIED)
 async def test_an_option_the_route_carries_reaches_the_provider(wire: _Wire, operation: str, route: str, option: str) -> None:
-    assert _reaches(route, operation, await _verdict(wire, operation, route, option))
+    assert _reaches(route, operation, option, await _verdict(wire, operation, route, option))
 
 
 @pytest.mark.asyncio
@@ -455,7 +468,7 @@ async def test_an_option_the_route_cannot_carry_would_not_have_reached_the_provi
         litellm_adapter, "carried_options", lambda r, o: real(r, o) | {option}
     )
 
-    assert not _reaches(route, operation, await _verdict(wire, operation, route, option))
+    assert not _reaches(route, operation, option, await _verdict(wire, operation, route, option))
 
 
 @pytest.mark.asyncio
@@ -550,6 +563,8 @@ _SELECTOR_MODELS: dict[str, list[str]] = {
     "stability": ["sd3-large", "stable-image-ultra"],
     "black_forest_labs": ["flux-pro-1.1", "flux-pro-1.1-ultra", "flux-kontext-pro", "flux-pro-1.0-fill"],
     "dashscope": ["qwen-image-plus", "wanx-v1"],
+    "qwencloud": ["qwen-image-plus"],
+    "qwen_ai_platform": ["qwen-image-plus"],
     "recraft": ["recraftv3"],
     "xinference": ["sd3"],
     "fal_ai": [

@@ -12,6 +12,20 @@ record for operators.
 
 ## [Unreleased]
 
+### Changed
+
+- The server moves to LiteLLM 1.103.0 and the OpenAI SDK 2.54.0 (LiteLLM
+  still caps the SDK below 3), with the image route table checked against
+  the new library. Image edits routed to OpenAI, Azure OpenAI, a LiteLLM
+  proxy or Azure AI's FLUX Kontext now carry `output_format`; Azure AI's
+  FLUX 2 carries a count and a size on generations and an `output_format`
+  and `seed` on edits; Black Forest Labs generations carry `output_format`;
+  and Qwen Cloud and Qwen AI Platform generations and vLLM-Omni edits
+  (`hosted_vllm`) have routes of their own. Azure AI's MAI edits no longer
+  take `n` or `size`: the endpoint answers one image whatever the count and
+  LiteLLM now refuses a size, so both are refused before the call instead
+  of billing an image that ignored them.
+
 ## [1.4.0] - 2026-09-29
 
 ### Added

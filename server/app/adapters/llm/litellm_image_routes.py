@@ -7,7 +7,7 @@ option. This module names the route an image call takes, the way LiteLLM
 picks it, and lists what that route carries, so the adapter can refuse such an
 option before anything is billed.
 
-The lists record the requests LiteLLM 1.91.1 sends; the wire tests in
+The lists record the requests LiteLLM 1.103.0 sends; the wire tests in
 tests/unit/test_litellm_image_routes_wire.py check every entry against the
 real library, so an upgrade that moves an option fails there first. A route
 the lists do not name carries none of the options.
@@ -65,7 +65,9 @@ OPENAI_PROTOCOL_ROUTES = frozenset(
 )
 
 
-# Edit routes whose request is OpenAI's own multipart edit.
+# Edit routes whose request is OpenAI's own multipart edit. LiteLLM copies an
+# option into its form under the option's own name, which is how OpenAI's API
+# names the ones it has.
 OPENAI_EDIT_ROUTES = frozenset(
     {
         "OpenAIImageEditConfig",
@@ -73,6 +75,7 @@ OPENAI_EDIT_ROUTES = frozenset(
         "AzureImageEditConfig",
         "LiteLLMProxyImageEditConfig",
         "AzureFoundryFluxImageEditConfig",
+        "HostedVLLMImageEditConfig",
     }
 )
 
@@ -82,7 +85,7 @@ def _options(*names: str) -> frozenset[str]:
 
 
 _OPENAI_GENERATION = _options("background", "output_format", "quality", "n", "size")
-_OPENAI_EDIT = _options("background", "quality", "n", "mask", "size", "response_format")
+_OPENAI_EDIT = _options("background", "output_format", "quality", "n", "mask", "size", "response_format")
 
 _CARRIED: dict[tuple[str, str], frozenset[str]] = {
     (GENERATE, "GPTImageGenerationConfig"): _OPENAI_GENERATION,
@@ -102,16 +105,19 @@ _CARRIED: dict[tuple[str, str], frozenset[str]] = {
     (GENERATE, "ModelScopeImageGenerationConfig"): _OPENAI_GENERATION | {"response_format"},
     # Recraft's request keeps OpenAI's names but has no quality.
     (GENERATE, "RecraftImageGenerationConfig"): (_OPENAI_GENERATION - {"quality"}) | {"response_format"},
-    # Azure AI's FLUX 2 goes to Black Forest Labs' own API, which names none
-    # of these the OpenAI way.
-    (GENERATE, "AzureFoundryFluxImageGenerationConfig:flux2"): _options(),
+    # Azure AI's FLUX 2 goes to Black Forest Labs' own API, which takes a count
+    # as num_images and a size as a width and height.
+    (GENERATE, "AzureFoundryFluxImageGenerationConfig:flux2"): _options("n", "size"),
     (GENERATE, "AzureFoundryMAIImageGenerationConfig"): _options("size"),
     (GENERATE, "GoogleImageGenConfig:imagen"): _options("background", "output_format", "n", "size"),
     (GENERATE, "GoogleImageGenConfig:gemini"): _options("n", "size"),
     (GENERATE, "VertexAIImagenImageGenerationConfig"): _options("n", "size"),
     (GENERATE, "VertexAIGeminiImageGenerationConfig"): _options("n", "size"),
-    # DashScope nests other options where it does not read them.
+    # DashScope nests other options where it does not read them; Qwen Cloud
+    # and Qwen AI Platform are DashScope's request at another address.
     (GENERATE, "DashScopeImageGenerationConfig"): _options("n", "size"),
+    (GENERATE, "QwenCloudImageGenerationConfig"): _options("n", "size"),
+    (GENERATE, "QwenAIPlatformImageGenerationConfig"): _options("n", "size"),
     (GENERATE, "OpenRouterImageGenerationConfig"): _options("size"),
     (GENERATE, "AmazonStabilityConfig"): _options("size"),
     (GENERATE, "AmazonStability3Config"): _options(),
@@ -119,8 +125,8 @@ _CARRIED: dict[tuple[str, str], frozenset[str]] = {
     (GENERATE, "AmazonNovaCanvasConfig"): _options("n", "size"),
     # Stability maps a size to one of its aspect ratios, and drops others.
     (GENERATE, "StabilityImageGenerationConfig"): _options("output_format", "size"),
-    (GENERATE, "BlackForestLabsImageGenerationConfig"): _options("size"),
-    (GENERATE, "BlackForestLabsImageGenerationConfig:ultra"): _options("n", "size"),
+    (GENERATE, "BlackForestLabsImageGenerationConfig"): _options("output_format", "size"),
+    (GENERATE, "BlackForestLabsImageGenerationConfig:ultra"): _options("output_format", "n", "size"),
     (GENERATE, "FalAIImageGenerationConfig"): _options(),
     (GENERATE, "FalAIImagen4Config"): _options("n", "size"),
     (GENERATE, "FalAINanoBananaConfig"): _options("n", "size"),
@@ -140,8 +146,12 @@ _CARRIED: dict[tuple[str, str], frozenset[str]] = {
     (EDIT, "AzureImageEditConfig"): _OPENAI_EDIT,
     (EDIT, "LiteLLMProxyImageEditConfig"): _OPENAI_EDIT,
     (EDIT, "AzureFoundryFluxImageEditConfig"): _OPENAI_EDIT,
-    (EDIT, "AzureFoundryFlux2ImageEditConfig"): _options("n", "size"),
-    (EDIT, "AzureFoundryMAIImageEditConfig"): _options("n", "size"),
+    # vLLM-Omni's edit takes OpenAI's form without a mask or a quality.
+    (EDIT, "HostedVLLMImageEditConfig"): _OPENAI_EDIT - {"mask", "quality"},
+    (EDIT, "AzureFoundryFlux2ImageEditConfig"): _options("output_format", "seed", "n", "size"),
+    # MAI answers one image whatever the count, which LiteLLM copies into
+    # the form unread, and LiteLLM refuses a size on its edit.
+    (EDIT, "AzureFoundryMAIImageEditConfig"): _options(),
     (EDIT, "GeminiImageEditConfig:imagen"): _options("n"),
     (EDIT, "GeminiImageEditConfig:gemini"): _options("n", "size"),
     (EDIT, "OpenRouterImageEditConfig"): _options("n", "size"),
