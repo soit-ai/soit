@@ -53,7 +53,14 @@ import {
   type KnowledgeVisibility,
   toKnowledgeVisibility,
 } from '@/services/knowledge-service'
+import { listModels } from '@/services/provider-service'
 import { requestErrorMessage } from '@/utils/request'
+import {
+  CHUNKING_PRESET_KEYS,
+  CHUNKING_PRESETS,
+  type ChunkingPreset,
+  chunkingPresetOf,
+} from '../../adapters/chunking'
 
 type KdTab = 'documents' | 'chunks' | 'testing' | 'usages' | 'indexes' | 'analytics' | 'settings'
 
@@ -159,7 +166,9 @@ export default function ConsoleKnowledgeDetail() {
     source: string
     threshold: string
     visibility: KnowledgeVisibility
-  }>({ name: '', source: '', threshold: '', visibility: 'workspace' })
+    chunking: ChunkingPreset | 'custom'
+    embedding: string
+  }>({ name: '', source: '', threshold: '', visibility: 'workspace', chunking: 'default', embedding: '' })
   const [deleteBaseOpen, setDeleteBaseOpen] = useState(false)
   const [indexForm, setIndexForm] = useState<{
     open: false | 'create' | 'edit'
@@ -295,6 +304,8 @@ export default function ConsoleKnowledgeDetail() {
       source: readString(base.settings_json, 'source_uri') ?? '',
       threshold: keywordMin != null ? `score ≥ ${keywordMin}` : '',
       visibility: toKnowledgeVisibility(base.visibility),
+      chunking: chunkingPresetOf(base.chunking_json),
+      embedding: base.default_embedding_model_ref ?? '',
     })
   }, [base])
 
@@ -477,6 +488,17 @@ export default function ConsoleKnowledgeDetail() {
     onError: onWriteError('Failed to save the chunk'),
   })
 
+  // The models the workspace serves for embeddings, for the default the
+  // library's new indexes embed with.
+  const modelsQuery = useQuery({
+    queryKey: ['console', 'models', 'embedding'],
+    queryFn: () => listModels(),
+    options: { enabled, retry: false, refetchOnWindowFocus: false },
+  })
+  const embeddingModels = (modelsQuery.data || []).filter(
+    (model) => model.modelType === 'embedding' && model.isActive,
+  )
+
   const saveSettingsMutation = useMutation({
     mutationKey: ['console', 'knowledge', 'update', knowledgeId],
     mutationFn: () => {
@@ -490,10 +512,23 @@ export default function ConsoleKnowledgeDetail() {
       if (threshold != null) retrievalJson.keyword_min_score = threshold
       else delete retrievalJson.keyword_min_score
 
+      // A custom pair stays as it is; a preset writes its pair over it.
+      const chunkingJson =
+        settingsForm.chunking === 'custom'
+          ? undefined
+          : { ...(base?.chunking_json || {}), ...CHUNKING_PRESETS[settingsForm.chunking] }
+      const embedding = settingsForm.embedding.trim()
+
       return updateKnowledgeBase(knowledgeId, {
         name: settingsForm.name.trim(),
         settings_json: settingsJson,
         retrieval_json: retrievalJson,
+        ...(chunkingJson ? { chunking_json: chunkingJson } : {}),
+        // The default embedding model is only sent when it changed: it names
+        // the model new indexes embed with.
+        ...(embedding && embedding !== (base?.default_embedding_model_ref ?? '')
+          ? { default_embedding_model_ref: embedding }
+          : {}),
         // Only a change is sent: the server lets the creator or a workspace
         // owner/admin change visibility, while other editors may save the rest.
         ...(settingsForm.visibility !== base?.visibility ? { visibility: settingsForm.visibility } : {}),
@@ -1056,27 +1091,6 @@ export default function ConsoleKnowledgeDetail() {
               }
             />
           </StatTileGrid>
-          <WorkbenchPanel title={t('console.knowDetail.topQueries')} hint={t('console.knowDetail.topQueriesHint')}>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('console.knowDetail.columns.query')}</th>
-                  <th className="num">{t('console.knowDetail.columns.count')}</th>
-                  <th className="num">{t('console.knowDetail.columns.avgScore')}</th>
-                  <th>{t('console.knowDetail.columns.outcome')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* BACKEND-PENDING: query-text analytics are not persisted —
-                    there is no top-queries endpoint on knowledge. */}
-                <tr>
-                  <td colSpan={4}>
-                    <div className="empty-note">{t('console.common.empty')}</div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </WorkbenchPanel>
         </>
       )}
 
@@ -1118,34 +1132,58 @@ export default function ConsoleKnowledgeDetail() {
               style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
             />
           </div>
-          {/* BACKEND-PENDING: sync schedule, chunking preset and embedding
-              choice are not yet bound — the knowledge record stores free-form
-              chunking_json / default_embedding_model_ref rather than the
-              preset enums these controls offer. */}
-          <div className="frow">
-            <label>{t('console.knowDetail.fields.schedule')}</label>
-            <select className="input" defaultValue="manual only">
-              <option>nightly 02:00Z</option>
-              <option>hourly</option>
-              <option>manual only</option>
-            </select>
-          </div>
           <div className="frow">
             <label>
               {t('console.knowDetail.fields.chunking')}
               <small>{t('console.knowDetail.fields.chunkingHint')}</small>
             </label>
-            <select className="input" defaultValue="auto · 512 tokens, 64 overlap">
-              <option>auto · 512 tokens, 64 overlap</option>
-              <option>auto · 1024 tokens</option>
-              <option>by heading</option>
+            <select
+              className="input"
+              value={settingsForm.chunking}
+              onChange={(event) =>
+                setSettingsForm((state) => ({
+                  ...state,
+                  chunking: event.target.value as ChunkingPreset | 'custom',
+                }))
+              }
+            >
+              {CHUNKING_PRESET_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {t(`console.knowledgeChunking.${key}`)}
+                </option>
+              ))}
+              {settingsForm.chunking === 'custom' && (
+                <option value="custom">
+                  {t('console.knowledgeChunking.custom', {
+                    size: readNumber(base?.chunking_json, 'chunk_size') ?? 1000,
+                    overlap: readNumber(base?.chunking_json, 'chunk_overlap') ?? 200,
+                  })}
+                </option>
+              )}
             </select>
           </div>
           <div className="frow">
-            <label>{t('console.knowDetail.fields.embedding')}</label>
-            <select className="input" defaultValue="bge-m3 · vllm self-hosted">
-              <option>bge-m3 · vllm self-hosted</option>
-              <option>voyage-3</option>
+            <label>
+              {t('console.knowDetail.fields.embedding')}
+              <small>{t('console.knowDetail.fields.embeddingHint')}</small>
+            </label>
+            <select
+              className="input"
+              value={settingsForm.embedding}
+              onChange={(event) =>
+                setSettingsForm((state) => ({ ...state, embedding: event.target.value }))
+              }
+            >
+              <option value="">{t('console.knowDetail.fields.embeddingNone')}</option>
+              {settingsForm.embedding &&
+                !embeddingModels.some((model) => model.modelName === settingsForm.embedding) && (
+                  <option value={settingsForm.embedding}>{settingsForm.embedding}</option>
+                )}
+              {embeddingModels.map((model) => (
+                <option key={model.modelName} value={model.modelName}>
+                  {model.name} · {model.providerName}
+                </option>
+              ))}
             </select>
           </div>
           <div className="frow">

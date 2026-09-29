@@ -4,15 +4,15 @@ import { toast } from 'sonner'
 
 import { Backlink, ConsoleButton, FilterChip, KeyValueList, StatusChip } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
-import { useMutation } from '@/hooks/use-query'
+import { CHUNKING_PRESET_KEYS, CHUNKING_PRESETS, type ChunkingPreset } from '../../adapters/chunking'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { createKnowledgeBase, type KnowledgeVisibility } from '@/services/knowledge-service'
+import { listModels } from '@/services/provider-service'
 import { requestErrorMessage } from '@/utils/request'
 
 const SOURCE_KINDS = ['Web crawl', 'File upload', 'Git sync', 'API push']
 
-// BACKEND-PENDING: the estimate rail (pages discovered, chunk and time
-// projections) has no endpoint to compute from before the first crawl.
 export default function ConsoleKnowledgeNew() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
@@ -23,15 +23,26 @@ export default function ConsoleKnowledgeNew() {
   const [patterns, setPatterns] = useState(
     'include: /guides/**, /reference/**\nexclude: /blog/**, **/*.zip',
   )
-  const [chunking, setChunking] = useState('auto · 512 tokens, 64 overlap')
-  const [embedding, setEmbedding] = useState('bge-m3 · vllm self-hosted')
-  const [rerank, setRerank] = useState('on · bge-reranker')
-  const [schedule, setSchedule] = useState('nightly 02:00Z')
+  const [chunking, setChunking] = useState<ChunkingPreset>('default')
+  const [embedding, setEmbedding] = useState('')
+  const [rerank, setRerank] = useState(true)
   const [visibility, setVisibility] = useState<KnowledgeVisibility>('workspace')
 
-  // The wizard's controls are richer than the create payload's typed fields, so
-  // the source, schedule and pattern choices ride along in settings_json where
-  // the ingest pipeline reads them.
+  // The embedding model becomes the library's first index; only a model the
+  // workspace serves for embeddings is offered, and none means "choose when
+  // creating the first index".
+  const modelsQuery = useQuery({
+    queryKey: ['console', 'models', 'embedding'],
+    queryFn: () => listModels(),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const embeddingModels = (modelsQuery.data || []).filter(
+    (model) => model.modelType === 'embedding' && model.isActive,
+  )
+
+  // The source, depth and pattern choices ride along in settings_json, which
+  // the ingest pipeline reads; chunking and rerank map onto the fields the
+  // pipeline and retrieval read.
   const createMutation = useMutation({
     mutationKey: ['console', 'knowledge', 'create'],
     mutationFn: () =>
@@ -45,11 +56,10 @@ export default function ConsoleKnowledgeNew() {
             source_uri: sourceUri.trim() || undefined,
             crawl_depth: depth,
             patterns,
-            sync_schedule: schedule,
           },
-          chunking_json: { preset: chunking },
-          retrieval_json: { use_rerank: rerank.startsWith('on') },
-          default_embedding_model_ref: embedding,
+          chunking_json: { ...CHUNKING_PRESETS[chunking] },
+          retrieval_json: { use_rerank: rerank },
+          ...(embedding ? { default_embedding_model_ref: embedding } : {}),
         },
         { suppressErrorToast: true },
       ),
@@ -146,47 +156,46 @@ export default function ConsoleKnowledgeNew() {
               <select
                 className="input"
                 value={chunking}
-                onChange={(event) => setChunking(event.target.value)}
+                onChange={(event) => setChunking(event.target.value as ChunkingPreset)}
               >
-                <option>auto · 512 tokens, 64 overlap</option>
-                <option>auto · 1024 tokens</option>
-                <option>by heading</option>
+                {CHUNKING_PRESET_KEYS.map((key) => (
+                  <option key={key} value={key}>
+                    {t(`console.knowledgeChunking.${key}`)}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="frow">
-              <label>{t('console.knowNew.fields.embedding')}</label>
+              <label>
+                {t('console.knowNew.fields.embedding')}
+                <small>{t('console.knowNew.fields.embeddingHint')}</small>
+              </label>
               <select
                 className="input"
                 value={embedding}
                 onChange={(event) => setEmbedding(event.target.value)}
               >
-                <option>bge-m3 · vllm self-hosted</option>
-                <option>voyage-3</option>
+                <option value="">{t('console.knowNew.fields.embeddingLater')}</option>
+                {embeddingModels.map((model) => (
+                  <option key={model.modelName} value={model.modelName}>
+                    {model.name} · {model.providerName}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="frow">
-              <label>{t('console.knowNew.fields.rerank')}</label>
+              <label>
+                {t('console.knowNew.fields.rerank')}
+                <small>{t('console.knowNew.fields.rerankHint')}</small>
+              </label>
               <select
                 className="input"
                 style={{ maxWidth: 200 }}
-                value={rerank}
-                onChange={(event) => setRerank(event.target.value)}
+                value={rerank ? 'on' : 'off'}
+                onChange={(event) => setRerank(event.target.value === 'on')}
               >
-                <option>on · bge-reranker</option>
-                <option>off</option>
-              </select>
-            </div>
-            <div className="frow">
-              <label>{t('console.knowNew.fields.schedule')}</label>
-              <select
-                className="input"
-                style={{ maxWidth: 200 }}
-                value={schedule}
-                onChange={(event) => setSchedule(event.target.value)}
-              >
-                <option>nightly 02:00Z</option>
-                <option>hourly</option>
-                <option>manual only</option>
+                <option value="on">{t('console.knowNew.fields.rerankOn')}</option>
+                <option value="off">{t('console.knowNew.fields.rerankOff')}</option>
               </select>
             </div>
           </div>
@@ -236,7 +245,6 @@ export default function ConsoleKnowledgeNew() {
             <ConsoleButton onClick={() => navigate('/build/knowledge')}>
               {t('console.knowNew.cancel')}
             </ConsoleButton>
-            <ConsoleButton>{t('console.knowNew.saveDraft')}</ConsoleButton>
             <ConsoleButton
               variant="primary"
               disabled={!name.trim() || createMutation.isPending}
@@ -248,19 +256,6 @@ export default function ConsoleKnowledgeNew() {
         </div>
 
         <div className="rail">
-          <div className="panel">
-            <div className="panel-head">
-              <h2>{t('console.knowNew.estimate')}</h2>
-            </div>
-            <KeyValueList
-              items={[
-                { key: 'Pages discovered', value: '~1,180' },
-                { key: 'Est. chunks', value: '~18,000' },
-                { key: 'Est. embed time', value: '~22 min' },
-                { key: 'Est. embed cost', value: '$0.00 · self-hosted' },
-              ]}
-            />
-          </div>
           <div className="panel">
             <div className="panel-head">
               <h2>{t('console.knowNew.governance')}</h2>
