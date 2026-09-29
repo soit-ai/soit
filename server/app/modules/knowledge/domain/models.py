@@ -6,8 +6,9 @@ Knowledge domain DB models backed by the knowledge storage tables.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Text
+from sqlalchemy import Text
 from sqlmodel import JSON, Column, Field, SQLModel
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -253,7 +254,7 @@ class KnowledgeIngestTask(SQLModel, table=True):
 
     lease_expires_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+        sa_column=Column(UTCDateTime(), nullable=True, index=True),
     )
     """Lease expiry; a running task past this moment is reclaimable."""
 

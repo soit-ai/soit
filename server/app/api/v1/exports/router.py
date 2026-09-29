@@ -19,7 +19,7 @@ from app.infra.db.session import get_async_db
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.audit import AuditEvent
-from app.kernel.runtime.runs.ledger import LEDGER_SCHEMA_VERSION
+from app.kernel.runtime.runs.ledger import LEDGER_SCHEMA_VERSION, iso_utc
 from app.kernel.runtime.runs.ledger_export import (
     check_window,
     iter_ledger_records,
@@ -32,11 +32,11 @@ LEDGER_VERSION_HEADER = "x-soit-ledger-schema"
 _MEDIA_TYPES = {"jsonl": "application/x-ndjson", "csv": "text/csv; charset=utf-8"}
 
 
-def _utc_naive(value: datetime) -> datetime:
-    """The ledger stores naive UTC; an aware bound is converted, a naive one is UTC."""
+def _utc(value: datetime) -> datetime:
+    """A window bound in UTC: an aware bound is converted, a naive one is UTC."""
     if value.tzinfo is None:
-        return value
-    return value.astimezone(UTC).replace(tzinfo=None)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 @router.get("/{kind}", response_class=StreamingResponse)
@@ -53,8 +53,8 @@ async def export_ledger(
     Owners and admins only: an export takes the workspace's evidence out of
     SOIT, so who took what, and when, is written to the audit ledger first.
     """
-    start = _utc_naive(since)
-    end = _utc_naive(until) if until is not None else utc_now().replace(tzinfo=None)
+    start = _utc(since)
+    end = _utc(until) if until is not None else utc_now()
     check_window(start, end)
 
     db.add(
@@ -70,8 +70,8 @@ async def export_ledger(
             outcome="allowed",
             scope="workspace",
             payload_json={
-                "since": start.isoformat() + "Z",
-                "until": end.isoformat() + "Z",
+                "since": iso_utc(start),
+                "until": iso_utc(end),
                 "format": format,
                 "schema_version": LEDGER_SCHEMA_VERSION,
                 "api_key_id": ctx.api_key_id,

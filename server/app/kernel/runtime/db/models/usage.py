@@ -3,8 +3,9 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Date, DateTime, Index, Numeric, UniqueConstraint
+from sqlalchemy import BigInteger, Date, Index, Numeric, UniqueConstraint
 from sqlmodel import Column, Field, SQLModel
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -66,5 +67,5 @@ class UsageDailyAggregate(SQLModel, table=True):
     """Priced amount in ``currency``; unpriced usage adds nothing."""
 
     updated_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )

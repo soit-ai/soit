@@ -8,8 +8,8 @@ read back, compared and restored.
 
 from datetime import datetime
 
-from sqlalchemy import DateTime
 from sqlmodel import JSON, Column, Field, Index, SQLModel, UniqueConstraint
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -67,5 +67,5 @@ class PolicyRevision(SQLModel, table=True):
     created_by: str | None = Field(default=None)
     created_at: datetime = Field(
         default_factory=utc_now,
-        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+        sa_column=Column(UTCDateTime(), nullable=False, index=True),
     )

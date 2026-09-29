@@ -8,8 +8,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, DateTime, Index, String, Text, UniqueConstraint
+from sqlalchemy import Column, Index, String, Text, UniqueConstraint
 from sqlmodel import JSON, Field, SQLModel
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -340,11 +341,11 @@ class VirtualModel(SQLModel, table=True):
     """User who created it."""
 
     created_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )
     """Creation timestamp."""
 
     updated_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )
     """Last update timestamp."""

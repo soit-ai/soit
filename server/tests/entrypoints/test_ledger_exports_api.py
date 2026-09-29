@@ -6,7 +6,7 @@ import csv
 import dataclasses
 import io
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -24,7 +24,7 @@ from app.middleware.auth import get_current_context
 
 pytestmark = pytest.mark.asyncio
 
-T0 = datetime(2026, 9, 20, 8, 0, 0)
+T0 = datetime(2026, 9, 20, 8, 0, 0, tzinfo=UTC)
 WINDOW = {"since": "2026-09-20T00:00:00Z", "until": "2026-09-21T00:00:00Z"}
 
 

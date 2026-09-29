@@ -9,8 +9,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Index, UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -151,7 +152,7 @@ class WorkflowRun(SQLModel, table=True):
 
     lease_expires_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+        sa_column=Column(UTCDateTime(), nullable=True, index=True),
     )
     """Lease expiry; a running execution past this moment is reclaimable."""
 

@@ -25,6 +25,17 @@ record for operators.
   take `n` or `size`: the endpoint answers one image whatever the count and
   LiteLLM now refuses a size, so both are refused before the call instead
   of billing an image that ignored them.
+- The server moves to SQLModel 0.0.47. Every timestamp a model reads is now
+  an aware UTC datetime, from a `timestamp` column and a `timestamptz` one
+  alike, and a model refuses a naive datetime instead of storing it as it
+  stands. The columns and the values in them are unchanged, so there is no
+  migration.
+
+### Fixed
+
+- Rotating an API key that has an expiry answered `500` on PostgreSQL: the
+  expiry read back with its offset and the creation time without one, so
+  the lifetime the new key carries over could not be computed.
 
 ## [1.4.0] - 2026-09-29
 

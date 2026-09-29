@@ -5,8 +5,9 @@ Identity domain DB models (users/tenants/workspaces/memberships).
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, PrimaryKeyConstraint
+from sqlalchemy import PrimaryKeyConstraint
 from sqlmodel import JSON, Column, Field, Index, SQLModel, UniqueConstraint
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -297,7 +298,7 @@ class ApiKey(SQLModel, table=True):
 
     expires_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+        sa_column=Column(UTCDateTime(), nullable=True, index=True),
     )
     """Expiry; requests presenting the key after this moment are rejected."""
 
@@ -390,12 +391,12 @@ class ServicePrincipal(SQLModel, table=True):
     """Member who created it."""
 
     created_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )
     """Creation timestamp."""
 
     updated_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )
     """Last update timestamp."""
 
@@ -494,16 +495,16 @@ class UserSession(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
     last_seen_at: datetime = Field(
         default_factory=utc_now,
-        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+        sa_column=Column(UTCDateTime(), nullable=False, index=True),
     )
     """Updated on refresh, which is the only moment the server hears from it."""
 
     expires_at: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+        sa_column=Column(UTCDateTime(), nullable=False, index=True),
     )
     revoked_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     revoked_by: str | None = Field(default=None, nullable=True)
     """Who ended it: the user themselves, or an admin."""
@@ -612,11 +613,11 @@ class UserMfa(SQLModel, table=True):
 
     confirmed_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     last_used_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -651,17 +652,17 @@ class AccountDeletionRequest(SQLModel, table=True):
 
     requested_at: datetime = Field(default_factory=utc_now)
     execute_after: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+        sa_column=Column(UTCDateTime(), nullable=False, index=True),
     )
     """When the pause ends. Until then the request can be withdrawn."""
 
     cancelled_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     executed_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -694,11 +695,11 @@ class IdentityToken(SQLModel, table=True):
     """pending, used or superseded."""
 
     expires_at: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+        sa_column=Column(UTCDateTime(), nullable=False, index=True),
     )
     used_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -729,16 +730,16 @@ class WorkspaceInvitation(SQLModel, table=True):
 
     invited_by: str | None = Field(default=None, nullable=True)
     expires_at: datetime = Field(
-        sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
+        sa_column=Column(UTCDateTime(), nullable=False, index=True),
     )
     accepted_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     accepted_user_id: str | None = Field(default=None, nullable=True)
     revoked_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True),
+        sa_column=Column(UTCDateTime(), nullable=True),
     )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

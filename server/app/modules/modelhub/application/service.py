@@ -710,7 +710,7 @@ class ModelHubService:
             self._accumulate_metrics(summary_metrics, entry, run, today_start, today_end)
             self._accumulate_metrics(provider_metrics[provider.id], entry, run, today_start, today_end) if provider else None
             self._accumulate_metrics(model_metrics[model.id], entry, run, today_start, today_end) if model else None
-            day_key = self._naive_utc(entry.created_at).date().isoformat()
+            day_key = self._utc(entry.created_at).date().isoformat()
             self._accumulate_metrics(daily_metrics[day_key], entry, run, today_start, today_end)
 
         trend = [
@@ -778,7 +778,7 @@ class ModelHubService:
         today_start: datetime,
         today_end: datetime,
     ) -> None:
-        started_at = self._naive_utc(run.started_at)
+        started_at = self._utc(run.started_at)
         metrics["run_ids"].add(entry.run_id)
         if today_start <= started_at < today_end:
             metrics["today_run_ids"].add(entry.run_id)
@@ -1020,32 +1020,25 @@ class ModelHubService:
         return int(round(sum(numbers) / len(numbers)))
 
     @staticmethod
-    def _naive_utc(value: datetime) -> datetime:
-        """Rows loaded from the DB are naive UTC; in-session rows may still carry tzinfo."""
+    def _utc(value: datetime) -> datetime:
+        """A row's time in UTC; one stored without an offset is UTC already."""
         if value.tzinfo is None:
-            return value
-        return value.astimezone(UTC).replace(tzinfo=None)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @staticmethod
     def _month_window() -> tuple[datetime, datetime]:
-        now = utc_now()
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         if start.month == 12:
             end = start.replace(year=start.year + 1, month=1)
         else:
             end = start.replace(month=start.month + 1)
-        return start.replace(tzinfo=None), end.replace(tzinfo=None)
+        return start, end
 
     @staticmethod
     def _today_window() -> tuple[datetime, datetime]:
-        now = utc_now()
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-        return start.replace(tzinfo=None), end.replace(tzinfo=None)
+        start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, start + timedelta(days=1)
 
     @workspace_guard("write")
     async def create_provider(self, data: ProviderCreate) -> Provider:

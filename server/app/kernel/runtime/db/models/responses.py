@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Index, UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -128,7 +129,7 @@ class ResponseInteraction(SQLModel, table=True):
     lease_owner: str | None = Field(default=None, index=True)
     lease_expires_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+        sa_column=Column(UTCDateTime(), nullable=True, index=True),
     )
     attempt_count: int = Field(default=0)
     created_by: str | None = Field(default=None, nullable=True)

@@ -10,8 +10,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, Index, Numeric
+from sqlalchemy import CheckConstraint, Index, Numeric
 from sqlmodel import JSON, Column, Field, SQLModel
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
@@ -137,8 +138,8 @@ class Budget(SQLModel, table=True):
 
     created_by: str
     created_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )
     updated_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )

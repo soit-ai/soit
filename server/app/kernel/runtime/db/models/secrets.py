@@ -2,8 +2,9 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Text
+from sqlalchemy import Column, Text
 from sqlmodel import Field, SQLModel
+from sqlmodel.sql.sqltypes import UTCDateTime
 
 from app.kernel.commons.time import utc_now
 
@@ -22,8 +23,8 @@ class SealedSecretValue(SQLModel, table=True):
     locator: str = Field(primary_key=True, max_length=512)
     sealed_value: str = Field(sa_column=Column(Text, nullable=False))
     created_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )
     updated_at: datetime = Field(
-        default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False)
+        default_factory=utc_now, sa_column=Column(UTCDateTime(), nullable=False)
     )
