@@ -18,6 +18,53 @@ The two checks that trip up most first-time contributors:
    `docs: fix quickstart port table` — see
    [Commit Messages](#commit-messages).
 
+## Docs-only changes
+
+A change that only touches Markdown (`README.md`, `docs/`, `server/docs/`,
+`web/docs/`, this file) needs none of the setup below: no `uv`, no `npm`, no
+Docker. Edit, preview, commit, open the pull request.
+
+What still applies:
+
+- A Conventional Commit title with the `docs` type and a lowercase subject,
+  for example `docs(quickstart): add the published-port table`, on every
+  commit and on the pull request.
+- The DCO sign-off on every commit: `git commit -s`.
+- English only, outside the translation files (`README-cn.md`, `*.zh-CN.*`
+  and `web/app/i18n/`). That covers documentation, code comments and commit
+  messages.
+- No `CHANGELOG.md` entry: documentation-only changes do not need one.
+- Nothing local-only: no planning notes, evidence files or machine-specific
+  paths (see [Documentation](#documentation)).
+
+Documented commands and links are under test.
+`server/tests/unit/test_phase1_release_docs.py` checks that every relative
+Markdown link in the repository resolves, that `docs/quickstart.md` and
+`docs/quickstart.zh-CN.md` still contain the documented quickstart commands
+(the `docker compose` service list, the seed script, the smoke test,
+`curl http://localhost:9200/health/ready`), that the migration runbook and
+the model provider matrix keep their required terms, and that no public
+document points at local-only workspaces. When you rename or move a file,
+change a heading that a link points to, or change a documented command,
+update that test in the same pull request. It needs the backend environment
+once:
+
+```powershell
+cd server
+uv sync
+uv run pytest tests/unit/test_phase1_release_docs.py -q
+```
+
+You can also leave it to CI: the `quality` workflow has no path filter, so
+every pull request runs the full backend and frontend gate, and a docs-only
+change can only fail on this test. `commit-style` checks the commit titles,
+the pull request title and the sign-offs.
+
+To preview, use your editor's Markdown preview (in VS Code,
+`Ctrl+Shift+V`), or GitHub's Preview tab in the file editor and the rendered
+view on the pull request's Files changed tab; GitHub renders tables and
+fenced code blocks as GitHub Flavored Markdown.
+
 ## Development Setup
 
 Install backend dependencies from `server/`:
