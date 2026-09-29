@@ -20,6 +20,9 @@ Open:
 
 Sign in with `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` from `.env`.
 
+If a service does not come up, [troubleshooting.md](troubleshooting.md) maps
+the symptoms to their causes and says what each health check tests.
+
 Already running PostgreSQL, Redis or another piece of the infrastructure? The
 application and the bundled infrastructure are separate Compose files, so you
 can start only what you are missing. See

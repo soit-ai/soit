@@ -23,7 +23,9 @@ anything: an existing quickstart keeps its data.
 Requires Docker Compose v2.24 or later.
 
 Which services a demo can leave out, and what stops working when it does, is
-in [docs/minimal-topology.md](../docs/minimal-topology.md).
+in [docs/minimal-topology.md](../docs/minimal-topology.md). When a service
+does not come up, [docs/troubleshooting.md](../docs/troubleshooting.md) maps
+the symptoms to their causes.
 
 ## Lite Profile
 

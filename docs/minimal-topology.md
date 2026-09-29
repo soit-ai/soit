@@ -151,6 +151,7 @@ with `"vector":"unavailable"` when Milvus is not part of the stack. Then open
 `http://localhost:5000` and sign in as the bootstrap admin
 (`admin@example.com` / `changeme123` unless overridden in `.env`).
 
-Related pages: the [quickstart](quickstart.md) for the full topology, and
+Related pages: the [quickstart](quickstart.md) for the full topology,
+[troubleshooting.md](troubleshooting.md) when a service does not come up, and
 [Use Infrastructure You Already Run](../docker/README.md#use-infrastructure-you-already-run)
 for pointing the application at services you operate yourself.
