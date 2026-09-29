@@ -407,7 +407,11 @@ const translation = {
     },
     billingPane: {
       edition: 'Edition',
-      seats: 'Seats',
+      seats: 'Members',
+      seatsCommunity: 'no seat cap in Community',
+      seatsLicensed: 'licence {{license}} · {{days}} days left',
+      editionCommunity: 'open source · no licence needed',
+      editionUnlicensed: 'licence grants nothing: {{reason}}',
       spend: 'Credits consumed',
       invoices: 'Credit ledger',
       invoicesHint: 'grants and consumption — model spend is billed by your providers',
@@ -1002,7 +1006,7 @@ const translation = {
     import: 'Import',
     newAgent: 'New agent',
     tiles: { agents: 'Agents', runs: 'Runs · 24h', pass: 'Pass rate', attention: 'Needs attention' },
-    tabs: { workbench: 'Workbench', library: 'Library', market: 'Marketplace', review: 'Publish review', exceptions: 'Exceptions', recycle: 'Recycle' },
+    tabs: { workbench: 'Workbench', library: 'Library', review: 'Publish review', exceptions: 'Exceptions', recycle: 'Recycle' },
     filters: { all: 'All', enabled: 'Enabled', paused: 'Paused', triggerAny: 'Trigger: any', modelAny: 'Model: any', searchPlaceholder: 'Filter agents…' },
     card: { runs: 'calls · today', pass: 'success rate', spend: 'spend · 24h', latency: 'avg latency', lastRun: 'last run' },
     empty: 'No agents yet. Create one to start a governed run.',
@@ -1010,8 +1014,6 @@ const translation = {
     openAgent: 'Open agent',
     recycleEmpty: 'Deleted agents are not listed here yet.',
     columns: { agent: 'Agent', version: 'Version', capabilities: 'Capabilities', owner: 'Owner', runs: 'Runs · 24h', updated: 'Updated', change: 'Change', requestedBy: 'Requested by', waiting: 'Waiting', exception: 'Exception', failed: 'Failed · 24h', lastFailure: 'Last failure', deletedBy: 'Deleted by', deleted: 'Deleted', purgedIn: 'Purged in' },
-    install: 'Install…',
-    marketNote: 'Installs go through publish review and inherit the workspace policy bundle — a template never ships with live grants.',
     diff: 'Diff',
     reviewNote: 'publish review required for scope changes · policy rule review-on-scope-change',
     restore: 'Restore',
@@ -1314,7 +1316,6 @@ const translation = {
     description:
       'Three plugin kinds — MCP servers, tools and skills. Tool scopes still pass policy gates at run time; skills are versioned prompt packs and grant no tool access by themselves.',
     upload: 'Upload package',
-    installMarket: 'Install from marketplace',
     tiles: {
       plugins: 'Plugins',
       invocations: 'Invocations · 24h',
@@ -1324,7 +1325,7 @@ const translation = {
       highRisk: 'High-risk scopes',
       highRiskNone: 'no installed plugin declares one',
     },
-    tabs: { installed: 'Installed', market: 'Marketplace', incidents: 'Incidents', recycle: 'Recycle' },
+    tabs: { installed: 'Installed', incidents: 'Incidents', recycle: 'Recycle' },
     filters: { all: 'All', mcp: 'MCP servers', tools: 'Tools', skills: 'Skills', disabled: 'Disabled', available: 'Not installed', searchPlaceholder: 'Filter by name, scope…' },
     columns: {
       plugin: 'Plugin',
@@ -1344,8 +1345,6 @@ const translation = {
     incidentsEmpty: 'Plugin incidents are not recorded as their own object yet.',
     reviewUpdate: 'Review update…',
     install: 'Install…',
-    marketNote:
-      'Installs are recorded in the audit log. Tool scopes stay inert until a matching grant exists in Policies; skills version like code and never carry tool access themselves.',
     incidentsNote: 'incidents link the runs they degraded · retries followed task retry policy',
     recycleEmpty:
       'Nothing uninstalled recently. Removed plugins keep their audit history; reinstalling restores pinned version and scopes for review.',
@@ -1453,7 +1452,7 @@ const translation = {
       step1: 'Connect a model provider',
       step1Note: 'vLLM · self-hosted connected. Keys live in Secrets, referenced — never stored in config.',
       step2: 'Create your first agent',
-      step2Note: 'Pick a marketplace template or start blank. Tool access stays off until you grant scopes.',
+      step2Note: 'Start from a blank agent. Tool access stays off until you grant scopes.',
       newAgent: 'New agent',
       step3: 'Trigger a governed run',
       step3Note: 'Chat with the agent or fire a webhook. Every run writes policy verdicts, trace and cost here.',

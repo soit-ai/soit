@@ -32,7 +32,6 @@ import { ClientEndpoints } from '../components/client-endpoints'
 import { useConsoleNavigate } from '../shell/use-console-navigate'
 import { relativeTime } from '../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import type { TFunction } from '@/i18n/types'
 import {
@@ -157,6 +156,30 @@ function editionLabel(edition: EditionDiagnostic | undefined, t: TFunction): str
   }
   if (edition.license_status === 'absent') return t('console.settings.aboutPane.editionCommunity')
   return t('console.settings.aboutPane.editionUnlicensed', { reason: edition.reason ?? edition.license_status })
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+/** What the licence grants, for the billing tiles: a Community deployment
+ *  needs none, and an Enterprise one shows how long its licence has left. */
+function licenceLine(edition: EditionDiagnostic | undefined, t: TFunction): string {
+  if (!edition) return t('console.common.loading')
+  if (edition.license_status === 'active') {
+    return t('console.settings.billingPane.seatsLicensed', {
+      license: edition.license_id,
+      days: edition.days_left ?? 0,
+    })
+  }
+  if (edition.license_status === 'absent') return t('console.settings.billingPane.editionCommunity')
+  return t('console.settings.billingPane.editionUnlicensed', { reason: edition.reason ?? edition.license_status })
+}
+
+/** Seats are the workspace's members: a licence carries no seat cap. */
+function seatsLine(edition: EditionDiagnostic | undefined, t: TFunction): string {
+  if (edition?.license_status === 'active') return licenceLine(edition, t)
+  return t('console.settings.billingPane.seatsCommunity')
 }
 
 /** The server's workspace role vocabulary (kernel/identity/rbac.py). */
@@ -1985,15 +2008,15 @@ export default function ConsoleSettings() {
             <div className="tiles cols-3">
               <StatTile
                 label={t('console.settings.billingPane.edition')}
-                value="—"
-                na
-                sub={<span className="mono dimmer">no licence record</span>}
+                value={diagnostics?.edition ? capitalize(diagnostics.edition.edition) : '—'}
+                na={!diagnostics?.edition}
+                sub={<span className="mono dimmer">{licenceLine(diagnostics?.edition, t)}</span>}
               />
               <StatTile
                 label={t('console.settings.billingPane.seats')}
-                value={membersQuery.data ? `${members.length} / ${mockTiles.settingsSeats.value}` : '—'}
+                value={membersQuery.data ? String(members.length) : '—'}
                 na={!membersQuery.data}
-                sub={<span className="mono dimmer">{mockTiles.settingsSeats.sub}</span>}
+                sub={<span className="mono dimmer">{seatsLine(diagnostics?.edition, t)}</span>}
               />
               <StatTile
                 label={t('console.settings.billingPane.spend')}

@@ -12,7 +12,6 @@ import {
   FilterChip,
   FilterSearch,
   IconExport,
-  IconPlus,
   Pager,
   StatTile,
   StatTileGrid,
@@ -45,7 +44,7 @@ import { requestErrorMessage } from '@/utils/request'
 /** Risk tiers onto the governance verdict hues. */
 const RISK_STATUS = { low: 'pass', medium: 'warn', high: 'block' } as const
 
-type PlTab = 'installed' | 'market' | 'incidents' | 'recycle'
+type PlTab = 'installed' | 'incidents' | 'recycle'
 type PlFilter = 'all' | 'mcp' | 'tools' | 'skills' | 'disabled' | 'available'
 
 const PAGE_SIZE = 100
@@ -57,19 +56,10 @@ const FILTER_TYPE: Record<'mcp' | 'tools' | 'skills', Plugin['plugin_type']> = {
   skills: 'skill',
 }
 
-// BACKEND-PENDING: the marketplace is the one fixture left on this page.
-// There is no plugin catalogue or registry endpoint, and none is planned —
-// there is no marketplace/catalogue endpoint at all (plugin-service only lists
-// the workspace registry), so browsing and installing remote packages cannot be
-// wired until that API exists. Install/uninstall are wired on the Installed tab
-// instead, against the registry rows that really exist: the "Not installed"
-// chip lists registry plugins this workspace has not installed yet.
-const MOCK_MARKET = [
-  { id: 's3-tools', color: 'var(--cat-cyan)', meta: 'tool pack · soit-labs · v2.1.0', description: 'Object storage read/write with per-bucket scopes and size caps.', risk: 'lo', risk_label: 'LOW', scopes: ['s3.read', 's3.write'] },
-  { id: 'jira-connector', color: 'var(--cat-indigo)', meta: 'MCP server · community · v1.8.4', description: 'Issue create/update/search. Writes are idempotent and audited.', risk: 'md', risk_label: 'MEDIUM', scopes: ['jira.read', 'jira.write'] },
-  { id: 'pagerduty-tools', color: 'var(--cat-amber)', meta: 'tool pack · community · v0.9.2', description: 'Trigger, acknowledge and resolve incidents from governed runs.', risk: 'hi', risk_label: 'HIGH', scopes: ['pd.incidents · approval'] },
-  { id: 'postmortem-writer', color: 'var(--cat-cyan)', meta: 'skill · soit-labs · v2.0.3', description: 'Structured incident postmortems drafted from run evidence, timeline and citations included.', risk: 'lo', risk_label: 'LOW', scopes: ['prompt pack · no tool scopes'] },
-]
+// There is no plugin marketplace, by decision: SOIT ships no catalogue of
+// remote packages. Plugins arrive as uploaded packages, and install and
+// uninstall act on the workspace registry rows that exist; the "Not
+// installed" chip lists registry plugins this workspace has not installed.
 
 /** The upload endpoint rejects a package whose version is already registered. */
 function isSameVersionConflict(error: unknown) {
@@ -224,10 +214,6 @@ export default function ConsolePlugins() {
             <IconExport />
             {t('console.plugins.upload')}
           </ConsoleButton>
-          <ConsoleButton variant="primary" onClick={() => setTab('market')}>
-            <IconPlus />
-            {t('console.plugins.installMarket')}
-          </ConsoleButton>
         </>
       }
       tiles={
@@ -289,7 +275,6 @@ export default function ConsolePlugins() {
         <ConsoleTabs
           items={[
             { id: 'installed', label: t('console.plugins.tabs.installed'), count: installed.length },
-            { id: 'market', label: t('console.plugins.tabs.market') },
             { id: 'incidents', label: t('console.plugins.tabs.incidents') },
             { id: 'recycle', label: t('console.plugins.tabs.recycle') },
           ]}
@@ -360,7 +345,7 @@ export default function ConsolePlugins() {
                         </span>
                       </span>
                     </TableCell>
-                    {/* No install provenance (marketplace / builtin / upload) is
+                    {/* No install provenance (builtin / upload) is
                         persisted on the plugin record — `publisher` is shown in
                         the sub-label above instead. */}
                     <TableCell className="dim">—</TableCell>
@@ -424,40 +409,6 @@ export default function ConsolePlugins() {
             <ConsoleButton size="sm">{t('console.plugins.reviewUpdate')}</ConsoleButton>
           </Pager>
         </WorkbenchPanel>
-      )}
-
-      {tab === 'market' && (
-        <div className="mt-3.5">
-          <div className="cards">
-            {MOCK_MARKET.map((item) => (
-              <div key={item.id} className="acard">
-                <div className="acard-top">
-                  <span className="aavatar" style={{ '--c': item.color } as React.CSSProperties} />
-                  <span>
-                    <b>{item.id}</b>
-                    <span className="mono">{item.meta}</span>
-                  </span>
-                </div>
-                <p>{item.description}</p>
-                <div className="acard-foot">
-                  <span className={`risk ${item.risk}`}>{item.risk_label}</span>
-                  <span className="scopes" style={{ marginLeft: 8 }}>
-                    {item.scopes.map((scope) => (
-                      <span key={scope} className="chip">
-                        {scope}
-                      </span>
-                    ))}
-                  </span>
-                  <span className="spacer" />
-                  <ConsoleButton>{t('console.plugins.install')}</ConsoleButton>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="dim" style={{ marginTop: 10, fontSize: 11.5 }}>
-            {t('console.plugins.marketNote')}
-          </p>
-        </div>
       )}
 
       {/* Plugin incidents have no server-side object: nothing correlates run

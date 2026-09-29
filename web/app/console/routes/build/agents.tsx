@@ -30,7 +30,6 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
-import { mockAgentMarket } from '../../mocks/build-agents'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
@@ -53,16 +52,14 @@ const VISIBILITY_LABELS = {
 } as const satisfies Record<string, TranslationKey>
 type Visibility = keyof typeof VISIBILITY_LABELS
 
-type AgentsTab = 'workbench' | 'library' | 'market' | 'review' | 'exceptions' | 'recycle'
+type AgentsTab = 'workbench' | 'library' | 'review' | 'exceptions' | 'recycle'
 type CardFilter = 'all' | 'enabled' | 'paused'
 
 const PAGE_SIZE = 50
 
-// BACKEND-PENDING: the marketplace has no server-side object -- there is no
-// agent catalogue or template registry to read, and the cards below hold the
-// design of a feature that has not been built. Publish review is real: it reads
-// the review state drafts carry.
-// yet; every other tab reads agent-service.
+// There is no agent marketplace, by decision, not omission: SOIT ships no
+// catalogue or template registry. Publish review reads the review state
+// drafts carry; every other tab reads agent-service.
 export default function ConsoleAgents() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
@@ -210,7 +207,6 @@ export default function ConsoleAgents() {
           items={[
             { id: 'workbench', label: t('console.agents.tabs.workbench') },
             { id: 'library', label: t('console.agents.tabs.library'), count: rows.length },
-            { id: 'market', label: t('console.agents.tabs.market') },
             { id: 'review', label: t('console.agents.tabs.review'), count: drafts.length },
             {
               id: 'exceptions',
@@ -372,33 +368,6 @@ export default function ConsoleAgents() {
             </TableBody>
           </Table>
         </WorkbenchPanel>
-      )}
-
-      {tab === 'market' && (
-        <div className="mt-3.5">
-          <div className="cards">
-            {mockAgentMarket.map((card) => (
-              <div key={card.name} className="acard">
-                <div className="acard-top">
-                  <span className="aavatar" style={{ '--c': card.color } as React.CSSProperties} />
-                  <span>
-                    <b>{card.name}</b>
-                    <span className="mono">{card.origin}</span>
-                  </span>
-                </div>
-                <p>{card.description}</p>
-                <div className="acard-foot">
-                  <span className="chip">{card.needs}</span>
-                  <span className="spacer" />
-                  <ConsoleButton>{t('console.agents.install')}</ConsoleButton>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="dim" style={{ marginTop: 10, fontSize: 11.5 }}>
-            {t('console.agents.marketNote')}
-          </p>
-        </div>
       )}
 
       {tab === 'review' && (

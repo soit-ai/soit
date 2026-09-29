@@ -29,7 +29,6 @@ import {
 } from '../../components/ui'
 import { compactNumber, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
-import { mockTiles } from '../../mocks/tiles'
 import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
