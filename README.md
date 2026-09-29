@@ -212,21 +212,21 @@ SOIT follows a strict hexagonal architecture: a stable kernel at the center, rep
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  API Layer  —  REST · WebSocket · SSE                       │
+│  API Layer:  REST, WebSocket, SSE                           │
 ├─────────────────────────────────────────────────────────────┤
 │  Kernel  (stable core)                                      │
-│    Runtime · Identity · Trace · Specs · Security            │
-│    Events · Responses · Observe · Registry                  │
-│    Ports:  LLM · Tools · Vector · Storage · Secrets         │
+│    Runtime, Identity, Trace, Specs, Security                │
+│    Events, Responses, Observe, Registry                     │
+│    Ports:  LLM, Tools, Vector, Storage, Secrets             │
 ├─────────────────────────────────────────────────────────────┤
 │  Domain Modules                                             │
-│    Agent · Workflow · Knowledge · Plugin · Evaluation       │
+│    Agent, Workflow, Knowledge, Plugin, Evaluation           │
 ├─────────────────────────────────────────────────────────────┤
 │  Adapters                                                   │
-│    OpenAI · Anthropic · LiteLLM · Milvus · pgvector · Vault │
+│    OpenAI, Anthropic, LiteLLM, Milvus, pgvector, Vault      │
 ├─────────────────────────────────────────────────────────────┤
 │  Infrastructure                                             │
-│    PostgreSQL · Redis · Milvus or pgvector · S3 or files    │
+│    PostgreSQL, Redis, Milvus or pgvector, S3 or files       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
