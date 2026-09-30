@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import array
 import base64
-import contextlib
 import logging
 import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from functools import partial
 from typing import Annotated, Any, Literal
 
@@ -24,9 +23,20 @@ import anyio
 import orjson
 from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.api.gateway_runs import (
+    CLEANUP_TIMEOUT_SECONDS,
+    RUN_ID_HEADER,
+    SUMMARY_LIMIT,
+    GatewayStreamingResponse,
+    StreamState,
+    close_abandoned,
+    close_model_stream,
+    close_run,
+    fail_run,
+    open_run,
+)
 from app.api.openai.convert import (
     chunk_body,
     completion_body,
@@ -73,77 +83,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-RUN_ID_HEADER = "x-soit-run-id"
-GATEWAY_MODE = "gateway"
 _DONE = b"data: [DONE]\n\n"
-_SUMMARY_LIMIT = 8192
-# How long closing a streamed call may take once its body stops; it runs
-# shielded from the cancellation that ends the response, and covers closing
-# the model call (which writes the ledger) and the run.
-_CLEANUP_TIMEOUT_SECONDS = 90.0
 MAX_UPLOAD_IMAGE_BYTES = AttachmentService.MAX_FILE_SIZE
-
-
-def _subject(ctx: RequestContext) -> tuple[str, str]:
-    if ctx.api_key_id:
-        return "api_key", ctx.api_key_id
-    return "user", ctx.user_id
-
-
-async def _open_run(
-    trace_writer: TraceWriter, ctx: RequestContext, *, kind: str, summary: str
-) -> str:
-    subject_kind, subject_id = _subject(ctx)
-    run = await trace_writer.create_run(
-        GATEWAY_MODE,
-        kind=kind,
-        subject_kind=subject_kind,
-        subject_id=subject_id,
-        input_summary=summary,
-        source=GATEWAY_MODE,
-    )
-    await trace_writer.update_run_status(run.id, "running")
-    return run.id
-
-
-async def _close_run(
-    trace_writer: TraceWriter,
-    db: AsyncSession,
-    run_id: str,
-    status: str,
-    **fields: Any,
-) -> None:
-    """Write the run's final status and commit it.
-
-    A database write that failed earlier in the request (the model call
-    recording its usage, say) leaves the transaction unusable; what it held
-    is lost, but the run still closes after a rollback.
-    """
-    try:
-        await trace_writer.update_run_status(run_id, status, **fields)
-        await db.commit()
-    except SQLAlchemyError:
-        await db.rollback()
-        await trace_writer.update_run_status(run_id, status, **fields)
-        await db.commit()
-
-
-async def _fail_run(
-    trace_writer: TraceWriter,
-    db: AsyncSession,
-    run_id: str,
-    exc: BaseException,
-    *,
-    fallback_code: str,
-) -> None:
-    await _close_run(
-        trace_writer,
-        db,
-        run_id,
-        "failed",
-        error_code=getattr(exc, "code", None) or fallback_code,
-        error_message=str(exc)[:2000],
-    )
 
 
 def _chat_kwargs(payload: ChatCompletionRequest, run_id: str) -> dict[str, Any]:
@@ -174,7 +115,7 @@ async def create_chat_completion(
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
     llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
-    run_id = await _open_run(
+    run_id = await open_run(
         trace_writer,
         ctx,
         kind="chat",
@@ -199,11 +140,11 @@ async def create_chat_completion(
         await trace_writer.update_run_status(
             run_id,
             "succeeded",
-            output_summary=(result.text or "")[:_SUMMARY_LIMIT] or None,
+            output_summary=(result.text or "")[:SUMMARY_LIMIT] or None,
         )
         await db.commit()
     except Exception as exc:
-        await _fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
+        await fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
         raise
     return completion_body(
         completion_id=f"chatcmpl-{run_id}",
@@ -211,51 +152,6 @@ async def create_chat_completion(
         model=payload.model,
         response=result,
     )
-
-
-class _StreamState:
-    """Whether the body of a streamed call ran to its end."""
-
-    finished = False
-
-
-class _GatewayStreamingResponse(StreamingResponse):
-    """Streams a gateway call and closes it however streaming stops.
-
-    A disconnect can cancel the response before its body starts or while it
-    waits on ``send``. The body generator would then only be closed whenever
-    it is collected, from another task, and one that never started runs no
-    cleanup at all. So the response closes the body itself and, unless the
-    body finished, closes the model stream (which records the call's usage)
-    and fails the run, in the task that owns the request's session.
-    """
-
-    def __init__(
-        self,
-        content: AsyncIterator[bytes],
-        *,
-        state: _StreamState,
-        abandon: Callable[[], Awaitable[None]],
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(content, **kwargs)
-        self._state = state
-        self._abandon = abandon
-
-    async def stream_response(self, send: Any) -> None:
-        try:
-            await super().stream_response(send)
-        finally:
-            # The body task is being cancelled when the client has gone; an
-            # unshielded await would be cancelled again before the run closes.
-            with anyio.move_on_after(_CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
-                aclose = getattr(self.body_iterator, "aclose", None)
-                if aclose is not None:
-                    await aclose()
-                if not self._state.finished:
-                    await self._abandon()
-            if scope.cancelled_caught:
-                logger.warning("Closing an abandoned gateway stream timed out")
 
 
 def _sse(body: dict[str, Any]) -> bytes:
@@ -298,7 +194,7 @@ async def _start_stream(
     except StopAsyncIteration:
         first = None
     except Exception as exc:
-        await _fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
+        await fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
         raise
     return _streaming_response(db, trace_writer, run_id, payload, stream, first)
 
@@ -310,13 +206,13 @@ def _streaming_response(
     payload: ChatCompletionRequest,
     stream: AsyncIterator[ChatStreamChunk],
     first: ChatStreamChunk | None,
-) -> _GatewayStreamingResponse:
-    state = _StreamState()
-    return _GatewayStreamingResponse(
+) -> GatewayStreamingResponse:
+    state = StreamState()
+    return GatewayStreamingResponse(
         # The request's session stays open until the body has been sent.
         _stream_events(db, trace_writer, run_id, payload, stream, first, state),
         state=state,
-        abandon=partial(_close_abandoned, stream, trace_writer, db, run_id),
+        abandon=partial(close_abandoned, stream, trace_writer, db, run_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -333,7 +229,7 @@ async def _stream_events(
     payload: ChatCompletionRequest,
     stream: AsyncIterator[ChatStreamChunk],
     first: ChatStreamChunk | None,
-    state: _StreamState,
+    state: StreamState,
 ) -> AsyncIterator[bytes]:
     completion_id = f"chatcmpl-{run_id}"
     created = int(time.time())
@@ -396,11 +292,11 @@ async def _stream_events(
     except Exception as exc:
         state.finished = True
         # A disconnect landing mid-write must not leave the run open.
-        with anyio.move_on_after(_CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
+        with anyio.move_on_after(CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
             # The failure may be the gateway's own, with the model still
             # generating; closing its stream settles the call either way.
-            await _close_model_stream(stream, run_id)
-            await _fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
+            await close_model_stream(stream, run_id)
+            await fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
         if scope.cancelled_caught:
             logger.warning("Closing a failed gateway run timed out", extra={"run_id": run_id})
         yield _sse(_stream_error(exc))
@@ -408,13 +304,13 @@ async def _stream_events(
         return
 
     state.finished = True
-    with anyio.move_on_after(_CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
-        await _close_run(
+    with anyio.move_on_after(CLEANUP_TIMEOUT_SECONDS, shield=True) as scope:
+        await close_run(
             trace_writer,
             db,
             run_id,
             "succeeded",
-            output_summary="".join(text_parts)[:_SUMMARY_LIMIT] or None,
+            output_summary="".join(text_parts)[:SUMMARY_LIMIT] or None,
         )
     if scope.cancelled_caught:
         logger.warning("Closing a finished gateway run timed out", extra={"run_id": run_id})
@@ -422,42 +318,6 @@ async def _stream_events(
     if include_usage:
         yield chunk(None, usage_block=usage(prompt_tokens, completion_tokens))
     yield _DONE
-
-
-async def _close_model_stream(stream: AsyncIterator[ChatStreamChunk], run_id: str) -> None:
-    """Close a model stream; the model call records its usage as it closes."""
-
-    aclose = getattr(stream, "aclose", None)
-    if aclose is None:
-        return
-    try:
-        await aclose()
-    except Exception:
-        logger.warning("Could not close a gateway model stream", extra={"run_id": run_id})
-
-
-async def _close_abandoned(
-    stream: AsyncIterator[ChatStreamChunk],
-    trace_writer: TraceWriter,
-    db: AsyncSession,
-    run_id: str,
-) -> None:
-    """Close the model stream of a call whose client went away, then its run."""
-
-    await _close_model_stream(stream, run_id)
-    try:
-        await _close_run(
-            trace_writer,
-            db,
-            run_id,
-            "failed",
-            error_code="CLIENT_DISCONNECTED",
-            error_message="The client closed the stream before it finished",
-        )
-    except Exception:
-        logger.warning("Could not close an abandoned gateway run", extra={"run_id": run_id})
-        with contextlib.suppress(Exception):
-            await db.rollback()
 
 
 @router.get("/models")
@@ -508,7 +368,7 @@ async def create_embeddings(
     container = get_container()
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
     llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
-    run_id = await _open_run(
+    run_id = await open_run(
         trace_writer,
         ctx,
         kind="embedding",
@@ -526,7 +386,7 @@ async def create_embeddings(
         )
         await db.commit()
     except Exception as exc:
-        await _fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_EMBED_ERROR")
+        await fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_EMBED_ERROR")
         raise
     return {
         "object": "list",
@@ -557,7 +417,7 @@ async def _image_response(
     trace_writer = TraceWriter(db, ctx, event_bus=container.get_event_bus())
     llm_port = container.get_llm_port(ctx=ctx, trace_writer=trace_writer)
     await check_image_job(llm_port, request)
-    run_id = await _open_run(trace_writer, ctx, kind="image", summary=summary)
+    run_id = await open_run(trace_writer, ctx, kind="image", summary=summary)
     await db.commit()
     response.headers[RUN_ID_HEADER] = run_id
     try:
@@ -577,7 +437,7 @@ async def _image_response(
         )
         await db.commit()
     except Exception as exc:
-        await _fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_IMAGE_ERROR")
+        await fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_IMAGE_ERROR")
         raise
     data: list[dict[str, Any]] = []
     for image in outcome.results:
