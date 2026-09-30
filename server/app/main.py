@@ -484,6 +484,7 @@ async def kernel_exception_handler(request: Request, exc: KernelError) -> JSONRe
 
 
 # Register routers
+from app.api.anthropic.router import router as anthropic_router  # noqa: E402
 from app.api.mcp.router import router as mcp_router  # noqa: E402
 from app.api.mcp.router import well_known_router as mcp_well_known_router  # noqa: E402
 from app.api.openai.router import router as openai_router  # noqa: E402
@@ -529,6 +530,7 @@ def include_routes(target: FastAPI, role: str) -> None:
         target.include_router(health_router, tags=["health"])
         target.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
         target.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
+        target.include_router(anthropic_router, prefix="/v1", tags=["anthropic-compatible"])
         target.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
         target.include_router(mcp_well_known_router, tags=["mcp"])
         return
@@ -559,6 +561,7 @@ def include_routes(target: FastAPI, role: str) -> None:
     target.include_router(exports_router, prefix="/api/v1/exports", tags=["exports"])
     target.include_router(tools_router, prefix="/api/v1/tools", tags=["tools"])
     target.include_router(openai_router, prefix="/v1", tags=["openai-compatible"])
+    target.include_router(anthropic_router, prefix="/v1", tags=["anthropic-compatible"])
     target.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
     target.include_router(mcp_well_known_router, tags=["mcp"])
 

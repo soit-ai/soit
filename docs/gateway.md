@@ -7,6 +7,10 @@ workspace has configured, and every call is governed the way SOIT's own
 agents are: rate limits, quotas, budgets, content safety, cost recording and
 audit.
 
+Anthropic clients work too: `POST /v1/messages` serves the Messages API (see
+[Anthropic Messages](#anthropic-messages)), so Claude Code and the Anthropic
+SDKs can be pointed at SOIT the same way.
+
 The same keys also call the workspace's tools by reference, under
 `/api/v1/tools` (see [Calling tools](#calling-tools)).
 
@@ -51,6 +55,56 @@ not served.
 On models reached through OpenAI's Responses API (the GPT-5.5 family on an
 `openai` provider), `stop` is refused because that API cannot honour it, and
 `seed` is not sent.
+
+## Anthropic Messages
+
+`POST /v1/messages` answers the Anthropic Messages API, so Claude Code, the
+Anthropic SDKs and other tools built for it can call the workspace's models
+through the same governed path as `/v1/chat/completions`: one run per call
+(`source=gateway`), the same rate limits, quotas, budgets, content safety and
+cost ledger. The model behind a call does not have to be Anthropic's: SOIT
+translates the request for whichever provider the model ref names.
+
+| Setting  | Value |
+| -------- | ----- |
+| Base URL | the API address with no `/v1` (the SDKs add `/v1/messages`), e.g. `http://localhost:9200` |
+| API key  | a SOIT API key, sent as `x-api-key: sk_…` or `Authorization: Bearer sk_…` |
+| Model    | a model ref, `model:{provider}:{model}`, or a virtual model, `vmodel:{slug}` |
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:9200
+export ANTHROPIC_API_KEY=sk_…
+export ANTHROPIC_MODEL=model:anthropic:claude-sonnet-5-5   # Claude Code
+```
+
+| Request field | Behaviour |
+| ------------- | --------- |
+| `model`, `max_tokens`, `messages` | Required. Content is a string or blocks: `text`, `image` (`base64` or `url` source), `tool_use` and `tool_result` (text content). |
+| `system` | A string or `text` blocks, joined into one system message. |
+| `temperature`, `top_p`, `stop_sequences`, `stream` | Sent to the model. |
+| `tools`, `tool_choice` | Client-defined tools. `tool_choice` `auto`, `any`, `tool` and `none` are honoured; `disable_parallel_tool_use` is accepted and not sent. |
+| `top_k`, `metadata`, `service_tier`, `thinking`, `cache_control` | Accepted and not sent. Responses never carry thinking blocks, and thinking blocks in the history are dropped. |
+| `anthropic-version`, `anthropic-beta` headers | Accepted and not interpreted. |
+
+Anything SOIT cannot carry is refused with `400` naming it rather than
+ignored: a `document` or other content block, an image inside a `tool_result`,
+and tools Anthropic runs itself (web search, code execution, bash, the text
+editor, computer use), since dropping one would change what the model can do
+without saying so.
+
+A streamed call uses Anthropic's named events (`message_start`, `ping`,
+`content_block_start`, `content_block_delta`, `content_block_stop`,
+`message_delta`, `message_stop`). `message_start` carries SOIT's estimate of the
+prompt's tokens, and `message_delta` the provider's count once it is known. The
+gateway's outbound content check can hold text back, so a streamed reply may
+deliver its tool calls before its text. `stop_reason` follows what the provider
+reports (`end_turn`, `max_tokens`, `tool_use`, `stop_sequence`, `refusal`); a
+provider that reports a bare stop does not say whether a stop sequence ended
+the turn, so that case is `end_turn`, and `stop_sequence` is always `null`.
+
+`POST /v1/messages/count_tokens` returns `{"input_tokens": n}` for a prompt. It
+is SOIT's estimate, not the provider's tokenizer, calls no model, opens no run
+and is not billed. The Message Batches, Files and Models APIs are not served.
 
 ## Image options by route
 
@@ -358,6 +412,14 @@ Refusals use OpenAI's error body, `{"error": {"message", "type", "param",
 "code"}}`, so SDKs raise their usual exception classes. `code` is SOIT's error
 code in lower case.
 
+Under `/v1/messages`, refusals use Anthropic's body instead, `{"type": "error",
+"error": {"type", "message"}}`, with the same statuses and these types: `400`
+`invalid_request_error`, `401` `authentication_error`, `402` `billing_error`,
+`403` `permission_error`, `404` `not_found_error`, `413` `request_too_large`,
+`429` `rate_limit_error` (with `Retry-After`) and `5xx` `api_error`. A failure
+after a stream has started arrives as an `error` event, since the status line
+is already sent.
+
 | Status | `type` | Typical cause |
 | ------ | ------ | ------------- |
 | 400 | `invalid_request_error` | a malformed request, `n` above 1, an image size out of range, an image parameter SOIT does not send |
@@ -390,6 +452,10 @@ gateway entry points reach the model hub and the other domain modules only
 through the composition root, which an import contract in CI holds them to.
 
 ## Compatibility testing
+
+The Anthropic-compatible route is covered by entrypoint tests that drive it
+over HTTP, with streaming, tool use and error shapes; no Anthropic SDK runs
+against it in CI yet.
 
 `server/tests/compat` drives the OpenAI Python SDK against the gateway in CI:
 completions, streams, tool calls, structured output, base64 embeddings, model

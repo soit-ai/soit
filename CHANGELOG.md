@@ -14,6 +14,18 @@ record for operators.
 
 ### Added
 
+- The gateway serves the Anthropic Messages API: `POST /v1/messages`, whole
+  or streamed in Anthropic's named events, and `POST /v1/messages/count_tokens`,
+  so Claude Code and the Anthropic SDKs can be pointed at SOIT with
+  `x-api-key` or a Bearer key. A call is an ordinary governed gateway run
+  (`source=gateway`) through the same policy chain as `/v1/chat/completions`,
+  on whichever provider the model ref names. Text, images, `tool_use` and
+  `tool_result` blocks, `system`, `tools` and `tool_choice` are carried;
+  `thinking`, `cache_control`, `top_k` and `metadata` are accepted and not
+  sent; a content block or server tool SOIT cannot carry is refused with
+  `400` by name. Refusals under `/v1/messages` use Anthropic's error body.
+  `count_tokens` is an estimate that calls no model. See
+  [Anthropic Messages](docs/gateway.md#anthropic-messages).
 - A DeepSeek provider now has a model catalog: refreshing it lists the
   models DeepSeek's OpenAI-compatible `/models` answers, at the provider's
   base URL (`https://api.deepseek.com` or its `/v1` address), and the

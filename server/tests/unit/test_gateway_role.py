@@ -19,7 +19,14 @@ def _paths(role: str) -> set[str]:
 def test_a_gateway_serves_the_entry_points_and_health() -> None:
     paths = _paths("gateway")
 
-    assert {"/v1/chat/completions", "/v1/models", "/v1/embeddings", "/v1/images/generations"} <= paths
+    assert {
+        "/v1/chat/completions",
+        "/v1/messages",
+        "/v1/messages/count_tokens",
+        "/v1/models",
+        "/v1/embeddings",
+        "/v1/images/generations",
+    } <= paths
     assert "/mcp" in paths
     assert any(path.startswith("/.well-known/") for path in paths)
     assert "/api/v1/tools/{tool_ref}/invoke" in paths

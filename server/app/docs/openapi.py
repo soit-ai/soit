@@ -82,4 +82,8 @@ tags_metadata = [
         "name": "openai-compatible",
         "description": "OpenAI-compatible model gateway under /v1, in OpenAI's request, response and error shapes.",
     },
+    {
+        "name": "anthropic-compatible",
+        "description": "Anthropic Messages gateway under /v1/messages, in Anthropic's request, stream and error shapes.",
+    },
 ]

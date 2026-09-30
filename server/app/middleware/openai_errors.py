@@ -1,9 +1,11 @@
-"""Error bodies for the OpenAI-compatible surface.
+"""Error bodies for the OpenAI- and Anthropic-compatible surfaces.
 
 Routes under ``/v1`` answer OpenAI SDK clients, which parse failures from
 ``{"error": {"message", "type", "param", "code"}}`` and decide what to retry
-from the status code and ``type``. Every other route keeps the SOIT envelope.
-One function builds either shape from the same status, code and message, so
+from the status code and ``type``. The Messages routes under ``/v1/messages``
+answer Anthropic SDK clients, which parse ``{"type": "error", "error":
+{"type", "message"}}`` instead. Every other route keeps the SOIT envelope.
+One function builds each shape from the same status, code and message, so
 the exception handlers and the error middleware cannot disagree.
 """
 
@@ -14,6 +16,7 @@ from typing import Any
 from fastapi.responses import JSONResponse
 
 OPENAI_COMPATIBLE_PREFIX = "/v1"
+ANTHROPIC_COMPATIBLE_PREFIX = "/v1/messages"
 
 _TYPE_BY_STATUS: dict[int, str] = {
     400: "invalid_request_error",
@@ -32,6 +35,38 @@ def is_openai_compatible_path(path: str) -> bool:
     """Whether ``path`` belongs to the OpenAI-compatible surface."""
 
     return path == OPENAI_COMPATIBLE_PREFIX or path.startswith(OPENAI_COMPATIBLE_PREFIX + "/")
+
+
+def is_anthropic_compatible_path(path: str) -> bool:
+    """Whether ``path`` belongs to the Anthropic Messages surface."""
+
+    return path == ANTHROPIC_COMPATIBLE_PREFIX or path.startswith(ANTHROPIC_COMPATIBLE_PREFIX + "/")
+
+
+_ANTHROPIC_TYPE_BY_STATUS: dict[int, str] = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    402: "billing_error",
+    403: "permission_error",
+    404: "not_found_error",
+    413: "request_too_large",
+    429: "rate_limit_error",
+    504: "timeout_error",
+    529: "overloaded_error",
+}
+
+
+def anthropic_error_type(status_code: int) -> str:
+    if status_code in _ANTHROPIC_TYPE_BY_STATUS:
+        return _ANTHROPIC_TYPE_BY_STATUS[status_code]
+    return "api_error" if status_code >= 500 else "invalid_request_error"
+
+
+def anthropic_error_body(status_code: int, *, message: str) -> dict[str, Any]:
+    return {
+        "type": "error",
+        "error": {"type": anthropic_error_type(status_code), "message": message},
+    }
 
 
 def openai_error_type(status_code: int) -> str:
@@ -87,8 +122,14 @@ def error_response(
     *,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
-    """Answer with the SOIT envelope, or the OpenAI body under ``/v1``."""
+    """Answer with the SOIT envelope, or the provider-shaped body under ``/v1``."""
 
+    if is_anthropic_compatible_path(path):
+        return JSONResponse(
+            status_code=status_code,
+            content=anthropic_error_body(status_code, message=str(envelope.get("message") or "")),
+            headers=headers,
+        )
     if is_openai_compatible_path(path):
         content = openai_error_body(
             status_code,
