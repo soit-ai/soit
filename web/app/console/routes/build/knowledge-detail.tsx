@@ -11,15 +11,18 @@ import {
   FilterChip,
   IconReplay,
   IconSearch,
+  KnowledgeSourcesPanel,
   StatTile,
   StatTileGrid,
   StatusChip,
   TaskProgress,
   WorkbenchPanel,
   useDataStateLabel,
+  useKnowledgeSources,
   type ConsoleStatus,
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
+import { relativeFuture } from '../../adapters/knowledge-sources'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
@@ -62,7 +65,15 @@ import {
   chunkingPresetOf,
 } from '../../adapters/chunking'
 
-type KdTab = 'documents' | 'chunks' | 'testing' | 'usages' | 'indexes' | 'analytics' | 'settings'
+type KdTab =
+  | 'documents'
+  | 'chunks'
+  | 'testing'
+  | 'usages'
+  | 'indexes'
+  | 'sources'
+  | 'analytics'
+  | 'settings'
 
 const DOCS_PAGE_SIZE = 50
 const CHUNKS_PAGE_SIZE = 50
@@ -198,6 +209,7 @@ export default function ConsoleKnowledgeDetail() {
     queryFn: () => listKnowledgeIndexes(knowledgeId),
     options: { enabled, retry: false, refetchOnWindowFocus: false },
   })
+  const sourcesQuery = useKnowledgeSources(knowledgeId)
   const usagesQuery = useQuery({
     queryKey: ['console', 'knowledge', 'usages', knowledgeId],
     queryFn: () => listKnowledgeUsages(knowledgeId),
@@ -224,6 +236,7 @@ export default function ConsoleKnowledgeDetail() {
   const documents = documentsQuery.data || []
   const indexes = indexesQuery.data || []
   const usages = usagesQuery.data || []
+  const sources = sourcesQuery.data || []
   const cost = costQuery.data
   const retrievalQuality = retrievalQuery.data
 
@@ -282,6 +295,20 @@ export default function ConsoleKnowledgeDetail() {
   const embeddingRef = primaryIndex?.embedding_model_ref || base?.default_embedding_model_ref
   const lastSyncAt = primaryIndex?.last_build_at || base?.last_indexed_at || base?.last_ingested_at
   const lastSyncRunId = primaryIndex?.last_run_id
+  // Sync lives on the library's sources: how many there are and when the
+  // soonest schedule next fires.
+  const nextSyncAt = sources
+    .filter((source) => source.enabled && source.schedule_cron && source.next_sync_at)
+    .map((source) => source.next_sync_at as string)
+    .sort()[0]
+  const syncSummary = sources.length
+    ? [
+        t('console.knowDetail.sources.meta.summary', { count: sources.length }),
+        nextSyncAt ? t('console.knowDetail.sources.meta.next', { time: relativeFuture(nextSyncAt) }) : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : t('console.knowDetail.sources.meta.none')
   const agentUsages = usages.filter((usage) => usage.resource_kind === 'agent').length
   const workflowUsages = usages.filter((usage) => usage.resource_kind === 'workflow').length
 
@@ -556,6 +583,7 @@ export default function ConsoleKnowledgeDetail() {
     ['testing', t('console.knowDetail.tabs.testing'), null],
     ['usages', t('console.knowDetail.tabs.usages'), usages.length ? String(usages.length) : null],
     ['indexes', t('console.knowDetail.indexes.tab'), indexes.length ? String(indexes.length) : null],
+    ['sources', t('console.knowDetail.sources.tab'), sources.length ? String(sources.length) : null],
     ['analytics', t('console.knowDetail.tabs.analytics'), null],
     ['settings', t('console.knowDetail.tabs.settings'), null],
   ]
@@ -605,9 +633,7 @@ export default function ConsoleKnowledgeDetail() {
               : '—'}
           </b>
         </span>
-        {/* No sync-schedule field exists on the knowledge record; ingest is
-            triggered per document or per ingest task. */}
-        <span>Sync<b>—</b></span>
+        <span>Sync<b>{syncSummary}</b></span>
         <span>
           Last sync
           <b>
@@ -925,6 +951,8 @@ export default function ConsoleKnowledgeDetail() {
           </div>
         </WorkbenchPanel>
       )}
+
+      {tab === 'sources' && <KnowledgeSourcesPanel knowledgeId={knowledgeId} />}
 
       {tab === 'indexes' && (
         <WorkbenchPanel

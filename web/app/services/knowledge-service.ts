@@ -68,6 +68,8 @@ export interface KnowledgeDocument {
   filename?: string | null
   size_bytes?: number | null
   source_uri?: string | null
+  /** The document's identity in the external system a source synced it from. */
+  external_id?: string | null
   status: string
   created_at: string
   updated_at: string
@@ -583,4 +585,222 @@ export const queryKnowledge = (
   data: KnowledgeQueryRequest
 ): Promise<KnowledgeQueryResponse> => {
   return post<KnowledgeQueryResponse>(`/knowledge/${knowledgeId}/query`, data)
+}
+
+// ---------------------------------------------------------------------------
+// Sources: external systems a knowledge base is synced from
+// ---------------------------------------------------------------------------
+
+export type ConnectorFieldType = 'string' | 'text' | 'integer' | 'boolean' | 'string_list' | 'select'
+
+export interface ConnectorField {
+  key: string
+  label: string
+  type: ConnectorFieldType
+  required: boolean
+  default?: unknown
+  help?: string | null
+  placeholder?: string | null
+  options: { value: string; label: string }[]
+  minimum?: number | null
+  maximum?: number | null
+}
+
+/** A connector kind and the settings it takes, as the server describes it. */
+export interface KnowledgeConnector {
+  kind: string
+  label: string
+  description: string
+  fields: ConnectorField[]
+  /** Whether the kind reads its credentials from a secret. */
+  secret: 'none' | 'optional' | 'required'
+  secret_help?: string | null
+}
+
+export interface KnowledgeSourceLimits {
+  max_items: number
+  max_item_bytes: number
+  max_total_bytes: number
+}
+
+export interface KnowledgeSourceCounts {
+  added?: number
+  updated?: number
+  unchanged?: number
+  removed?: number
+  failed?: number
+  skipped?: number
+  truncated?: boolean
+}
+
+export interface KnowledgeSource {
+  id: string
+  tenant_id: string
+  workspace_id: string
+  knowledge_id: string
+  name: string
+  connector_kind: string
+  config: Record<string, unknown>
+  /** Opaque id of the secret holding the credentials; never the credentials. */
+  secret_id?: string | null
+  limits: KnowledgeSourceLimits
+  schedule_cron?: string | null
+  schedule_timezone: string
+  enabled: boolean
+  delete_removed: boolean
+  next_sync_at?: string | null
+  last_sync_at?: string | null
+  last_status?: string | null
+  last_error?: string | null
+  last_counts: KnowledgeSourceCounts
+  /** Id of the run queued or running now, if any. */
+  active_run_id?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface KnowledgeSourceCreateRequest {
+  name: string
+  connector_kind: string
+  config: Record<string, unknown>
+  secret_id?: string | null
+  schedule_cron?: string | null
+  schedule_timezone?: string
+  enabled?: boolean
+  delete_removed?: boolean
+  limits?: Partial<KnowledgeSourceLimits> | null
+}
+
+/** Only the fields present are changed; `null` clears the schedule or secret. */
+export type KnowledgeSourceUpdateRequest = Partial<Omit<KnowledgeSourceCreateRequest, 'connector_kind'>>
+
+export interface KnowledgeSourceTestRequest {
+  connector_kind: string
+  config: Record<string, unknown>
+  secret_id?: string | null
+}
+
+export interface KnowledgeSourceTestResult {
+  ok: boolean
+  message: string
+  sample: {
+    external_id: string
+    name: string
+    size?: number | null
+    modified?: string | null
+    content_type?: string | null
+  }[]
+}
+
+export type KnowledgeSyncRunStatus = 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'canceled'
+
+export interface KnowledgeSyncRun {
+  id: string
+  source_id: string
+  knowledge_id: string
+  trigger: 'manual' | 'schedule' | string
+  status: KnowledgeSyncRunStatus | string
+  added_count: number
+  updated_count: number
+  unchanged_count: number
+  removed_count: number
+  failed_count: number
+  skipped_count: number
+  /** A cap ended the listing early, so removals were not evaluated. */
+  truncated: boolean
+  error_code?: string | null
+  error_message?: string | null
+  cancel_requested: boolean
+  requested_by?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  created_at: string
+}
+
+export interface KnowledgeSyncOutcome {
+  external_id: string
+  name: string
+  outcome: 'added' | 'updated' | 'removed' | 'failed' | string
+  error?: string
+  detail?: string
+}
+
+export interface KnowledgeSyncRunDetail extends KnowledgeSyncRun {
+  outcomes: KnowledgeSyncOutcome[]
+}
+
+export const listKnowledgeConnectors = (): Promise<KnowledgeConnector[]> => {
+  return get<KnowledgeConnector[]>('/knowledge/connectors')
+}
+
+export const listKnowledgeSources = (knowledgeId: string): Promise<KnowledgeSource[]> => {
+  return get<KnowledgeSource[]>(`/knowledge/${knowledgeId}/sources`)
+}
+
+export const createKnowledgeSource = (
+  knowledgeId: string,
+  data: KnowledgeSourceCreateRequest,
+): Promise<KnowledgeSource> => {
+  return post<KnowledgeSource>(`/knowledge/${knowledgeId}/sources`, data)
+}
+
+export const updateKnowledgeSource = (
+  knowledgeId: string,
+  sourceId: string,
+  data: KnowledgeSourceUpdateRequest,
+): Promise<KnowledgeSource> => {
+  return patch<KnowledgeSource>(`/knowledge/${knowledgeId}/sources/${sourceId}`, data)
+}
+
+export const deleteKnowledgeSource = (knowledgeId: string, sourceId: string): Promise<void> => {
+  return del(`/knowledge/${knowledgeId}/sources/${sourceId}`).then(() => undefined)
+}
+
+/** Tests a connection that has not been saved; nothing is ingested. */
+export const testKnowledgeSourceDraft = (
+  knowledgeId: string,
+  data: KnowledgeSourceTestRequest,
+): Promise<KnowledgeSourceTestResult> => {
+  return post<KnowledgeSourceTestResult>(`/knowledge/${knowledgeId}/sources/test`, data)
+}
+
+/** Tests a saved source and lists a sample of what it would sync. */
+export const testKnowledgeSource = (
+  knowledgeId: string,
+  sourceId: string,
+): Promise<KnowledgeSourceTestResult> => {
+  return post<KnowledgeSourceTestResult>(`/knowledge/${knowledgeId}/sources/${sourceId}/test`)
+}
+
+/** Queues a sync now; answers 409 while one is already queued or running. */
+export const syncKnowledgeSource = (
+  knowledgeId: string,
+  sourceId: string,
+): Promise<KnowledgeSyncRun> => {
+  return post<KnowledgeSyncRun>(`/knowledge/${knowledgeId}/sources/${sourceId}/sync`)
+}
+
+export const listKnowledgeSyncRuns = (
+  knowledgeId: string,
+  sourceId: string,
+  params?: { limit?: number; offset?: number },
+): Promise<KnowledgeSyncRun[]> => {
+  return get<KnowledgeSyncRun[]>(`/knowledge/${knowledgeId}/sources/${sourceId}/runs`, params)
+}
+
+export const getKnowledgeSyncRun = (
+  knowledgeId: string,
+  sourceId: string,
+  runId: string,
+): Promise<KnowledgeSyncRunDetail> => {
+  return get<KnowledgeSyncRunDetail>(`/knowledge/${knowledgeId}/sources/${sourceId}/runs/${runId}`)
+}
+
+export const cancelKnowledgeSyncRun = (
+  knowledgeId: string,
+  sourceId: string,
+  runId: string,
+): Promise<KnowledgeSyncRun> => {
+  return post<KnowledgeSyncRun>(`/knowledge/${knowledgeId}/sources/${sourceId}/runs/${runId}/cancel`)
 }

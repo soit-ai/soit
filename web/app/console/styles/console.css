@@ -1112,3 +1112,6 @@
   .console-root .subnav{display:none}
   .console-root .subnav-open{display:grid}
 }
+
+/* A write dialog that carries a table, such as a source's sync history. */
+:is(.console-root,.console-theme) .console-modal.console-modal-wide,.console-theme.console-modal.console-modal-wide{width:880px}

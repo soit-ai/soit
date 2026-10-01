@@ -95,8 +95,9 @@ record for operators.
   letters as `knowledge_sync`, where redrive queues a fresh run. Requests
   go through the egress policy, so a private endpoint needs its network in
   `EGRESS_PRIVATE_NETWORKS`. `GET /api/v1/knowledge/connectors` lists the
-  kinds and their settings. Per-document access mapping and OAuth sources
-  are not part of this release.
+  kinds and their settings, and a knowledge base's new Sources tab in the
+  console creates, tests, schedules, runs and inspects them. Per-document
+  access mapping and OAuth sources are not part of this release.
 - A DeepSeek provider now has a model catalog: refreshing it lists the
   models DeepSeek's OpenAI-compatible `/models` answers, at the provider's
   base URL (`https://api.deepseek.com` or its `/v1` address), and the
