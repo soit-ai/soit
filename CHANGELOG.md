@@ -206,6 +206,9 @@ record for operators.
 
 ### Fixed
 
+- Running an evaluation on an archived dataset now answers that the dataset is
+  archived and must be restored, with `details.reason` `dataset_archived`,
+  instead of saying there are no cases to run.
 - Retrying a task of a type nothing can re-execute answered a generic
   `409 CONFLICT` saying the re-execution "is not implemented", and a
   retry that reached the outbox without a driver marked the task failed

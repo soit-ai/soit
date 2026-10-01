@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
-from app.kernel.commons.errors import NotFoundError
+from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.modules.evaluation.application.dataset_format import snapshot_to_input
 from app.modules.evaluation.application.dataset_service import DatasetSummary
@@ -77,6 +77,25 @@ def case_response(case: RegressionCase) -> DatasetCaseResponse:
 class EvaluationHandlers:
     def __init__(self, service: RegressionEvaluationService) -> None:
         self.service = service
+
+
+    async def require_runnable_dataset(
+        self, *, subject_kind: str, subject_id: str, dataset: str
+    ) -> None:
+        """Refuse to run a dataset that was archived, naming the reason.
+
+        An archived dataset has no active cases, so running it would otherwise
+        answer only that there is nothing to run.
+        """
+
+        row = await self.service.datasets.find_dataset(
+            subject_kind=subject_kind, subject_id=subject_id, name=dataset
+        )
+        if row is not None and row.status == "archived":
+            raise ValidationError(
+                f"Dataset '{dataset}' is archived; restore it to run it",
+                {"dataset": dataset, "reason": "dataset_archived"},
+            )
 
     async def create_case_from_run(
         self,

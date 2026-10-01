@@ -134,6 +134,9 @@ async def run_evaluation(
     rehearsal and the report is recorded, so ``regression-reports/latest`` and
     the trend read it afterwards.
     """
+    await EvaluationHandlers(evaluations).require_runnable_dataset(
+        subject_kind=payload.subject_kind, subject_id=payload.subject_id, dataset=payload.dataset
+    )
     result = await agents.run_regressions(
         agent_id=payload.subject_id,
         version_id=payload.subject_version_id,

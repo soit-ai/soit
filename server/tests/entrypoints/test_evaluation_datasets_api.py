@@ -278,6 +278,9 @@ async def test_an_imported_dataset_runs_and_its_reports_are_listed_with_their_re
     await async_client.delete(url)
     gone = await async_client.post(f"{BASE}/run", json={"subject_id": agent_id, "dataset": "refunds"})
     assert gone.status_code == status.HTTP_400_BAD_REQUEST
+    # The refusal names the reason, rather than saying there is nothing to run.
+    assert "archived" in gone.json()["message"]
+    assert gone.json()["details"]["reason"] == "dataset_archived"
 
 
 @pytest.mark.asyncio
