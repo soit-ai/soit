@@ -83,11 +83,14 @@ class DocumentUpload(BaseModel):
     doc_key: str = Field(..., min_length=1)
     """Document key."""
 
-    source_kind: str = Field(..., pattern="^(upload|crawler|api|manual)$")
+    source_kind: str = Field(..., pattern="^(upload|crawler|api|manual|connector)$")
     """Source kind."""
 
     source_uri: str | None = None
     """Source URI."""
+
+    external_id: str | None = None
+    """Identity of the document in the external system it was synced from."""
 
     file_id: str | None = None
     """File ID."""
@@ -288,6 +291,7 @@ class DocumentResponse(BaseModel):
     checksum: str | None
     content_hash: str | None
     source_uri: str | None
+    external_id: str | None = None
     file_id: str | None
     error_code: str | None
     error_message: str | None

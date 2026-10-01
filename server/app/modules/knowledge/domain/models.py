@@ -6,7 +6,7 @@ Knowledge domain DB models backed by the knowledge storage tables.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Text
+from sqlalchemy import BigInteger, Index, Text, text
 from sqlmodel import JSON, Column, Field, SQLModel
 from sqlmodel.sql.sqltypes import UTCDateTime
 
@@ -37,6 +37,21 @@ def generate_index_id() -> str:
 def generate_ingest_task_id() -> str:
     """Generate knowledge ingest task ID."""
     return f"ingest_{generate_ulid()}"
+
+
+def generate_source_id() -> str:
+    """Generate knowledge source ID."""
+    return f"ksrc_{generate_ulid()}"
+
+
+def generate_source_item_id() -> str:
+    """Generate knowledge source item ID."""
+    return f"ksi_{generate_ulid()}"
+
+
+def generate_sync_run_id() -> str:
+    """Generate knowledge sync run ID."""
+    return f"ksync_{generate_ulid()}"
 
 
 class Knowledge(SQLModel, table=True):
@@ -482,3 +497,242 @@ class KnowledgeIndex(SQLModel, table=True):
 
     deleted_at: datetime | None = Field(default=None, nullable=True)
     """Soft delete timestamp."""
+
+
+class KnowledgeSource(SQLModel, table=True):
+    """KnowledgeSource model - an external system a knowledge base is synced from."""
+
+    __tablename__ = "knowledge_sources"
+
+    id: str = Field(primary_key=True, default_factory=generate_source_id)
+    """Source ID."""
+
+    tenant_id: str = Field(index=True)
+    """Tenant ID."""
+
+    workspace_id: str = Field(index=True)
+    """Workspace ID."""
+
+    knowledge_id: str = Field(index=True)
+    """Knowledge ID the source feeds (reference enforced in code)."""
+
+    name: str = Field()
+    """Source display name."""
+
+    connector_kind: str = Field()
+    """Connector kind: s3, web."""
+
+    config_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Connector configuration. Never holds credentials."""
+
+    secret_id: str | None = Field(default=None, nullable=True)
+    """Opaque secret id the connector's credentials are resolved from."""
+
+    limits_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Per-run caps: max_items, max_item_bytes, max_total_bytes."""
+
+    schedule_cron: str | None = Field(default=None, nullable=True)
+    """Five-field cron expression; empty means manual sync only."""
+
+    schedule_timezone: str = Field(default="UTC")
+    """IANA time zone the cron expression is evaluated in."""
+
+    enabled: bool = Field(default=True)
+    """Disabled sources are neither scheduled nor synced on demand."""
+
+    delete_removed: bool = Field(default=False)
+    """Delete a document once its item disappears from the remote."""
+
+    next_sync_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTime(), nullable=True, index=True),
+    )
+    """When the schedule next fires."""
+
+    last_sync_at: datetime | None = Field(default=None, nullable=True)
+    """When the most recent run finished."""
+
+    last_status: str | None = Field(default=None, nullable=True)
+    """Status of the most recent run."""
+
+    last_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    """Error of the most recent run, if it failed."""
+
+    last_counts_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Counts of the most recent finished run."""
+
+    created_by: str | None = Field(default=None, nullable=True)
+    """User ID who created."""
+
+    updated_by: str | None = Field(default=None, nullable=True)
+    """User ID who last updated."""
+
+    created_at: datetime = Field(default_factory=utc_now)
+    """Creation timestamp."""
+
+    updated_at: datetime = Field(default_factory=utc_now)
+    """Last update timestamp."""
+
+    deleted_at: datetime | None = Field(default=None, nullable=True)
+    """Soft delete timestamp."""
+
+
+class KnowledgeSourceItem(SQLModel, table=True):
+    """KnowledgeSourceItem model - what a source last saw of one remote item."""
+
+    __tablename__ = "knowledge_source_items"
+    __table_args__ = (
+        Index("uq_knowledge_source_items_source_external", "source_id", "external_id", unique=True),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_source_item_id)
+    """Item ID."""
+
+    tenant_id: str = Field(index=True)
+    """Tenant ID."""
+
+    workspace_id: str = Field(index=True)
+    """Workspace ID."""
+
+    source_id: str = Field(index=True)
+    """Source ID (reference enforced in code)."""
+
+    external_id: str = Field()
+    """The remote identity of the item (object key, normalized URL)."""
+
+    doc_key: str | None = Field(default=None, nullable=True)
+    """Document key the item's versions are stored under."""
+
+    document_id: str | None = Field(default=None, nullable=True)
+    """Latest document ingested for the item."""
+
+    remote_etag: str | None = Field(default=None, nullable=True)
+    """Remote ETag at the last successful sync."""
+
+    remote_modified: str | None = Field(default=None, nullable=True)
+    """Remote modification marker at the last successful sync."""
+
+    remote_size: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    """Remote size in bytes at the last successful sync."""
+
+    content_hash: str | None = Field(default=None, nullable=True)
+    """SHA-256 of the content last ingested."""
+
+    status: str = Field(default="present")
+    """Status: present, removed, failed."""
+
+    meta_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Connector-private per-item state."""
+
+    last_seen_at: datetime | None = Field(default=None, nullable=True)
+    """Last time a run saw the item in the remote."""
+
+    last_synced_at: datetime | None = Field(default=None, nullable=True)
+    """Last time the item's content was ingested."""
+
+    last_error: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    """Error of the last attempt, if it failed."""
+
+    created_at: datetime = Field(default_factory=utc_now)
+    """Creation timestamp."""
+
+    updated_at: datetime = Field(default_factory=utc_now)
+    """Last update timestamp."""
+
+
+class KnowledgeSyncRun(SQLModel, table=True):
+    """KnowledgeSyncRun model - one execution of a source's sync."""
+
+    __tablename__ = "knowledge_sync_runs"
+    __table_args__ = (
+        # At most one queued or running run per source, enforced by the store
+        # so two schedulers or a double click cannot both start one.
+        Index(
+            "uq_knowledge_sync_runs_active_source",
+            "source_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+            sqlite_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_sync_run_id)
+    """Run ID."""
+
+    tenant_id: str = Field(index=True)
+    """Tenant ID."""
+
+    workspace_id: str = Field(index=True)
+    """Workspace ID."""
+
+    knowledge_id: str = Field(index=True)
+    """Knowledge ID."""
+
+    source_id: str = Field(index=True)
+    """Source ID (reference enforced in code)."""
+
+    trigger: str = Field(default="manual")
+    """Trigger: manual, schedule."""
+
+    status: str = Field(default="queued", index=True)
+    """Status: queued, running, succeeded, partial, failed, canceled."""
+
+    added_count: int = Field(default=0)
+    """Items ingested for the first time."""
+
+    updated_count: int = Field(default=0)
+    """Items ingested as a new version."""
+
+    unchanged_count: int = Field(default=0)
+    """Items found unchanged."""
+
+    removed_count: int = Field(default=0)
+    """Items that disappeared from the remote."""
+
+    failed_count: int = Field(default=0)
+    """Items that could not be synced."""
+
+    skipped_count: int = Field(default=0)
+    """Remote objects left out, such as unsupported file types."""
+
+    truncated: bool = Field(default=False)
+    """A cap ended the listing early, so removals were not evaluated."""
+
+    outcomes_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    """Per-item outcomes other than unchanged, capped."""
+
+    error_code: str | None = Field(default=None, nullable=True)
+    """Error code if the run failed."""
+
+    error_message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    """Error message if the run failed."""
+
+    cancel_requested: bool = Field(default=False)
+    """Set to ask a running run to stop between items."""
+
+    lease_owner: str | None = Field(default=None, nullable=True, index=True)
+    """Worker currently holding the execution lease."""
+
+    lease_expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(UTCDateTime(), nullable=True, index=True),
+    )
+    """Lease expiry; a running run past this moment is reclaimable."""
+
+    attempt_count: int = Field(default=0)
+    """Number of times this run has been claimed for execution."""
+
+    requested_by: str | None = Field(default=None, nullable=True)
+    """User ID who started the run, or null for a scheduled one."""
+
+    started_at: datetime | None = Field(default=None, nullable=True)
+    """Start timestamp."""
+
+    finished_at: datetime | None = Field(default=None, nullable=True)
+    """Finish timestamp."""
+
+    created_at: datetime = Field(default_factory=utc_now)
+    """Creation timestamp."""
+
+    updated_at: datetime = Field(default_factory=utc_now)
+    """Last update timestamp."""

@@ -804,6 +804,7 @@ class KnowledgeRuntimeService:
             status="queued",
             source_kind=document_in.source_kind,
             source_uri=document_in.source_uri,
+            external_id=document_in.external_id,
             file_id=document_in.file_id,
             title=document_in.title,
             language=document_in.language,
@@ -1455,6 +1456,8 @@ class KnowledgeRuntimeService:
             raise KernelError("NO_FILE", "File content or file_id is required for upload source")
         if document_in.source_kind == "crawler" and not document_in.source_uri:
             raise KernelError("INVALID_SOURCE_URI", "source_uri is required for crawler source")
+        if document_in.source_kind == "connector":
+            raise ValidationError("Connector documents are created by a source sync, not uploaded")
 
         await self._require_index(knowledge_id)
 
@@ -1493,6 +1496,7 @@ class KnowledgeRuntimeService:
                 doc_key=document_in.doc_key,
                 source_kind=document_in.source_kind,
                 source_uri=document_in.source_uri,
+                external_id=document_in.external_id,
                 file_id=document_in.file_id,
                 title=document_in.title,
                 language=document_in.language,

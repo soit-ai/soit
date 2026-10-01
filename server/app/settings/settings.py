@@ -366,6 +366,40 @@ class Settings(BaseSettings):
     knowledge_ingest_worker_lease_seconds: int = 120
     """Lease duration held while one ingestion task executes."""
 
+    # Knowledge connector sync
+    knowledge_sync_worker_enabled: bool = True
+    """Run the connector sync worker wherever the knowledge ingest worker runs."""
+
+    knowledge_sync_worker_poll_interval: float = 5.0
+    """Polling interval (seconds) for queued connector sync runs."""
+
+    knowledge_sync_scheduler_interval_seconds: float = 30.0
+    """How often the sync worker looks for sources whose schedule is due."""
+
+    knowledge_sync_worker_lease_seconds: int = 300
+    """Lease duration held while one connector sync run executes."""
+
+    knowledge_sync_max_attempts: int = 3
+    """Times a sync run may be claimed (including crash recovery) before it fails."""
+
+    knowledge_sync_default_max_items: int = 1000
+    """Per-run item cap for a source that sets none."""
+
+    knowledge_sync_max_items_ceiling: int = 20000
+    """Highest per-run item cap a source may ask for."""
+
+    knowledge_sync_default_max_item_bytes: int = 5 * 1024 * 1024
+    """Per-item size cap for a source that sets none."""
+
+    knowledge_sync_max_item_bytes_ceiling: int = 50 * 1024 * 1024
+    """Highest per-item size cap a source may ask for."""
+
+    knowledge_sync_default_max_total_bytes: int = 256 * 1024 * 1024
+    """Per-run download cap for a source that sets none."""
+
+    knowledge_sync_max_total_bytes_ceiling: int = 4 * 1024 * 1024 * 1024
+    """Highest per-run download cap a source may ask for."""
+
     # Workflow execution
     workflow_execution_lease_seconds: int = 120
     """Lease duration renewed while a workflow execution is running."""
