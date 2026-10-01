@@ -338,6 +338,7 @@ def _workspace_response(workspace: Any) -> WorkspaceResponse:
         pii_action_inbound=getattr(workspace, "pii_action_inbound", None),
         pii_action_outbound=getattr(workspace, "pii_action_outbound", None),
         pii_action_default=settings.content_safety_pii_action,
+        unpriced_call_policy=getattr(workspace, "unpriced_call_policy", None) or "allow",
         created_at=workspace.created_at,
     )
 

@@ -20,7 +20,7 @@ call's timeout.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -33,6 +33,7 @@ from app.kernel.commons.errors import (
     BudgetExhaustedError,
     ForbiddenError,
     NotFoundError,
+    UnpricedCallRefusedError,
     ValidationError,
 )
 from app.kernel.commons.time import utc_now
@@ -244,6 +245,13 @@ class BudgetBlockRecorder(Protocol):
     async def record_block(self, ctx: RequestContext, *, details: dict[str, Any]) -> None: ...
 
 
+UNPRICED_CALL_POLICIES = ("allow", "refuse_when_budgeted", "refuse")
+"""What a call with no price does: go ahead, be refused while a hard-stop
+budget applies to it, or always be refused."""
+
+UnpricedPolicyLookup = Callable[[], Awaitable[str]]
+
+
 def _spent_message(budget: Budget, spend: BudgetSpend, reason: str) -> str:
     limit = f"{budget.amount.normalize():f} {budget.currency}"
     spent = f"{spend.spent.normalize():f}"
@@ -266,12 +274,14 @@ class BudgetGuard:
         reservations: BudgetReservations | None = None,
         recorder: BudgetBlockRecorder | None = None,
         clock: Callable[[], datetime] = utc_now,
+        unpriced_policy: UnpricedPolicyLookup | None = None,
     ) -> None:
         self.db = db
         self.ctx = ctx
         self.reservations = reservations
         self.recorder = recorder
         self.clock = clock
+        self.unpriced_policy = unpriced_policy
 
     async def _agent_of(self, run_id: str | None) -> str | None:
         if not run_id:
@@ -346,6 +356,49 @@ class BudgetGuard:
             return
         track_hold(self.db, outcome, self.reservations, run_id=run_id)
 
+    async def check_unpriced(self, *, operation: str, run_id: str | None, ref: str, reason: str) -> None:
+        """Refuse a call no price applies to, when the workspace says so.
+
+        An unpriced call is recorded without an amount, so no budget sees it.
+        ``refuse_when_budgeted`` refuses it while a hard-stop budget applies to
+        the call, ``refuse`` always; ``allow`` lets it through as before.
+        """
+        if self.unpriced_policy is None:
+            return
+        policy = await self.unpriced_policy()
+        if policy not in ("refuse", "refuse_when_budgeted"):
+            return
+        budgets: list[Budget] = []
+        if policy == "refuse_when_budgeted":
+            budgets = await self.applicable(run_id)
+            if not budgets:
+                return
+        details: dict[str, Any] = {
+            "reason": "unpriced",
+            "policy": policy,
+            "pricing_reason": reason,
+            "ref": ref,
+            "operation": operation,
+            "budget_ids": [budget.id for budget in budgets],
+        }
+        record = getattr(self.recorder, "record_unpriced_block", None)
+        if record is not None:
+            try:
+                await record(self.ctx, details=details)
+            except Exception:
+                logger.warning("Could not audit an unpriced call refusal", exc_info=True)
+        if budgets:
+            message = (
+                f"No price is configured for {ref}, so budget '{budgets[0].name}' cannot "
+                "count this call; set a price or call a priced model or tool"
+            )
+        else:
+            message = (
+                f"No price is configured for {ref}, and this workspace refuses unpriced "
+                "calls; set a price or call a priced model or tool"
+            )
+        raise UnpricedCallRefusedError(message, details)
+
 
 class CompositeCreditGuard:
     """Runs several guards in order; the first refusal wins."""
@@ -356,6 +409,12 @@ class CompositeCreditGuard:
     async def check(self, *, operation: str, run_id: str | None = None) -> None:
         for guard in self.guards:
             await guard.check(operation=operation, run_id=run_id)
+
+    async def check_unpriced(self, *, operation: str, run_id: str | None, ref: str, reason: str) -> None:
+        for guard in self.guards:
+            handler = getattr(guard, "check_unpriced", None)
+            if handler is not None:
+                await handler(operation=operation, run_id=run_id, ref=ref, reason=reason)
 
 
 def _validated(scope_kind: str, scope_id: str | None, period: str) -> None:

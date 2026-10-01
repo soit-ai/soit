@@ -25,7 +25,7 @@ from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.common.api_key_admission import ApiKeyAdmission
-from app.kernel.ports.common.credit import CreditGuard, check_spend
+from app.kernel.ports.common.credit import CreditGuard, check_spend, check_unpriced
 from app.kernel.ports.common.policy import (
     error_details,
     resolve_run_id,
@@ -155,8 +155,12 @@ _UNAVAILABLE_ROUTE_CODES = frozenset(
 
 
 def _refuses_an_option(exc: KernelError) -> bool:
-    """Whether a target refused an image option, which another target may carry."""
-    return exc.code == "MODEL_IMAGE_CAPABILITY_UNAVAILABLE"
+    """Whether a target refused the request as asked, which another target may serve.
+
+    An image option its route cannot carry, or no price for it where the
+    workspace refuses unpriced calls.
+    """
+    return exc.code in {"MODEL_IMAGE_CAPABILITY_UNAVAILABLE", "PRICING_NOT_CONFIGURED"}
 
 
 def _option_refused_attempt(target: str, exc: KernelError) -> dict[str, Any]:
@@ -164,7 +168,20 @@ def _option_refused_attempt(target: str, exc: KernelError) -> dict[str, Any]:
     param = exc.details.get("param") or exc.details.get("capability")
     if param:
         attempt["param"] = param
+    if exc.code == "PRICING_NOT_CONFIGURED":
+        attempt["pricing_reason"] = exc.details.get("pricing_reason")
     return attempt
+
+
+def _unpriced_reason(calculation: Any) -> str | None:
+    """Why a call would be recorded without an amount; None when a price applies.
+
+    Whether a target is priced depends on its configuration only, so pricing
+    zero tokens tells it before the call.
+    """
+    if calculation.amount is not None:
+        return None
+    return str(calculation.snapshot.get("reason") or "pricing_not_configured")
 
 
 @dataclass(frozen=True)
@@ -978,11 +995,16 @@ class LLMPolicyGateway(LLMPort):
         invoke: Callable[[_ResolvedPolicyRoute, str], Awaitable[_CallResult]],
         *,
         operation: str,
+        unpriced: Callable[[_ResolvedPolicyRoute], str | None] | None = None,
+        credit_operation: str = "",
+        run_id: str | None = None,
     ) -> tuple[_ResolvedPolicyRoute, _CallResult, list[dict[str, Any]]]:
         """Call the first target that serves the request.
 
         For a concrete model this is the one route with its own retries. For
-        a virtual model the attempts are returned as run evidence.
+        a virtual model the attempts are returned as run evidence. ``unpriced``
+        says why a target would be recorded without a price; the workspace's
+        unpriced call policy may then pass it over for the next target.
         """
         targets = await self._targets(model)
         attempts: list[dict[str, Any]] = []
@@ -990,7 +1012,14 @@ class LLMPolicyGateway(LLMPort):
             last = index == len(targets) - 1
             try:
                 route = await self._resolve_call_route(target, required_capabilities)
+                if unpriced is not None:
+                    await self._admit_pricing(
+                        unpriced(route), operation=credit_operation, run_id=run_id, target=target
+                    )
             except KernelError as exc:
+                if exc.code == "PRICING_NOT_CONFIGURED" and not last:
+                    attempts.append(_option_refused_attempt(target, exc))
+                    continue
                 if last or exc.code not in _UNAVAILABLE_ROUTE_CODES:
                     raise
                 attempts.append({"model_ref": target, "outcome": "unavailable", "reason": exc.code})
@@ -1016,6 +1045,19 @@ class LLMPolicyGateway(LLMPort):
                 attempts.append({"model_ref": target, "outcome": "succeeded"})
             return route, result, attempts
         raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
+
+    async def _admit_pricing(
+        self,
+        reason: str | None,
+        *,
+        operation: str,
+        run_id: str | None,
+        target: str,
+    ) -> None:
+        """Ask the spend guard about a call no price applies to; nothing when priced."""
+        if reason is None or self.credit_guard is None:
+            return
+        await check_unpriced(self.credit_guard, operation=operation, run_id=run_id, ref=target, reason=reason)
 
     async def _first_available_route(
         self,
@@ -1062,6 +1104,35 @@ class LLMPolicyGateway(LLMPort):
                 attempts.append({"model_ref": target, "outcome": "selected"})
             return route, target, attempts
         raise KernelError("MODEL_RUNTIME_NOT_FOUND", f"No model could serve: {model}")
+
+    async def _admit_image_call(
+        self,
+        route: _ResolvedPolicyRoute,
+        target: str,
+        *,
+        credit_operation: str,
+        run_id: str | None,
+        image_count: int,
+        size: str | None,
+        options: dict[str, Any],
+        request: Callable[[], Awaitable[None]],
+    ) -> None:
+        """What a target can carry, then whether its price for the request is known.
+
+        An image is priced by its size and quality, so the same model can be
+        priced for one request and not for another.
+        """
+        await request()
+        reason = _unpriced_reason(
+            _image_pricing(
+                route.pricing,
+                image_count=image_count,
+                size=size,
+                quality=options.get("quality"),
+                steps=options.get("steps"),
+            )
+        )
+        await self._admit_pricing(reason, operation=credit_operation, run_id=run_id, target=target)
 
     async def _admit_image_request(
         self,
@@ -1304,6 +1375,11 @@ class LLMPolicyGateway(LLMPort):
                         **kwargs,
                     ),
                     operation="LLM chat request",
+                    unpriced=lambda route: _unpriced_reason(
+                        _chat_pricing(route.pricing, prompt_tokens=0, completion_tokens=0)
+                    ),
+                    credit_operation="chat",
+                    run_id=resolve_run_id(kwargs, self.ctx),
                 )
                 response.runtime_target = response.runtime_target or route.target
                 answered = (route, response, attempts)
@@ -1677,7 +1753,18 @@ class LLMPolicyGateway(LLMPort):
                 last = index == len(targets) - 1
                 try:
                     candidate = await self._resolve_call_route(target, required_capabilities)
+                    await self._admit_pricing(
+                        _unpriced_reason(
+                            _chat_pricing(candidate.pricing, prompt_tokens=0, completion_tokens=0)
+                        ),
+                        operation="chat",
+                        run_id=resolve_run_id(kwargs, self.ctx),
+                        target=target,
+                    )
                 except KernelError as exc:
+                    if exc.code == "PRICING_NOT_CONFIGURED" and not last:
+                        attempts.append(_option_refused_attempt(target, exc))
+                        continue
                     if last or exc.code not in _UNAVAILABLE_ROUTE_CODES:
                         raise
                     attempts.append(
@@ -1866,6 +1953,9 @@ class LLMPolicyGateway(LLMPort):
                         texts=texts, model=target, ctx=self.ctx, **kwargs
                     ),
                     operation="LLM embed request",
+                    unpriced=lambda route: _unpriced_reason(_embed_pricing(route.pricing, tokens_used=0)),
+                    credit_operation="embed",
+                    run_id=resolve_run_id(kwargs, self.ctx),
                 )
                 response.runtime_target = response.runtime_target or route.target
                 span.set_attribute("gen_ai.response.model", response.model or model)
@@ -1983,15 +2073,24 @@ class LLMPolicyGateway(LLMPort):
                 ("image_generation",),
                 timeout_fallback=self.image_timeout_seconds,
                 max_retries_cap=self.image_max_retries,
-                admits=lambda route, target: self._admit_image_request(
-                    route.port,
-                    route.image_capabilities,
+                admits=lambda route, target: self._admit_image_call(
+                    route,
                     target,
-                    operation="generate",
-                    n=n,
+                    credit_operation="generate_image",
+                    run_id=resolve_run_id(kwargs, self.ctx),
+                    image_count=n,
                     size=size,
-                    has_mask=False,
                     options=kwargs,
+                    request=lambda: self._admit_image_request(
+                        route.port,
+                        route.image_capabilities,
+                        target,
+                        operation="generate",
+                        n=n,
+                        size=size,
+                        has_mask=False,
+                        options=kwargs,
+                    ),
                 ),
             )
             await self._note_image_call(
@@ -2313,15 +2412,24 @@ class LLMPolicyGateway(LLMPort):
                 ("image_edit",),
                 timeout_fallback=self.image_timeout_seconds,
                 max_retries_cap=self.image_max_retries,
-                admits=lambda route, target: self._admit_image_request(
-                    route.port,
-                    route.image_capabilities,
+                admits=lambda route, target: self._admit_image_call(
+                    route,
                     target,
-                    operation="edit",
-                    n=n,
+                    credit_operation="edit_image",
+                    run_id=resolve_run_id(kwargs, self.ctx),
+                    image_count=n,
                     size=size,
-                    has_mask=mask is not None,
                     options=kwargs,
+                    request=lambda: self._admit_image_request(
+                        route.port,
+                        route.image_capabilities,
+                        target,
+                        operation="edit",
+                        n=n,
+                        size=size,
+                        has_mask=mask is not None,
+                        options=kwargs,
+                    ),
                 ),
             )
             await self._note_image_call(
@@ -2519,6 +2627,11 @@ class LLMPolicyGateway(LLMPort):
                         **kwargs,
                     ),
                     operation="LLM rerank request",
+                    unpriced=lambda route: _unpriced_reason(
+                        _rerank_pricing(route.pricing, searches=0, tokens_used=0)
+                    ),
+                    credit_operation="rerank",
+                    run_id=resolve_run_id(kwargs, self.ctx),
                 )
                 response.runtime_target = response.runtime_target or route.target
                 span.set_attribute("gen_ai.response.model", response.model or model)

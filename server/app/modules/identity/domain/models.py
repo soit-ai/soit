@@ -205,6 +205,11 @@ class Workspace(SQLModel, table=True):
     """The same for personal data leaving the runtime, in model answers and
     tool arguments."""
 
+    unpriced_call_policy: str | None = Field(default=None, nullable=True)
+    """What a model or tool call with no price configured does here: ``allow``
+    (None), ``refuse_when_budgeted`` while a hard-stop budget applies, or
+    ``refuse``. An unpriced call counts against no budget."""
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
 

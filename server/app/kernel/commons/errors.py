@@ -92,11 +92,26 @@ class BudgetExhaustedError(KernelError):
         super().__init__("BUDGET_EXHAUSTED", message, details)
 
 
+class UnpricedCallRefusedError(KernelError):
+    """The call's target has no price, and the workspace refuses unpriced calls.
+
+    Not a spent budget: the caller fixes it by pricing the model or tool, or
+    by calling one that is priced.
+    """
+
+    def __init__(
+        self,
+        message: str = "No price is configured for this call",
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__("PRICING_NOT_CONFIGURED", message, details)
+
+
 # Codes whose messages describe workspace configuration the caller can fix
 # (model routing, credit) rather than runtime internals. Only these messages
 # may be shown to end users verbatim; everything else stays masked.
 _PUBLIC_SAFE_ERROR_CODE_PREFIXES = ("MODEL_",)
-_PUBLIC_SAFE_ERROR_CODES = frozenset({"CREDIT_EXHAUSTED", "BUDGET_EXHAUSTED"})
+_PUBLIC_SAFE_ERROR_CODES = frozenset({"CREDIT_EXHAUSTED", "BUDGET_EXHAUSTED", "PRICING_NOT_CONFIGURED"})
 
 
 def public_error_message(error: BaseException, default: str) -> str:

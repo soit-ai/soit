@@ -37,3 +37,26 @@ async def workspace_pii_actions(
         return {}
     inbound, outbound = row
     return {"inbound": inbound, "outbound": outbound}
+
+
+async def workspace_unpriced_call_policy(
+    db: AsyncSession | None,
+    tenant_id: str,
+    workspace_id: str,
+) -> str:
+    """What a call with no price does in the workspace: allow, refuse_when_budgeted or refuse."""
+
+    session = db if db is not None else get_async_session_local()()
+    try:
+        policy = (
+            await session.exec(
+                select(Workspace.unpriced_call_policy).where(
+                    Workspace.id == workspace_id,
+                    Workspace.tenant_id == tenant_id,
+                )
+            )
+        ).first()
+    finally:
+        if db is None:
+            await session.close()
+    return policy or "allow"

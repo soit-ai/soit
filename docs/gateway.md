@@ -323,6 +323,19 @@ remainder, percentage and forecast for the current period.
   owners and admins once per budget, period and threshold, in their inboxes,
   on their own endpoints as their preferences allow, and on the workspace's
   team channels subscribed to alerts.
+- A call to a model or tool with no price configured is recorded without an
+  amount, so no budget counts it. The workspace setting **Calls with no
+  price** (`unpriced_call_policy` on `PATCH /api/v1/workspaces/{id}`,
+  workspace admins) decides what such a call does: `allow` (the default),
+  `refuse_when_budgeted` (refused while a hard-stop budget applies to the
+  call) or `refuse`. A refused call is answered `403` (`permission_error`,
+  code `pricing_not_configured`) naming the model or tool, before the
+  provider or the tool is called, and written to the audit ledger as
+  `billing.unpriced.blocked`. A virtual model moves on to a priced target.
+  An image is priced by its size and quality, so a model priced for one
+  request can be unpriced for another. Give a local model an explicit zero
+  price (`{"currency": "USD", "input": 0, "output": 0, ...}`) to keep it
+  callable under either refusal.
 
 ## Content-free runs
 
@@ -430,7 +443,7 @@ is already sent.
 | 400 | `invalid_request_error` | a malformed request, `n` above 1, an image size out of range, an image parameter SOIT does not send |
 | 401 | `authentication_error` | a missing, revoked or expired key |
 | 402 | `insufficient_quota` | a hard-stop budget is spent (`budget_exhausted`), or credit is exhausted |
-| 403 | `permission_error` | the key's scope, model list or address list does not allow the call |
+| 403 | `permission_error` | the key's scope, model list or address list does not allow the call, or the workspace refuses calls with no price (`pricing_not_configured`) |
 | 404 | `invalid_request_error` | the model is not configured in the workspace |
 | 409 | `invalid_request_error` | the model or its provider is disabled, or the provider has no credential or governed base URL |
 | 422 | `invalid_request_error` | the model lacks a capability the call needs, such as tools or embeddings, its route cannot carry an image option asked for, or the provider's host does not resolve |

@@ -80,6 +80,7 @@ import {
   type ServicePrincipalRole,
   type WorkspaceContentCapture,
   type WorkspaceMember,
+  type UnpricedCallPolicy,
 } from '@/services/identity-service'
 import {
   createNotificationEndpoint,
@@ -555,6 +556,17 @@ export default function ConsoleSettings() {
       toast.success(t('console.settings.securityPane.piiSaved'))
     },
     onError: onWriteError('Failed to change how personal data is handled'),
+  })
+
+  const unpricedMutation = useMutation<unknown, unknown, UnpricedCallPolicy>({
+    mutationKey: ['console', 'settings', 'unpriced-call-policy'],
+    mutationFn: (policy) =>
+      updateWorkspace(workspaceId, { unpriced_call_policy: policy }, { suppressErrorToast: true }),
+    onSuccess: () => {
+      void workspaceQuery.refetch()
+      toast.success(t('console.settings.securityPane.unpricedSaved'))
+    },
+    onError: onWriteError('Failed to change how unpriced calls are handled'),
   })
 
   // Closing an account is a request with a pause, not a button that deletes.
@@ -1581,6 +1593,26 @@ export default function ConsoleSettings() {
                 </select>
               </div>
             ))}
+            <div className="frow">
+              <label>
+                {t('console.settings.securityPane.unpriced')}
+                <small>{t('console.settings.securityPane.unpricedHint')}</small>
+              </label>
+              <select
+                className="input"
+                style={{ maxWidth: 280 }}
+                aria-label={t('console.settings.securityPane.unpriced')}
+                value={workspaceQuery.data?.unpriced_call_policy ?? 'allow'}
+                disabled={!workspaceQuery.data || unpricedMutation.isPending}
+                onChange={(event) => unpricedMutation.mutate(event.target.value as UnpricedCallPolicy)}
+              >
+                <option value="allow">{t('console.settings.securityPane.unpricedAllow')}</option>
+                <option value="refuse_when_budgeted">
+                  {t('console.settings.securityPane.unpricedRefuseWhenBudgeted')}
+                </option>
+                <option value="refuse">{t('console.settings.securityPane.unpricedRefuse')}</option>
+              </select>
+            </div>
             <div className="frow">
               <label>
                 {t('console.settings.securityPane.sso')}

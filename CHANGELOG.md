@@ -44,6 +44,16 @@ record for operators.
   `20261002100000` adds the columns, nullable and not unique, since
   self-hosted servers and caching proxies repeat ids.
 
+- A workspace decides what calls with no price do. A model or tool with no
+  price configured is recorded without an amount, so no budget counted it
+  and a hard-stop budget could not stop it. **Calls with no price** in
+  Settings › Security (`unpriced_call_policy` on the workspace) is `allow`
+  (as before), `refuse_when_budgeted` or `refuse`. A refused call is
+  answered `403` with code `PRICING_NOT_CONFIGURED` (`permission_error` on
+  `/v1`) before the provider or the tool is called, and is audited as
+  `billing.unpriced.blocked`; a virtual model moves on to a priced target.
+  Migration `20261002110000` adds the column; existing workspaces allow.
+
 ### Fixed
 
 - Costs in different currencies are no longer added together. The Overview

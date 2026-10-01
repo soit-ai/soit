@@ -1587,8 +1587,23 @@ class IdentityService:
                 )
             workspace.content_capture = data.content_capture
         self._apply_pii_actions(workspace, data, ctx)
+        self._apply_unpriced_call_policy(workspace, data, ctx)
         workspace.updated_at = utc_now()
         return await repo.update(workspace)
+
+    @staticmethod
+    def _apply_unpriced_call_policy(workspace: Workspace, data: WorkspaceUpdate, ctx: RequestContext) -> None:
+        """Set what calls with no price do here; allow is stored as None.
+
+        Whether to allow spending no budget can see is a governance decision,
+        the same bar as changing the budgets themselves.
+        """
+        if "unpriced_call_policy" not in data.model_fields_set:
+            return
+        if not (ctx.can_govern() or ctx.is_tenant_admin()):
+            raise ValidationError("Workspace admin role required to change how unpriced calls are handled")
+        policy = data.unpriced_call_policy
+        workspace.unpriced_call_policy = None if policy in (None, "allow") else policy
 
     @staticmethod
     def _apply_pii_actions(workspace: Workspace, data: WorkspaceUpdate, ctx: RequestContext) -> None:

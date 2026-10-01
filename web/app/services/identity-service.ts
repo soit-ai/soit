@@ -64,8 +64,12 @@ export interface WorkspaceInfo {
   pii_action_outbound?: PiiAction | null
   /** The deployment's action, which a null override follows. */
   pii_action_default?: PiiAction | null
+  /** What a model or tool call with no price does here; it counts against no budget. */
+  unpriced_call_policy?: UnpricedCallPolicy
   created_at: string
 }
+
+export type UnpricedCallPolicy = 'allow' | 'refuse_when_budgeted' | 'refuse'
 
 export type WorkspaceContentCapture = 'full' | 'metadata_only'
 
@@ -228,6 +232,8 @@ export const updateWorkspace = (
     /** Looser than the deployment takes a tenant admin; null follows the deployment. */
     pii_action_inbound?: PiiAction | null
     pii_action_outbound?: PiiAction | null
+    /** Workspace admins only. */
+    unpriced_call_policy?: UnpricedCallPolicy
   },
   config?: RequestConfigWithToast,
 ): Promise<WorkspaceInfo> => {

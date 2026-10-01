@@ -958,3 +958,41 @@ test('personal data handling is set per direction and can follow the deployment 
   expect(patches[1]).toEqual({ pii_action_inbound: null })
   await expect(page.getByLabel('Personal data in answers')).toHaveValue('')
 })
+
+test('calls with no price can be refused while a hard-stop budget applies, or always', async ({
+  page,
+}) => {
+  const patches: unknown[] = []
+  let workspace: Record<string, unknown> = {
+    id: 'workspace-1',
+    tenant_id: 'tenant-1',
+    name: 'acme-robotics',
+    require_mfa: false,
+    content_capture: 'full',
+    pii_action_inbound: null,
+    pii_action_outbound: null,
+    pii_action_default: 'observe',
+    unpriced_call_policy: 'allow',
+    created_at: NOW,
+  }
+  await page.route('**/api/v1/workspaces/workspace-1', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      const body = JSON.parse(route.request().postData() || '{}')
+      patches.push(body)
+      workspace = { ...workspace, ...body }
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(workspace) })
+  })
+
+  await page.goto('/settings/security', { waitUntil: 'domcontentloaded' })
+  const unpriced = page.getByLabel('Calls with no price')
+  await expect(unpriced).toHaveValue('allow')
+
+  await unpriced.selectOption('refuse_when_budgeted')
+  await expect.poll(() => patches).toEqual([{ unpriced_call_policy: 'refuse_when_budgeted' }])
+  await expect(unpriced).toHaveValue('refuse_when_budgeted')
+
+  await unpriced.selectOption('allow')
+  await expect.poll(() => patches.length).toBe(2)
+  expect(patches[1]).toEqual({ unpriced_call_policy: 'allow' })
+})

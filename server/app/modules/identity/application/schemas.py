@@ -109,6 +109,13 @@ class WorkspaceUpdate(BaseModel):
             "arguments here; null follows the deployment"
         ),
     )
+    unpriced_call_policy: Literal["allow", "refuse_when_budgeted", "refuse"] | None = Field(
+        None,
+        description=(
+            "What a model or tool call with no price configured does here; it would "
+            "count against no budget. null allows it"
+        ),
+    )
 
 
 # Response schemas
@@ -158,6 +165,7 @@ class WorkspaceResponse(BaseModel):
     pii_action_outbound: str | None = None
     pii_action_default: str | None = None
     """The deployment's PII action, which a null override follows."""
+    unpriced_call_policy: str = "allow"
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

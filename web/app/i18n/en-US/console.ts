@@ -336,6 +336,13 @@ const translation = {
       piiRedact: 'redact it',
       piiBlock: 'refuse the call',
       piiSaved: 'Personal data handling saved',
+      unpriced: 'Calls with no price',
+      unpricedHint:
+        'A model or tool with no price configured is recorded without an amount, so no budget counts it. Give a local model an explicit zero price to keep it callable.',
+      unpricedAllow: 'allow them',
+      unpricedRefuseWhenBudgeted: 'refuse them while a hard-stop budget applies',
+      unpricedRefuse: 'always refuse them',
+      unpricedSaved: 'Unpriced call handling saved',
       sso: 'Single sign-on',
       ssoHint: 'SAML 2.0 / OIDC, provided and configured by an Enterprise extension.',
       ssoEnterprise: 'ENTERPRISE',

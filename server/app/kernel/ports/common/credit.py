@@ -45,3 +45,23 @@ async def check_spend(guard: CreditGuard, *, operation: str, run_id: str | None 
         await guard.check(operation=operation, run_id=run_id)
     else:
         await guard.check(operation=operation)  # type: ignore[call-arg]
+
+
+async def check_unpriced(
+    guard: CreditGuard | None,
+    *,
+    operation: str,
+    run_id: str | None,
+    ref: str,
+    reason: str,
+) -> None:
+    """Ask ``guard`` whether a call no price applies to may go ahead.
+
+    ``ref`` is the model or tool the call would reach and ``reason`` why it
+    has no price (``pricing_not_configured``, ``image_variant_not_priced``...).
+    A guard without ``check_unpriced`` allows it, as every call was before.
+    """
+    handler = getattr(guard, "check_unpriced", None)
+    if handler is None:
+        return
+    await handler(operation=operation, run_id=run_id, ref=ref, reason=reason)

@@ -19,7 +19,7 @@ from app.kernel.contracts.tool_call import (
     ToolCallResult,
 )
 from app.kernel.ports.common.audit import log_gateway_request
-from app.kernel.ports.common.credit import CreditGuard, check_spend
+from app.kernel.ports.common.credit import CreditGuard, check_spend, check_unpriced
 from app.kernel.ports.common.policy import (
     error_details,
     resolve_run_id,
@@ -129,6 +129,11 @@ class ToolPolicyGateway(ToolPort):
             # Not charged: most failures (an unreachable server, a refused
             # address, a tool that raised) never reached what the price bills.
             return unpriced_call("tool_call_failed", tool_ref=tool_ref)
+        return self._declared_pricing(tool_ref, declared)
+
+    def _declared_pricing(self, tool_ref: str, declared: Any) -> ToolCallPricing:
+        """What a call that succeeds is charged, known before the call."""
+
         if isinstance(declared, dict):
             # The policy the caller resolved from the catalog.
             return declared_call_pricing(declared, tool_ref=tool_ref)
@@ -284,7 +289,7 @@ class ToolPolicyGateway(ToolPort):
             }
         }
 
-    async def _admit(self, tool_ref: str, kwargs: dict[str, Any]) -> None:
+    async def _admit(self, tool_ref: str, kwargs: dict[str, Any], declared: Any = None) -> None:
         """Spend the member's tool rate and the daily quota, and ask the spend guard."""
 
         rate_limit = kwargs.get("rate_limit_per_minute") or self.rate_limit_per_minute
@@ -305,6 +310,18 @@ class ToolPolicyGateway(ToolPort):
         if self.credit_guard:
             # Tools that bill (search, scraping, paid APIs) spend the same
             # credit and budgets as model calls.
+            # A tool with no price is recorded without an amount, which no
+            # budget sees; the workspace may refuse it. Asked first, so a
+            # refused call holds no budget.
+            pricing = self._declared_pricing(tool_ref, declared)
+            if pricing.amount is None:
+                await check_unpriced(
+                    self.credit_guard,
+                    operation="tool",
+                    run_id=resolve_run_id(kwargs, self.ctx),
+                    ref=tool_ref,
+                    reason=str(pricing.snapshot.get("reason") or "tool_pricing_not_declared"),
+                )
             await check_spend(
                 self.credit_guard,
                 operation="tool",
@@ -390,7 +407,7 @@ class ToolPolicyGateway(ToolPort):
         # Admitted before the claim: a call the member's rate, the daily quota
         # or the spend guard refuses changes no state, so it is not recorded
         # as failed, and an approved call still runs when sent again.
-        await self._admit(tool_ref, kwargs)
+        await self._admit(tool_ref, kwargs, declared_policy)
 
         if tool_execution_service is not None and tool_execution_command is not None:
             tool_execution_claim = await tool_execution_service.claim(tool_execution_command)

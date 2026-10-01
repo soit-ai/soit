@@ -272,6 +272,32 @@ class AuditBudgetBlockRecorder:
         finally:
             await db.close()
 
+    async def record_unpriced_block(self, ctx: RequestContext, *, details: dict[str, Any]) -> None:
+        """A call refused because no price applies to it, under the workspace's policy."""
+        from app.infra.db.session import get_async_session_local
+        from app.kernel.runtime.db.models.audit import AuditEvent
+
+        db = get_async_session_local()()
+        try:
+            db.add(
+                AuditEvent(
+                    tenant_id=ctx.tenant_id,
+                    workspace_id=ctx.workspace_id,
+                    event_type="billing.unpriced.blocked",
+                    resource_type="workspace",
+                    resource_id=ctx.workspace_id or "",
+                    operation=str(details.get("operation") or ""),
+                    actor_user_id=ctx.user_id,
+                    trace_id=ctx.trace_id,
+                    outcome="denied",
+                    scope="workspace",
+                    payload_json={**details, "api_key_id": ctx.api_key_id},
+                )
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
 
 class Container:
     """Dependency injection container."""
@@ -501,14 +527,25 @@ class Container:
             CompositeCreditGuard,
         )
         from app.modules.billing.application.guard import CreditBalanceGuard
+        from app.modules.identity.infra.safety_overrides import (
+            workspace_unpriced_call_policy,
+        )
+
+        db = trace_writer.db
+
+        async def unpriced_policy() -> str:
+            if not ctx.workspace_id:
+                return "allow"
+            return await workspace_unpriced_call_policy(db, ctx.tenant_id, ctx.workspace_id)
 
         return CompositeCreditGuard(
-            CreditBalanceGuard(db=trace_writer.db, ctx=ctx),
+            CreditBalanceGuard(db=db, ctx=ctx),
             BudgetGuard(
-                trace_writer.db,
+                db,
                 ctx,
                 reservations=self.get("budget_reservations"),
                 recorder=AuditBudgetBlockRecorder(),
+                unpriced_policy=unpriced_policy,
             ),
         )
 
