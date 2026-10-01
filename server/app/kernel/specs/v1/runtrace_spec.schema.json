@@ -382,7 +382,15 @@
           },
           "source_ref": {
             "type": ["string", "null"],
-            "description": "Optional upstream request identifier used for idempotent booking."
+            "description": "Optional idempotency key SOIT sets; unique per tenant."
+          },
+          "upstream_id": {
+            "type": ["string", "null"],
+            "description": "The provider's own id for the response it billed, when it gave one."
+          },
+          "upstream_request_id": {
+            "type": ["string", "null"],
+            "description": "The provider's request id from its response headers, when it sent one."
           },
           "provider": {
             "type": [

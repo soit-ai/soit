@@ -11,7 +11,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0"
+      "const": "1.1"
     },
     "record_type": {
       "enum": [
@@ -379,6 +379,14 @@
         },
         "source_ref": {
           "$ref": "#/$defs/optional_string"
+        },
+        "upstream_id": {
+          "$ref": "#/$defs/optional_string",
+          "description": "The provider's own id for the response it billed, when it gave one. Since 1.1."
+        },
+        "upstream_request_id": {
+          "$ref": "#/$defs/optional_string",
+          "description": "The provider's request id from its response headers, when it sent one. Since 1.1."
         },
         "provider": {
           "$ref": "#/$defs/optional_string"

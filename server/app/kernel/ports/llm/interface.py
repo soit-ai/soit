@@ -135,6 +135,8 @@ class ChatResponse:
         hosted_tool_calls: list[HostedToolCall] | None = None,
         citations: list[dict[str, Any]] | None = None,
         hosted_artifacts: list[HostedArtifact] | None = None,
+        upstream_id: str | None = None,
+        upstream_request_id: str | None = None,
     ):
         """Initialize chat response.
 
@@ -146,6 +148,10 @@ class ChatResponse:
             model: Model used.
             finish_reason: Finish reason (stop, length, tool_calls, etc.).
             tool_calls: Tool calls returned by the LLM.
+            upstream_id: The provider's own id for the response (``chatcmpl-…``,
+                ``msg_…``), when it gave one. Never an id an SDK made up.
+            upstream_request_id: The provider's request id from its response
+                headers (``x-request-id``, ``request-id``), when it sent one.
         """
         self.text = text
         self.reasoning = reasoning
@@ -158,6 +164,8 @@ class ChatResponse:
         self.hosted_tool_calls = hosted_tool_calls or []
         self.citations = citations or []
         self.hosted_artifacts = hosted_artifacts or []
+        self.upstream_id = upstream_id
+        self.upstream_request_id = upstream_request_id
 
 
 class ChatStreamChunk:
@@ -178,8 +186,14 @@ class ChatStreamChunk:
         hosted_tool_calls: list[HostedToolCall] | None = None,
         citations: list[dict[str, Any]] | None = None,
         hosted_artifacts: list[HostedArtifact] | None = None,
+        upstream_id: str | None = None,
+        upstream_request_id: str | None = None,
     ):
-        """Initialize stream chunk."""
+        """Initialize stream chunk.
+
+        ``upstream_id`` and ``upstream_request_id`` are as on ``ChatResponse``;
+        a stream carries them on any chunk, at least once.
+        """
         self.delta = delta
         self.reasoning_delta = reasoning_delta
         self.done = done
@@ -193,6 +207,8 @@ class ChatStreamChunk:
         self.hosted_tool_calls = hosted_tool_calls or []
         self.citations = citations or []
         self.hosted_artifacts = hosted_artifacts or []
+        self.upstream_id = upstream_id
+        self.upstream_request_id = upstream_request_id
 
 
 class EmbeddingResponse:
@@ -204,6 +220,8 @@ class EmbeddingResponse:
         tokens_used: int = 0,
         model: str | None = None,
         runtime_target: LLMRuntimeTarget | None = None,
+        upstream_id: str | None = None,
+        upstream_request_id: str | None = None,
     ):
         """Initialize embedding response.
 
@@ -216,6 +234,8 @@ class EmbeddingResponse:
         self.tokens_used = tokens_used
         self.model = model
         self.runtime_target = runtime_target
+        self.upstream_id = upstream_id
+        self.upstream_request_id = upstream_request_id
 
 
 class GeneratedImage:
@@ -241,6 +261,8 @@ class ImageGenerationResponse:
         images: list[GeneratedImage],
         model: str | None = None,
         runtime_target: LLMRuntimeTarget | None = None,
+        upstream_id: str | None = None,
+        upstream_request_id: str | None = None,
     ):
         """Initialize image generation response.
 
@@ -251,6 +273,8 @@ class ImageGenerationResponse:
         self.images = images
         self.model = model
         self.runtime_target = runtime_target
+        self.upstream_id = upstream_id
+        self.upstream_request_id = upstream_request_id
 
 
 class RerankResponse:
@@ -262,6 +286,8 @@ class RerankResponse:
         tokens_used: int = 0,
         model: str | None = None,
         runtime_target: LLMRuntimeTarget | None = None,
+        upstream_id: str | None = None,
+        upstream_request_id: str | None = None,
     ):
         """Initialize rerank response.
 
@@ -274,6 +300,8 @@ class RerankResponse:
         self.tokens_used = tokens_used
         self.model = model
         self.runtime_target = runtime_target
+        self.upstream_id = upstream_id
+        self.upstream_request_id = upstream_request_id
 
 
 class LLMPort(ABC):

@@ -19,6 +19,7 @@ from app.adapters.llm.litellm_image_routes import (
     is_listed,
     takes_openai_sizes,
 )
+from app.adapters.llm.upstream_ids import litellm_ids
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.image_mask import mask_to_openai_alpha
 from app.kernel.ports.llm.interface import (
@@ -181,6 +182,10 @@ class LiteLLMPort(LLMPort):
         self._image_generation = image_generation_fn
         self._image_edit = image_edit_fn
 
+    def _upstream_ids(self, response: Any) -> tuple[str | None, str | None]:
+        """The provider's own response and request ids, never ones LiteLLM made up."""
+        return litellm_ids(response, str(self.litellm_provider or self.provider_kind or ""))
+
     def _model_name(self, model: str) -> str:
         return litellm_model_name(
             model, provider_kind=self.provider_kind, litellm_provider=self.litellm_provider
@@ -330,6 +335,7 @@ class LiteLLMPort(LLMPort):
                 params[key] = kwargs[key]
 
         response = await self._completion(**params)
+        upstream_id, upstream_request_id = self._upstream_ids(response)
         choice = _value(response, "choices")[0]
         message = _value(choice, "message")
         parsed_calls: list[ToolCall] = []
@@ -354,6 +360,8 @@ class LiteLLMPort(LLMPort):
             model=_value(response, "model", params["model"]),
             finish_reason=_value(choice, "finish_reason"),
             tool_calls=parsed_calls or None,
+            upstream_id=upstream_id,
+            upstream_request_id=upstream_request_id,
         )
 
     async def stream_chat(
@@ -386,8 +394,11 @@ class LiteLLMPort(LLMPort):
             if kwargs.get(key) is not None:
                 params[key] = kwargs[key]
         stream = await self._completion(**params)
+        upstream_id, upstream_request_id = self._upstream_ids(stream)
         assembled_calls: dict[int, dict[str, str]] = {}
         async for event in stream:
+            if upstream_id is None:
+                upstream_id = self._upstream_ids(event)[0]
             choices = _value(event, "choices", []) or []
             usage = _value(event, "usage")
             choice = choices[0] if choices else None
@@ -446,6 +457,8 @@ class LiteLLMPort(LLMPort):
                 finish_reason=finish_reason,
                 tool_call_deltas=tool_call_deltas or None,
                 tool_calls=completed_calls,
+                upstream_id=upstream_id,
+                upstream_request_id=upstream_request_id,
             )
 
     async def embed(self, texts: list[str], model: str, **kwargs: Any) -> EmbeddingResponse:
@@ -463,6 +476,7 @@ class LiteLLMPort(LLMPort):
             embeddings=[list(_value(item, "embedding", [])) for item in data],
             tokens_used=int(_value(usage, "total_tokens", 0) or 0),
             model=_value(response, "model", model_name),
+            upstream_request_id=self._upstream_ids(response)[1],
         )
 
     async def generate_image(
@@ -530,6 +544,7 @@ class LiteLLMPort(LLMPort):
         return ImageGenerationResponse(
             images=images,
             model=_value(response, "model", params["model"]),
+            upstream_request_id=self._upstream_ids(response)[1],
         )
 
     @staticmethod
@@ -844,6 +859,7 @@ class LiteLLMPort(LLMPort):
         return ImageGenerationResponse(
             images=images,
             model=_value(response, "model", params["model"]),
+            upstream_request_id=self._upstream_ids(response)[1],
         )
 
     async def rerank(
@@ -879,4 +895,6 @@ class LiteLLMPort(LLMPort):
             results=results,
             tokens_used=int(_value(usage, "total_tokens", 0) or 0),
             model=_value(response, "model", params["model"]),
+            upstream_id=self._upstream_ids(response)[0],
+            upstream_request_id=self._upstream_ids(response)[1],
         )

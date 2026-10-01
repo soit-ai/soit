@@ -212,7 +212,7 @@ test('console runs export downloads the ledger for the window', async ({ page })
       contentType: 'text/csv; charset=utf-8',
       headers: {
         'content-disposition': 'attachment; filename="soit-runs-20260926T000000Z-20260927T000000Z.csv"',
-        'x-soit-ledger-schema': '1.0',
+        'x-soit-ledger-schema': '1.1',
         // The API is another origin; it names the headers a browser may read.
         'access-control-expose-headers': 'Content-Disposition, X-SOIT-Ledger-Schema, X-SOIT-Run-Id',
       },

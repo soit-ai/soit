@@ -111,7 +111,7 @@ async def test_each_kind_exports_the_windows_records_in_the_contract(async_clien
     runs = await async_client.get("/api/v1/exports/runs", params=WINDOW)
     assert runs.status_code == 200, runs.text
     assert runs.headers["content-type"].startswith("application/x-ndjson")
-    assert runs.headers["x-soit-ledger-schema"] == "1.0"
+    assert runs.headers["x-soit-ledger-schema"] == "1.1"
     assert "soit-runs-20260920T000000Z-20260921T000000Z.jsonl" in runs.headers["content-disposition"]
     documents = _lines(runs.text)
     # In the window, in this workspace, oldest first.

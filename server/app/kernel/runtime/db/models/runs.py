@@ -343,7 +343,15 @@ class RunCostEntry(SQLModel, table=True):
     """Quantity in billing_basis units; reconciliation only, never usage stats."""
 
     source_ref: str | None = Field(default=None, nullable=True)
-    """Optional upstream request identifier; unique per tenant for idempotency."""
+    """Optional idempotency key SOIT sets; unique per tenant."""
+
+    upstream_id: str | None = Field(default=None, nullable=True)
+    """The provider's own id for the response it billed (``chatcmpl-…``, ``msg_…``).
+
+    Not unique: self-hosted servers and caching proxies repeat ids."""
+
+    upstream_request_id: str | None = Field(default=None, nullable=True)
+    """The provider's request id from its response headers (``x-request-id``)."""
 
     provider: str | None = Field(default=None)
     """Provider (e.g., openai, http)."""

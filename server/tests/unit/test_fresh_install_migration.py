@@ -79,6 +79,7 @@ API_KEY_ALLOWED_TOOLS_PATH = VERSIONS_ROOT / "20260927180000_api_key_allowed_too
 MODEL_REPLAYS_PATH = VERSIONS_ROOT / "20260927190000_regression_model_replays.py"
 EVALUATION_DATASETS_PATH = VERSIONS_ROOT / "20261001100000_evaluation_datasets.py"
 KNOWLEDGE_CONNECTORS_PATH = VERSIONS_ROOT / "20261001110000_knowledge_connectors.py"
+COST_UPSTREAM_IDS_PATH = VERSIONS_ROOT / "20261002100000_cost_upstream_ids.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -154,6 +155,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         MODEL_REPLAYS_PATH.name,
         EVALUATION_DATASETS_PATH.name,
         KNOWLEDGE_CONNECTORS_PATH.name,
+        COST_UPSTREAM_IDS_PATH.name,
     ]
 
     module = _load_baseline()

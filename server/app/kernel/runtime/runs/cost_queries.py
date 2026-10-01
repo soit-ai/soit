@@ -51,6 +51,8 @@ class CostEntryFilter:
     operation: str | None = None
     currency: str | None = None
     pricing_status: CostPricingStatus | None = None
+    upstream_id: str | None = None
+    upstream_request_id: str | None = None
 
 
 def _estimated_expr() -> Any:
@@ -115,6 +117,8 @@ class CostLedgerQueries:
             (RunCostEntry.source_port, filters.source_port),
             (RunCostEntry.operation, filters.operation),
             (RunCostEntry.currency, filters.currency),
+            (RunCostEntry.upstream_id, filters.upstream_id),
+            (RunCostEntry.upstream_request_id, filters.upstream_request_id),
         )
         clauses.extend(column == value for column, value in equal_to if value)
         if filters.pricing_status:

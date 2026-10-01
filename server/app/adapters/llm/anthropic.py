@@ -10,6 +10,7 @@ import httpx
 
 from app.adapters.llm.content_parts import anthropic_image_block
 from app.adapters.llm.tool_names import tool_name_alias, tool_name_maps
+from app.adapters.llm.upstream_ids import clean_id, header_id
 from app.kernel.commons.errors import ValidationError
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -119,6 +120,7 @@ class AnthropicLLMPort(LLMPort):
             )
             response.raise_for_status()
             body = response.json()
+            request_id = header_id(getattr(response, "headers", None), "request-id")
 
         usage = body.get("usage") or {}
         tool_calls = self._extract_tool_calls(body, reverse_map)
@@ -130,6 +132,8 @@ class AnthropicLLMPort(LLMPort):
             model=body.get("model") or self._resolve_model_name(model),
             finish_reason=body.get("stop_reason"),
             tool_calls=tool_calls or None,
+            upstream_id=clean_id(body.get("id")),
+            upstream_request_id=request_id,
         )
 
     async def stream_chat(
@@ -159,6 +163,7 @@ class AnthropicLLMPort(LLMPort):
         tokens_prompt = 0
         tokens_completion = 0
         model_name = self._resolve_model_name(model)
+        message_id: str | None = None
         # Content blocks are indexed across text and tool_use blocks; tool
         # calls are numbered in the order they start, as OpenAI numbers them.
         tool_positions: dict[int, int] = {}
@@ -171,6 +176,7 @@ class AnthropicLLMPort(LLMPort):
                 json=payload,
             ) as response:
                 response.raise_for_status()
+                request_id = header_id(getattr(response, "headers", None), "request-id")
                 async for line in response.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -182,6 +188,7 @@ class AnthropicLLMPort(LLMPort):
                     if event_type == "message_start":
                         message = event.get("message") or {}
                         model_name = message.get("model") or model_name
+                        message_id = clean_id(message.get("id")) or message_id
                         usage = message.get("usage") or {}
                         tokens_prompt = _prompt_tokens(usage) or tokens_prompt
                         tokens_completion = int(usage.get("output_tokens") or tokens_completion)
@@ -197,6 +204,8 @@ class AnthropicLLMPort(LLMPort):
                                 "arguments": "",
                             }
                             yield ChatStreamChunk(
+                                upstream_id=message_id,
+                                upstream_request_id=request_id,
                                 model=model_name,
                                 tool_call_deltas=[
                                     ToolCallDelta(
@@ -216,6 +225,8 @@ class AnthropicLLMPort(LLMPort):
                             if position is not None and fragment:
                                 assembled[position]["arguments"] += fragment
                                 yield ChatStreamChunk(
+                                    upstream_id=message_id,
+                                    upstream_request_id=request_id,
                                     model=model_name,
                                     tool_call_deltas=[
                                         ToolCallDelta(index=position, arguments_delta=fragment)
@@ -225,12 +236,19 @@ class AnthropicLLMPort(LLMPort):
                         reasoning = delta.get("thinking") or ""
                         if delta_type == "thinking_delta" and reasoning:
                             yield ChatStreamChunk(
+                                upstream_id=message_id,
+                                upstream_request_id=request_id,
                                 reasoning_delta=str(reasoning),
                                 model=model_name,
                             )
                         text = delta.get("text") or ""
                         if text:
-                            yield ChatStreamChunk(delta=text, model=model_name)
+                            yield ChatStreamChunk(
+                                delta=text,
+                                model=model_name,
+                                upstream_id=message_id,
+                                upstream_request_id=request_id,
+                            )
                     elif event_type == "message_delta":
                         delta = event.get("delta") or {}
                         finish_reason = delta.get("stop_reason") or finish_reason
@@ -239,6 +257,8 @@ class AnthropicLLMPort(LLMPort):
                         tokens_completion = int(usage.get("output_tokens") or tokens_completion)
                     elif event_type == "message_stop":
                         yield ChatStreamChunk(
+                            upstream_id=message_id,
+                            upstream_request_id=request_id,
                             delta="",
                             done=True,
                             tokens_prompt=tokens_prompt,

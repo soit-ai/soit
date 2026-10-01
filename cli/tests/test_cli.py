@@ -253,7 +253,7 @@ def test_ledger_records_are_exported_for_a_window(tmp_path: Path, capsys) -> Non
             ("GET", "/api/v1/exports/costs"): lambda _: httpx.Response(
                 200,
                 content=b"cost_entry_id,amount\n",
-                headers={"content-disposition": 'attachment; filename="soit-costs.csv"', "x-soit-ledger-schema": "1.0"},
+                headers={"content-disposition": 'attachment; filename="soit-costs.csv"', "x-soit-ledger-schema": "1.1"},
             )
         }
     )
@@ -267,7 +267,7 @@ def test_ledger_records_are_exported_for_a_window(tmp_path: Path, capsys) -> Non
     assert code == EXIT_OK
     assert dict(api.requests[0].url.params) == {"since": "2026-09-01T00:00:00Z", "format": "csv"}
     assert target.read_bytes() == b"cost_entry_id,amount\n"
-    assert "ledger contract 1.0" in capsys.readouterr().err
+    assert "ledger contract 1.1" in capsys.readouterr().err
 
 
 AGENT_FILE = {

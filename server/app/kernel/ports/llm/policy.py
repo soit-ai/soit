@@ -100,6 +100,14 @@ def _provider_from_model(model_ref: str | None) -> str | None:
     return None
 
 
+def _upstream_fields(response: Any) -> dict[str, str | None]:
+    """The provider's ids for a call, for its cost row; None when it gave none."""
+    return {
+        "upstream_id": getattr(response, "upstream_id", None),
+        "upstream_request_id": getattr(response, "upstream_request_id", None),
+    }
+
+
 def _runtime_cost_fields(
     *,
     requested_model: str,
@@ -1409,6 +1417,7 @@ class LLMPolicyGateway(LLMPort):
             completion_tokens=response.tokens_completion,
             total_tokens=response.tokens_prompt + response.tokens_completion,
             latency_ms=elapsed_ms,
+            **_upstream_fields(response),
         )
 
     async def stream_chat(
@@ -1456,6 +1465,8 @@ class LLMPolicyGateway(LLMPort):
         tokens_completion = 0
         # The provider reported its usage with its closing chunk.
         usage_final = False
+        # The provider's ids for the call, from the first chunk that carries each.
+        upstream_ids: dict[str, str | None] = {"upstream_id": None, "upstream_request_id": None}
         # The provider stream ran to its end.
         upstream_done = False
         settled = False
@@ -1483,6 +1494,9 @@ class LLMPolicyGateway(LLMPort):
                 model_used = chunk.model
             if chunk.runtime_target is not None:
                 runtime_target = chunk.runtime_target
+            for key, value in upstream_ids.items():
+                if value is None:
+                    upstream_ids[key] = getattr(chunk, key, None)
             if (chunk.done or chunk.finish_reason) and (chunk.tokens_prompt or chunk.tokens_completion):
                 usage_final = True
             # Counted before inspection, which may rewrite the text: the
@@ -1597,6 +1611,7 @@ class LLMPolicyGateway(LLMPort):
                     completion_tokens=completion,
                     total_tokens=prompt + completion,
                     latency_ms=elapsed_ms,
+                    **upstream_ids,
                 )
                 # The call is over: its step and cost are committed now, so
                 # they outlive a caller that rolls its own work back (a
@@ -1904,6 +1919,7 @@ class LLMPolicyGateway(LLMPort):
                     prompt_tokens=response.tokens_used,
                     total_tokens=response.tokens_used,
                     latency_ms=elapsed_ms,
+                    **_upstream_fields(response),
                     embedding_count=len(texts),
                 )
 
@@ -2070,6 +2086,7 @@ class LLMPolicyGateway(LLMPort):
                     source_port="llm",
                     operation="generate_image",
                     latency_ms=elapsed_ms,
+                    **_upstream_fields(response),
                     request_count=n,
                 )
 
@@ -2407,6 +2424,7 @@ class LLMPolicyGateway(LLMPort):
                     source_port="llm",
                     operation="edit_image",
                     latency_ms=elapsed_ms,
+                    **_upstream_fields(response),
                     request_count=n,
                 )
 
@@ -2556,6 +2574,7 @@ class LLMPolicyGateway(LLMPort):
                     prompt_tokens=response.tokens_used,
                     total_tokens=response.tokens_used,
                     latency_ms=elapsed_ms,
+                    **_upstream_fields(response),
                     rerank_count=len(documents),
                 )
 

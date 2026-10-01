@@ -163,6 +163,9 @@ export interface RunCostEntryResponse {
   billing_basis: string
   billed_quantity: string
   source_ref?: string | null
+  /** The provider's response id and the request id from its headers, when it gave them. */
+  upstream_id?: string | null
+  upstream_request_id?: string | null
   provider?: string | null
   model_ref?: string | null
   tool_ref?: string | null

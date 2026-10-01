@@ -17,6 +17,11 @@ from app.adapters.llm.tool_names import (
     tool_name_alias,
     tool_name_maps,
 )
+from app.adapters.llm.upstream_ids import (
+    clean_id,
+    openai_request_id,
+    stream_request_id,
+)
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.interface import (
     ChatMessage,
@@ -487,6 +492,8 @@ class OpenAILLMPort(LLMPort):
             hosted_tool_calls=hosted_tool_calls,
             citations=citations,
             hosted_artifacts=hosted_artifacts,
+            upstream_id=clean_id(getattr(response, "id", None)),
+            upstream_request_id=openai_request_id(response),
         )
 
     async def chat(
@@ -583,6 +590,8 @@ class OpenAILLMPort(LLMPort):
             model=model_name,
             finish_reason=choice.finish_reason,
             tool_calls=parsed_tool_calls,
+            upstream_id=clean_id(getattr(response, "id", None)),
+            upstream_request_id=openai_request_id(response),
         )
 
     async def stream_chat(
@@ -652,12 +661,16 @@ class OpenAILLMPort(LLMPort):
         self._apply_output_controls(params, kwargs)
 
         stream = await self.client.chat.completions.create(**params)
+        request_id = stream_request_id(stream)
         assembled_calls: dict[int, dict[str, str]] = {}
         async for event in stream:
+            event_id = clean_id(getattr(event, "id", None))
             if not event.choices:
                 usage = getattr(event, "usage", None)
                 if usage:
                     yield ChatStreamChunk(
+                        upstream_id=event_id,
+                        upstream_request_id=request_id,
                         delta="",
                         done=True,
                         tokens_prompt=usage.prompt_tokens or 0,
@@ -730,6 +743,8 @@ class OpenAILLMPort(LLMPort):
                     )
 
             yield ChatStreamChunk(
+                upstream_id=event_id,
+                upstream_request_id=request_id,
                 delta=delta,
                 reasoning_delta=reasoning_delta or "",
                 done=done,
@@ -787,9 +802,13 @@ class OpenAILLMPort(LLMPort):
         self._apply_responses_output_controls(params, kwargs, model_name)
 
         stream = await self.client.responses.create(**params)
+        request_id = stream_request_id(stream)
+        response_id: str | None = None
         stream_calls: dict[int, tuple[str | None, str | None]] = {}
         async for event in stream:
             event_type = str(getattr(event, "type", "") or "")
+            if response_id is None:
+                response_id = clean_id(getattr(getattr(event, "response", None), "id", None))
             output_index = int(getattr(event, "output_index", 0) or 0)
             if event_type == "response.output_item.added":
                 item = getattr(event, "item", None)
@@ -804,6 +823,8 @@ class OpenAILLMPort(LLMPort):
                 tool_name = reverse_tool_name_map.get(provider_name, provider_name)
                 stream_calls[output_index] = (call_id or None, tool_name or None)
                 yield ChatStreamChunk(
+                    upstream_id=response_id,
+                    upstream_request_id=request_id,
                     model=model_name,
                     tool_call_deltas=[
                         ToolCallDelta(
@@ -817,6 +838,8 @@ class OpenAILLMPort(LLMPort):
             if event_type == "response.function_call_arguments.delta":
                 call_id, tool_name = stream_calls.get(output_index, (None, None))
                 yield ChatStreamChunk(
+                    upstream_id=response_id,
+                    upstream_request_id=request_id,
                     model=model_name,
                     tool_call_deltas=[
                         ToolCallDelta(
@@ -830,6 +853,8 @@ class OpenAILLMPort(LLMPort):
                 continue
             if event_type == "response.output_text.delta":
                 yield ChatStreamChunk(
+                    upstream_id=response_id,
+                    upstream_request_id=request_id,
                     delta=str(getattr(event, "delta", "") or ""),
                     model=model_name,
                 )
@@ -839,6 +864,8 @@ class OpenAILLMPort(LLMPort):
                 "response.reasoning_text.delta",
             }:
                 yield ChatStreamChunk(
+                    upstream_id=response_id,
+                    upstream_request_id=request_id,
                     reasoning_delta=str(getattr(event, "delta", "") or ""),
                     model=model_name,
                 )
@@ -869,6 +896,8 @@ class OpenAILLMPort(LLMPort):
             )
             usage = getattr(response, "usage", None)
             yield ChatStreamChunk(
+                upstream_id=response_id,
+                upstream_request_id=request_id,
                 done=True,
                 tokens_prompt=int(getattr(usage, "input_tokens", 0) or 0),
                 tokens_completion=int(getattr(usage, "output_tokens", 0) or 0),
@@ -914,6 +943,7 @@ class OpenAILLMPort(LLMPort):
             embeddings=embeddings,
             tokens_used=tokens_used,
             model=model_name,
+            upstream_request_id=openai_request_id(response),
         )
 
     async def rerank(
@@ -994,6 +1024,7 @@ class OpenAILLMPort(LLMPort):
             results=results,
             tokens_used=tokens_used,
             model=model_name,
+            upstream_request_id=openai_request_id(response),
         )
 
     @staticmethod

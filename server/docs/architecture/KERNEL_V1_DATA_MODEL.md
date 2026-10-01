@@ -182,7 +182,8 @@ Workspace-scoped.
 - `tenant_id`, `workspace_id`
 - `currency`, `amount` nullable on the same usage row
 - `billing_basis`, `billed_quantity` describe what the row is billed by; reconciliation only, never usage statistics
-- `source_ref` nullable upstream request identifier, UNIQUE per tenant for idempotent booking
+- `source_ref` nullable idempotency key SOIT sets, UNIQUE per tenant for idempotent booking
+- `upstream_id`, `upstream_request_id` nullable: the provider's response id and the request id from its response headers; not unique, since self-hosted servers and caching proxies repeat ids
 - `provider`, `provider_id`, `provider_slug`, `provider_kind`
 - `model_ref`, `upstream_model`, `tool_ref`
 - `source_port` (`llm`/`vector`/`storage`/`tools`/`plugins`), `operation` (`chat`/`embed`/`rerank`/`query`/`insert`/`delete`/`put`/`get`/`exists`/`invoke`)

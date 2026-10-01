@@ -11,7 +11,7 @@ defines five record types. Every exported record is wrapped in an envelope
 that names the contract version it was written in:
 
 ```json
-{"schema_version": "1.0", "record_type": "cost", "record": {"cost_entry_id": "ce_…", "amount": "0.0012", "currency": "USD", "created_at": "2026-09-27T10:30:15.123456Z", "…": "…"}}
+{"schema_version": "1.1", "record_type": "cost", "record": {"cost_entry_id": "ce_…", "amount": "0.0012", "currency": "USD", "created_at": "2026-09-27T10:30:15.123456Z", "…": "…"}}
 ```
 
 | `record_type` | Source | Key fields |
@@ -144,8 +144,18 @@ GET /api/v1/runs/costs/reconciliation?since=…&until=…&group_by=model
   records for a lost call is dated when the reaper ran, so it can fall in a
   later window than the call.
 - `external_reconciliation` is `not_performed`: this is the ledger's side of
-  the check only. SOIT does not store the provider's own request id, so a
-  bill is matched by model, key and time window, not row by row.
+  the check only.
+- Model calls keep the provider's own ids on their rows, when it gave them:
+  `upstream_id`, the response's id (`chatcmpl-…`, `msg_…`, Gemini's
+  `responseId`), and `upstream_request_id`, the request id from its response
+  headers (`x-request-id`, `request-id`). Both filter `/costs/entries`, so a
+  line of a provider's request log finds its row. Neither is unique:
+  self-hosted servers and caching proxies repeat ids. An id an SDK made up is
+  not kept (LiteLLM's own `chatcmpl-<uuid>`, and any id for Anthropic through
+  LiteLLM, where only the request id survives). Embeddings and images have a
+  request id at most; charges for unanswered image calls, rows written before
+  1.6 and tool calls have neither. Providers' usage exports are mostly per
+  hour or day, so most bills are still matched by model, key and time window.
 - Workspace readers can call both, as they can the other `/runs/costs`
   reads.
 

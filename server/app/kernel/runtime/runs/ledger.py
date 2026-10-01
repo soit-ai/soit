@@ -25,7 +25,7 @@ from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStep
 
 LEDGER_SPEC = "ledger_spec"
-LEDGER_SCHEMA_VERSION = "1.0"
+LEDGER_SCHEMA_VERSION = "1.1"
 RECORD_TYPES = ("run", "step", "cost", "audit", "event")
 
 
@@ -124,6 +124,8 @@ def cost_record(entry: RunCostEntry) -> dict[str, Any]:
         "billing_basis": entry.billing_basis,
         "billed_quantity": _decimal(entry.billed_quantity),
         "source_ref": entry.source_ref,
+        "upstream_id": entry.upstream_id,
+        "upstream_request_id": entry.upstream_request_id,
         "provider": entry.provider,
         "provider_id": entry.provider_id,
         "provider_slug": entry.provider_slug,

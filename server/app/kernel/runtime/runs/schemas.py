@@ -279,6 +279,8 @@ class RunCostEntryResponse(BaseModel):
     billing_basis: str
     billed_quantity: Decimal
     source_ref: str | None = None
+    upstream_id: str | None = None
+    upstream_request_id: str | None = None
     provider: str | None
     provider_id: str | None
     provider_slug: str | None

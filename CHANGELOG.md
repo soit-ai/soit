@@ -34,6 +34,16 @@ record for operators.
   pricing status and source, that exports as CSV to set beside a provider's
   bill. The page says the bill itself has not been checked.
 
+- Cost rows of model calls keep the provider's own ids: `upstream_id`, the
+  response's id (`chatcmpl-…`, `msg_…`, Gemini's `responseId`), and
+  `upstream_request_id`, the request id from the provider's response headers.
+  The OpenAI, Anthropic, Gemini and LiteLLM adapters read them for chat,
+  streams, embeddings, reranking and images, and drop ids LiteLLM made up.
+  `/api/v1/runs/costs/entries` returns and filters by both, and the ledger
+  contract moves to 1.1 with the two optional fields. Migration
+  `20261002100000` adds the columns, nullable and not unique, since
+  self-hosted servers and caching proxies repeat ids.
+
 ### Fixed
 
 - Costs in different currencies are no longer added together. The Overview

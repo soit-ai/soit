@@ -31,6 +31,7 @@ from uuid import uuid4
 import httpx
 
 from app.adapters.llm.tool_names import tool_name_alias, tool_name_maps
+from app.adapters.llm.upstream_ids import clean_id
 from app.kernel.commons.errors import ValidationError
 from app.kernel.ports.llm.interface import (
     ChatImage,
@@ -211,6 +212,7 @@ class GeminiLLMPort(LLMPort):
             model=body.get("modelVersion") or model_name,
             finish_reason=_finish_reason(raw_finish, called_tools=bool(calls)),
             tool_calls=calls or None,
+            upstream_id=clean_id(body.get("responseId")),
         )
 
     async def stream_chat(
@@ -230,6 +232,7 @@ class GeminiLLMPort(LLMPort):
         prompt = completion = 0
         raw_finish: str | None = None
         calls: list[ToolCall] = []
+        response_id: str | None = None
         async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
             async with client.stream(
                 "POST",
@@ -247,6 +250,7 @@ class GeminiLLMPort(LLMPort):
                         continue
                     chunk = json.loads(data)
                     model_name = chunk.get("modelVersion") or model_name
+                    response_id = response_id or clean_id(chunk.get("responseId"))
                     if chunk.get("usageMetadata"):
                         prompt, completion = _usage(chunk)
                     if not chunk.get("candidates") and (chunk.get("promptFeedback") or {}).get("blockReason"):
@@ -257,9 +261,11 @@ class GeminiLLMPort(LLMPort):
                     raw_finish = candidate.get("finishReason") or raw_finish
                     text, reasoning, new_calls = self._read_parts(candidate, reverse_map)
                     if reasoning:
-                        yield ChatStreamChunk(reasoning_delta=reasoning, model=model_name)
+                        yield ChatStreamChunk(
+                            reasoning_delta=reasoning, model=model_name, upstream_id=response_id
+                        )
                     if text:
-                        yield ChatStreamChunk(delta=text, model=model_name)
+                        yield ChatStreamChunk(delta=text, model=model_name, upstream_id=response_id)
                     if new_calls:
                         # Gemini sends a function call whole, never in pieces.
                         deltas = [
@@ -272,7 +278,9 @@ class GeminiLLMPort(LLMPort):
                             for offset, call in enumerate(new_calls)
                         ]
                         calls.extend(new_calls)
-                        yield ChatStreamChunk(model=model_name, tool_call_deltas=deltas)
+                        yield ChatStreamChunk(
+                            model=model_name, tool_call_deltas=deltas, upstream_id=response_id
+                        )
         yield ChatStreamChunk(
             delta="",
             done=True,
@@ -281,6 +289,7 @@ class GeminiLLMPort(LLMPort):
             model=model_name,
             finish_reason=_finish_reason(raw_finish, called_tools=bool(calls)),
             tool_calls=calls or None,
+            upstream_id=response_id,
         )
 
     async def embed(self, texts: list[str], model: str, **kwargs: Any) -> EmbeddingResponse:

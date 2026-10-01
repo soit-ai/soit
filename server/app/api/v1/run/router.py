@@ -72,6 +72,8 @@ class _CostFilterParams:
         operation: str | None = None,
         currency: str | None = None,
         pricing_status: CostPricingStatus | None = None,
+        upstream_id: str | None = None,
+        upstream_request_id: str | None = None,
     ) -> None:
         self.values = {
             "since": since,
@@ -87,6 +89,8 @@ class _CostFilterParams:
             "operation": operation,
             "currency": currency,
             "pricing_status": pricing_status,
+            "upstream_id": upstream_id,
+            "upstream_request_id": upstream_request_id,
         }
 
     def filter(self, *, until_inclusive: bool) -> CostEntryFilter:
