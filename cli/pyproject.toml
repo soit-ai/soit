@@ -1,5 +1,5 @@
 [project]
-name = "soit-ai-cli"
+name = "soit-cli"
 version = "1.5.0"
 description = "Command-line client for SOIT: sign in, run agents, replay regressions, export evidence"
 readme = "README.md"

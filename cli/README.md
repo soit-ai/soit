@@ -5,11 +5,11 @@ replay regression sets on a new model, run and manage evaluation datasets,
 and take evidence out.
 
 ```bash
-uv tool install soit-ai-cli        # or: pipx install soit-ai-cli
+uv tool install soit-cli           # or: pipx install soit-cli
 soit login --url https://soit.example.com
 ```
 
-The package on PyPI is [`soit-ai-cli`](https://pypi.org/project/soit-ai-cli/);
+The package on PyPI is [`soit-cli`](https://pypi.org/project/soit-cli/);
 the command it installs is `soit`. To run the checkout instead, for example
 to try a change before it is released, install from the repository:
 

@@ -12,6 +12,14 @@ record for operators.
 
 ## [Unreleased]
 
+### Changed
+
+- The `soit` command line is published to PyPI as `soit-cli`, not
+  `soit-ai-cli`: install it with `uv tool install soit-cli` or
+  `pipx install soit-cli`. The command and the `soit_cli` import package are
+  unchanged. v1.5.0 announced `soit-ai-cli`, but its upload did not run, so
+  nothing was ever published under that name.
+
 ## [1.5.0] - 2026-10-01
 
 ### Added

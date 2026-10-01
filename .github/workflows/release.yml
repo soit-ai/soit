@@ -234,7 +234,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/soit-ai-cli/${{ needs.validate-release.outputs.version }}/
+      url: https://pypi.org/project/soit-cli/${{ needs.validate-release.outputs.version }}/
     permissions:
       contents: read
       id-token: write
@@ -260,8 +260,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f "cli/dist/soit_ai_cli-${RELEASE_VERSION}-py3-none-any.whl"
-          test -f "cli/dist/soit_ai_cli-${RELEASE_VERSION}.tar.gz"
+          test -f "cli/dist/soit_cli-${RELEASE_VERSION}-py3-none-any.whl"
+          test -f "cli/dist/soit_cli-${RELEASE_VERSION}.tar.gz"
           ls -l cli/dist
 
       # Trusted publishing: PyPI accepts the job's OIDC token for the
