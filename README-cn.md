@@ -70,7 +70,7 @@ SOIT 围绕四项能力组织。每一项都是一等公民，既可以单独使
 
 - 可视化的 Agent 组装控制台，带版本与发布管理，草稿上有评审状态，进行中的工作和等待别人处理的工作能区分开
 - DAG 工作流编辑器，8 种核心节点类型——输入、LLM、知识检索、工具、条件、转换、变量赋值、输出——加上通过插件注册表解析的插件导出节点类型
-- 知识入库流水线，支持 PDF、DOCX、Markdown 和 HTML，包含切块、向量化和基于 Milvus 的检索
+- 知识入库流水线，支持 PDF、DOCX、Markdown 和 HTML，包含切块、向量化和基于 Milvus 的检索；还可以让知识库按计划与 S3 兼容存储或网站保持同步（[连接器指南](./docs/knowledge-connectors.md)）
 - 对 MCP 友好：任何 Model Context Protocol server 都能无需改代码地解析进运行时工具注册表。传输为 streamable HTTP。受保护的 server 通过 OAuth 2.1 访问，使用授权服务器发现（RFC 9728、RFC 8414 / OpenID Connect）和资源绑定令牌（RFC 8707），走 `client_credentials` 授权——SOIT 以自己的身份调用 MCP server，因此没有实现基于浏览器的授权码流程。调用 MCP server 的适配器面向 MCP SDK v1 系列，尚不支持无状态的 2026-07-28 修订版；SOIT 自己的 MCP 端点则提供该版本（见 [SOIT 作为 MCP server](./docs/mcp.md)）
 - Plugin 优先的治理：MCP server 与 Skill 作为 Plugin artifact 安装，权限检查、密钥注入、外联限制、审计、成本归因、追踪和回放在运行时自动生效
 

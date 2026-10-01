@@ -271,6 +271,35 @@ bases. Its goals are:
 
 ---
 
+## 4b. Connector sources (added after v1)
+
+External systems a knowledge base is synced from. See
+`docs/knowledge-connectors.md` for behaviour; the tables are:
+
+- `knowledge_sources` (`ksrc_*`): one configured connection per row.
+  `connector_kind`, non-secret `config_json`, `secret_id` (an opaque id; the
+  value is never stored here), `limits_json`, `schedule_cron` /
+  `schedule_timezone` / `next_sync_at`, `enabled`, `delete_removed`, the last
+  sync's status, error and counts, soft delete.
+- `knowledge_source_items`: what a source last saw of each remote item.
+  UNIQUE `(source_id, external_id)`; `remote_etag`, `remote_modified`,
+  `remote_size`, `content_hash` (SHA-256 of what was ingested), `doc_key` and
+  `document_id` (the latest document), `status` (`present` / `removed` /
+  `failed`) and connector-private `meta_json`.
+- `knowledge_sync_runs` (`ksync_*`): one execution. `trigger`
+  (`manual` / `schedule`), `status` (`queued` / `running` / `succeeded` /
+  `partial` / `failed` / `canceled`), per-outcome counts, `truncated`, capped
+  `outcomes_json`, and the lease columns the shared worker primitives use. A
+  partial unique index on `source_id` where status is queued or running allows
+  one active run per source.
+
+All three carry `tenant_id` and `workspace_id` (indexed) and reference each
+other and `knowledge` in code only, with no database foreign keys. Documents a
+sync creates have `source_kind = connector` and fill `external_id` and
+`source_uri`.
+
+---
+
 ## 5. Recommended Object-Storage Key Layout (optional but strongly advised)
 - Raw file: `tenants/{tenant}/workspaces/{ws}/knowledge/{ds}/raw/{file_id}`
 - Extracted text: `.../docs/{doc_id}/v{version}/raw_text.txt`

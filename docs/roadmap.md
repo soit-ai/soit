@@ -45,8 +45,13 @@ model-neutral execution with observable and auditable agent behavior.
 - **Durable agents**: checkpoints that let a long-running agent resume after
   a restart, cancellation that takes effect at once, and retention policies
   for run records.
-- **Connectors**: a framework for external systems (ticketing, chat, storage)
-  that agents reach through governed tools.
+- **More knowledge connectors**: S3-compatible storage and website crawls
+  keep a knowledge base in step with a remote system
+  ([guide](./knowledge-connectors.md)); next are SaaS sources behind OAuth
+  (drive, wiki and ticketing systems) and carrying the source system's access
+  rights onto documents, which the current connectors do not do.
+- **Connectors for agent tools**: a framework for external systems (ticketing,
+  chat, storage) that agents reach through governed tools.
 - **Enterprise**: single sign-on, principal-level quotas and compliance
   exports, as an extension package on the same runtime.
 
