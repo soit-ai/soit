@@ -208,6 +208,11 @@ test('the Sources tab lists each source with its schedule, last sync and next sy
   await expect(site).toContainText('The seed URL was not found')
   // The header carries the count and the soonest schedule.
   await expect(page.locator('.rd-meta')).toContainText('2 source(s)')
+  // The enable switch sits in a table cell, where an inline element ignores its
+  // width: it once collapsed to a one-pixel line that clicks still reached.
+  const box = await rows.first().getByRole('switch').boundingBox()
+  expect(box?.width).toBeGreaterThanOrEqual(24)
+  expect(box?.height).toBeGreaterThanOrEqual(14)
 })
 
 test('an empty library invites the first source', async ({ page }) => {

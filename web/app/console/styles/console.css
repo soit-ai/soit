@@ -470,7 +470,7 @@
 .console-root .acard-stats{display:flex;gap:16px;font-family:var(--font-mono);font-size:11px;color:var(--muted-foreground)}
 .console-root .acard-stats b{display:block;color:var(--foreground);font-size:13px;font-weight:600}
 .console-root .acard-foot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding-top:10px;margin-top:auto}
-.console-root .toggle{width:28px;height:16px;border-radius:99px;background:var(--raised);border:1px solid var(--border);position:relative;flex:none;cursor:pointer}
+.console-root .toggle{display:inline-block;vertical-align:middle;width:28px;height:16px;border-radius:99px;background:var(--raised);border:1px solid var(--border);position:relative;flex:none;cursor:pointer}
 .console-root .toggle::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--faint);transition:.15s}
 .console-root .toggle.on{background:var(--primary);border-color:transparent}
 .console-root .toggle.on::after{left:14px;background:var(--primary-foreground)}

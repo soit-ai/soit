@@ -206,6 +206,8 @@ record for operators.
 
 ### Fixed
 
+- The enable switch in a table row, such as a knowledge source's, now has its
+  28 by 16 pixel size; as an inline element it had collapsed to a thin line.
 - A request to `/v1/messages` that fails validation now says which field,
   such as `max_tokens: Field required`, as Anthropic's API does, instead of
   only "Request validation failed".
