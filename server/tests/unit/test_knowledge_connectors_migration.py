@@ -43,7 +43,7 @@ def migrated(monkeypatch):
 def test_revision_chain_follows_the_current_head() -> None:
     migration = _load()
     assert migration.revision == "20261001110000"
-    assert migration.down_revision == "20260927190000"
+    assert migration.down_revision == "20261001100000"
 
 
 @pytest.mark.parametrize("model", MODELS, ids=lambda model: model.__tablename__)
