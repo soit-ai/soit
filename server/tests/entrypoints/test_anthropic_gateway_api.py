@@ -354,6 +354,22 @@ async def test_refusals_use_anthropics_error_body(async_client, payload, status,
 
 
 @pytest.mark.asyncio
+async def test_a_validation_failure_names_the_field(async_client) -> None:
+    response = await async_client.post(
+        "/v1/messages", json={"model": MODEL, "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["message"] == "max_tokens: Field required"
+
+    wrong_role = await async_client.post(
+        "/v1/messages",
+        json={"model": MODEL, "max_tokens": 8, "messages": [{"role": "system", "content": "hi"}]},
+    )
+    assert wrong_role.json()["error"]["message"].startswith("messages.0.role: ")
+
+
+@pytest.mark.asyncio
 async def test_an_unknown_messages_route_is_a_not_found_error(async_client) -> None:
     response = await async_client.get("/v1/messages/nothing")
 

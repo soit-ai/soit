@@ -11,7 +11,7 @@ the exception handlers and the error middleware cannot disagree.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi.responses import JSONResponse
 
@@ -62,11 +62,38 @@ def anthropic_error_type(status_code: int) -> str:
     return "api_error" if status_code >= 500 else "invalid_request_error"
 
 
-def anthropic_error_body(status_code: int, *, message: str) -> dict[str, Any]:
+def anthropic_error_body(
+    status_code: int, *, message: str, details: dict[str, Any] | None = None
+) -> dict[str, Any]:
     return {
         "type": "error",
-        "error": {"type": anthropic_error_type(status_code), "message": message},
+        "error": {
+            "type": anthropic_error_type(status_code),
+            "message": _anthropic_message(message, details),
+        },
     }
+
+
+def _anthropic_message(message: str, details: dict[str, Any] | None) -> str:
+    """Name the fields a validation failure rejected, as Anthropic's API does.
+
+    Anthropic's own messages read ``max_tokens: Field required``; a client that
+    shows only "Request validation failed" leaves its user guessing which field.
+    """
+
+    errors: Any = details.get("errors") if details else None
+    if not isinstance(errors, list):
+        return message
+    named: list[str] = []
+    for entry in cast("list[Any]", errors)[:5]:
+        if not isinstance(entry, dict):
+            continue
+        item = cast("dict[str, Any]", entry)
+        field = str(item.get("field") or "").removeprefix("body.")
+        text = str(item.get("message") or "")
+        if text:
+            named.append(f"{field}: {text}" if field else text)
+    return "; ".join(named) or message
 
 
 def openai_error_type(status_code: int) -> str:
@@ -125,9 +152,14 @@ def error_response(
     """Answer with the SOIT envelope, or the provider-shaped body under ``/v1``."""
 
     if is_anthropic_compatible_path(path):
+        details = envelope.get("details")
         return JSONResponse(
             status_code=status_code,
-            content=anthropic_error_body(status_code, message=str(envelope.get("message") or "")),
+            content=anthropic_error_body(
+                status_code,
+                message=str(envelope.get("message") or ""),
+                details=cast("dict[str, Any]", details) if isinstance(details, dict) else None,
+            ),
             headers=headers,
         )
     if is_openai_compatible_path(path):

@@ -419,7 +419,9 @@ Under `/v1/messages`, refusals use Anthropic's body instead, `{"type": "error",
 "error": {"type", "message"}}`, with the same statuses and these types: `400`
 `invalid_request_error`, `401` `authentication_error`, `402` `billing_error`,
 `403` `permission_error`, `404` `not_found_error`, `413` `request_too_large`,
-`429` `rate_limit_error` (with `Retry-After`) and `5xx` `api_error`. A failure
+`429` `rate_limit_error` (with `Retry-After`) and `5xx` `api_error`. A request that fails
+validation names the fields, as Anthropic's API does (`max_tokens: Field
+required`). A failure
 after a stream has started arrives as an `error` event, since the status line
 is already sent.
 

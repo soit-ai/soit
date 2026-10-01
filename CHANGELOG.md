@@ -206,6 +206,9 @@ record for operators.
 
 ### Fixed
 
+- A request to `/v1/messages` that fails validation now says which field,
+  such as `max_tokens: Field required`, as Anthropic's API does, instead of
+  only "Request validation failed".
 - Running an evaluation on an archived dataset now answers that the dataset is
   archived and must be restored, with `details.reason` `dataset_archived`,
   instead of saying there are no cases to run.
