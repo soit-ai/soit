@@ -23,3 +23,5 @@ fd976f4c5633c99dd7d5a3efe343f97368c2d08a:server/tests/unit/test_content_safety_r
 084f8abe69bb5604091500e402ba619c77e9fba9:server/tests/unit/test_enterprise_license.py:generic-api-key:54
 084f8abe69bb5604091500e402ba619c77e9fba9:server/tests/unit/test_enterprise_license.py:generic-api-key:63
 084f8abe69bb5604091500e402ba619c77e9fba9:server/tests/unit/test_enterprise_license.py:generic-api-key:67
+# A made-up opaque pagination token in a fake S3 listing, not a credential.
+e63c5467b9b616902b4e0f8d13939fd3ab57ab8d:server/tests/unit/test_s3_connector.py:generic-api-key:114
