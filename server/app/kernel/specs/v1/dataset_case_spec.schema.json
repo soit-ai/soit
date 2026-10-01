@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soit.ai/specs/v1/dataset_case_spec.schema.json",
+  "title": "DatasetCaseSpec",
+  "description": "One evaluation case as it is imported into and exported from a dataset: one JSON object per line of a JSONL file. `input` is what the agent is asked; `expected_features` is what a run must satisfy. Written and read by app/modules/evaluation/application/dataset_format.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "input", "expected_features"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "[^\\s]",
+      "description": "Unique within the dataset."
+    },
+    "input": {
+      "description": "A string is the text sent to the agent. An object is stored as it is; the agent is asked the last user message of its `messages`, else its `input_summary`, else its `input`, else the object serialised as JSON.",
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 100000 },
+        { "type": "object", "minProperties": 1 }
+      ]
+    },
+    "expected_features": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "description": "At least one expectation: a case that asserts nothing passes whatever the agent says.",
+      "properties": {
+        "minimum_output_terms": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "description": "Terms the output must contain, compared case-insensitively."
+        },
+        "max_latency_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Fail when the run takes longer than this."
+        },
+        "max_cost_amount": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Fail when the run costs more than this, in the run's currency."
+        },
+        "llm_judge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rubric"],
+          "properties": {
+            "rubric": { "type": "string", "minLength": 1, "maxLength": 4000 },
+            "min_score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "model": { "type": "string", "minLength": 1, "maxLength": 512 }
+          },
+          "description": "Score the output against a rubric with a judge model; fails below min_score (default 0.7)."
+        }
+      }
+    }
+  }
+}

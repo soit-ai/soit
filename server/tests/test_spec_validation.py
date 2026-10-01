@@ -546,3 +546,32 @@ async def test_actual_runtrace_export_matches_runtime_contract(async_db, ctx):
     assert len(document["entries"]) == 1
     assert document["entries"][0]["pricing_snapshot_json"]["unit_size"] == 1_000_000
     assert validate_spec(document, "runtrace_spec") is True
+
+
+def test_dataset_case_spec_accepts_a_case_and_names_what_is_wrong_with_others():
+    case = {
+        "name": "refund-window",
+        "input": "How long do refunds take?",
+        "expected_features": {
+            "minimum_output_terms": ["14 days"],
+            "max_latency_ms": 2000,
+            "max_cost_amount": 0.05,
+            "llm_judge": {"rubric": "States the window plainly", "min_score": 0.8},
+        },
+    }
+    assert "dataset_case_spec" in list_schemas()
+    assert validate_spec(case, "dataset_case_spec") is True
+    assert validate_spec({**case, "input": {"messages": [{"role": "user", "content": "hi"}]}}, "dataset_case_spec")
+
+    issues = validator.validate(
+        "dataset_case_spec",
+        {"name": "x", "input": "y", "expected_features": {"max_latency_ms": 0, "unknown": 1}},
+        raise_on_error=False,
+    )
+    assert {issue.instance_path for issue in issues} == {
+        "/expected_features",
+        "/expected_features/max_latency_ms",
+    }
+
+    with pytest.raises(ValidationError):
+        validate_spec({"name": "x", "input": "y"}, "dataset_case_spec")

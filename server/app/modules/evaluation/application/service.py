@@ -8,12 +8,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, func, select
+from sqlalchemy.orm import defer
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import NotFoundError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import Run
+from app.modules.evaluation.application.dataset_service import RegressionDatasetService
 from app.modules.evaluation.application.judge import JudgeError, RegressionJudge
 from app.modules.evaluation.domain.models import (
     RegressionAnnotation,
@@ -74,6 +76,7 @@ class RegressionEvaluationService:
         self.db = db
         self.ctx = ctx
         self.judge = judge
+        self.datasets = RegressionDatasetService(db=db, ctx=ctx)
 
     async def create_case_from_run(
         self,
@@ -95,9 +98,7 @@ class RegressionEvaluationService:
             expected_features_json=dict(expected_features),
             created_by=self.ctx.user_id,
         )
-        self.db.add(case)
-        await self.db.commit()
-        return case
+        return await self.datasets.add_frozen_case(case)
 
     async def evaluate_subject_version(
         self,
@@ -120,7 +121,12 @@ class RegressionEvaluationService:
             subject_id=subject_id,
             dataset=dataset,
         )
-        revision = self.dataset_revision(cases)
+        revision = await self.current_revision(
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            dataset=dataset,
+            cases=cases,
+        )
         baseline = await self.find_baseline(
             subject_kind=subject_kind,
             subject_id=subject_id,
@@ -289,6 +295,26 @@ class RegressionEvaluationService:
         )).all()
         return [_unwrap_row(row) for row in rows]
 
+    async def current_revision(
+        self,
+        *,
+        subject_kind: str,
+        subject_id: str,
+        dataset: str,
+        cases: list[RegressionCase],
+    ) -> int:
+        """The revision a run of this dataset records.
+
+        A dataset row's revision counts every change, removals included, which
+        the cases alone cannot show. Sets without a row, such as cases written
+        directly, fall back to the highest revision among the cases.
+        """
+        row = await self.datasets.find_dataset(
+            subject_kind=subject_kind, subject_id=subject_id, name=dataset
+        )
+        by_cases = self.dataset_revision(cases)
+        return max(int(row.revision), by_cases) if row is not None else by_cases
+
     def dataset_revision(self, cases: list[RegressionCase]) -> int:
         """The revision a report should record for this set of cases.
 
@@ -387,6 +413,67 @@ class RegressionEvaluationService:
                 .order_by(desc(RegressionReport.created_at))
             )).first()
         )
+
+    async def list_reports(
+        self,
+        *,
+        subject_kind: str | None = None,
+        subject_id: str | None = None,
+        dataset: str | None = None,
+        passed: bool | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[RegressionReport]:
+        """Reports newest first, without their per-case results."""
+        conditions = self._report_conditions(
+            subject_kind=subject_kind, subject_id=subject_id, dataset=dataset, passed=passed
+        )
+        rows = (await self.db.exec(
+            select(RegressionReport)
+            .options(defer(RegressionReport.case_results_json))
+            .where(and_(*conditions))
+            .order_by(desc(RegressionReport.created_at), RegressionReport.id)
+            .limit(max(1, min(limit, 100)))
+            .offset(max(0, offset))
+        )).all()
+        return [_unwrap_row(row) for row in rows]
+
+    async def count_reports(
+        self,
+        *,
+        subject_kind: str | None = None,
+        subject_id: str | None = None,
+        dataset: str | None = None,
+        passed: bool | None = None,
+    ) -> int:
+        conditions = self._report_conditions(
+            subject_kind=subject_kind, subject_id=subject_id, dataset=dataset, passed=passed
+        )
+        return int((await self.db.exec(
+            select(func.count()).select_from(RegressionReport).where(and_(*conditions))
+        )).scalar_one())
+
+    def _report_conditions(
+        self,
+        *,
+        subject_kind: str | None,
+        subject_id: str | None,
+        dataset: str | None,
+        passed: bool | None,
+    ) -> list[Any]:
+        conditions: list[Any] = [
+            RegressionReport.tenant_id == self.ctx.tenant_id,
+            RegressionReport.workspace_id == self.ctx.workspace_id,
+        ]
+        if subject_kind is not None:
+            conditions.append(RegressionReport.subject_kind == subject_kind)
+        if subject_id is not None:
+            conditions.append(RegressionReport.subject_id == subject_id)
+        if dataset is not None:
+            conditions.append(RegressionReport.dataset == dataset)
+        if passed is not None:
+            conditions.append(RegressionReport.passed == passed)
+        return conditions
 
     async def annotate_case(
         self,

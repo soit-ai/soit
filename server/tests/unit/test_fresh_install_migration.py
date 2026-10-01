@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -76,6 +77,7 @@ WORKSPACE_ENDPOINTS_PATH = VERSIONS_ROOT / "20260927160000_workspace_notificatio
 WORKSPACE_PII_ACTIONS_PATH = VERSIONS_ROOT / "20260927170000_workspace_pii_actions.py"
 API_KEY_ALLOWED_TOOLS_PATH = VERSIONS_ROOT / "20260927180000_api_key_allowed_tools.py"
 MODEL_REPLAYS_PATH = VERSIONS_ROOT / "20260927190000_regression_model_replays.py"
+EVALUATION_DATASETS_PATH = VERSIONS_ROOT / "20261001100000_evaluation_datasets.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -149,6 +151,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         WORKSPACE_PII_ACTIONS_PATH.name,
         API_KEY_ALLOWED_TOOLS_PATH.name,
         MODEL_REPLAYS_PATH.name,
+        EVALUATION_DATASETS_PATH.name,
     ]
 
     module = _load_baseline()
@@ -557,3 +560,107 @@ def test_fresh_install_baseline_creates_and_drops_explicit_tables(monkeypatch) -
 
     assert created == snapshot["tables"]
     assert dropped == list(reversed(snapshot["tables"]))
+
+
+def _load_evaluation_datasets_migration():
+    spec = importlib.util.spec_from_file_location(
+        "evaluation_datasets", EVALUATION_DATASETS_PATH
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_evaluation_datasets_migration_backfills_a_dataset_per_existing_set(monkeypatch) -> None:
+    migration = _load_evaluation_datasets_migration()
+    assert migration.down_revision == "20260927190000"
+    engine = sa.create_engine("sqlite://", json_serializer=json.dumps, json_deserializer=json.loads)
+    metadata = sa.MetaData()
+    cases = sa.Table(
+        "regression_cases",
+        metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("tenant_id", sa.String(), nullable=False),
+        sa.Column("workspace_id", sa.String(), nullable=False),
+        sa.Column("subject_kind", sa.String(), nullable=False),
+        sa.Column("subject_id", sa.String(), nullable=False),
+        sa.Column("subject_version_id", sa.String()),
+        sa.Column("source_run_id", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("dataset", sa.String(), nullable=False),
+        sa.Column("dataset_revision", sa.Integer(), nullable=False),
+        sa.Column("input_snapshot_json", sa.JSON()),
+        sa.Column("expected_features_json", sa.JSON()),
+        sa.Column("created_by", sa.String()),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+    )
+    metadata.create_all(engine)
+
+    def row(case_id, subject_id, name, *, dataset="default", revision=1, status="active", tenant="t1"):
+        return {
+            "id": case_id,
+            "tenant_id": tenant,
+            "workspace_id": "w1",
+            "subject_kind": "agent",
+            "subject_id": subject_id,
+            "source_run_id": f"run_{case_id}",
+            "name": name,
+            "status": status,
+            "dataset": dataset,
+            "dataset_revision": revision,
+            "input_snapshot_json": {"input": f"question {name}"},
+            "expected_features_json": {"minimum_output_terms": [name]},
+            "created_at": datetime(2026, 9, 1, 12, 0, int(case_id[-1])),
+        }
+
+    with engine.begin() as connection:
+        connection.execute(
+            cases.insert(),
+            [
+                row("c1", "agt_a", "alpha"),
+                row("c2", "agt_a", "beta", revision=3),
+                row("c3", "agt_a", "retired", revision=2, status="archived"),
+                row("c4", "agt_a", "gamma", dataset="edge"),
+                row("c5", "agt_b", "delta"),
+                row("c6", "agt_a", "alpha", tenant="t2"),
+            ],
+        )
+        monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(connection)))
+        migration.upgrade()
+
+        datasets = {
+            (r["tenant_id"], r["subject_id"], r["name"]): r
+            for r in connection.execute(sa.text("SELECT * FROM regression_datasets")).mappings()
+        }
+        versions = {
+            r["dataset_id"]: r
+            for r in connection.execute(sa.text("SELECT * FROM regression_dataset_versions")).mappings()
+        }
+        nullable = {
+            column["name"]: column["nullable"]
+            for column in sa.inspect(connection).get_columns("regression_cases")
+        }
+        indexes = {index["name"] for index in sa.inspect(connection).get_indexes("regression_datasets")}
+
+    assert set(datasets) == {
+        ("t1", "agt_a", "default"),
+        ("t1", "agt_a", "edge"),
+        ("t1", "agt_b", "default"),
+        ("t2", "agt_a", "default"),
+    }
+    main = datasets[("t1", "agt_a", "default")]
+    assert main["revision"] == 3 and main["status"] == "active"
+    version = versions[main["id"]]
+    snapshot = json.loads(version["snapshot_json"]) if isinstance(version["snapshot_json"], str) else version["snapshot_json"]
+    assert version["revision"] == 3 and version["case_count"] == 2
+    assert [item["name"] for item in snapshot] == ["alpha", "beta"]
+    assert snapshot[0]["input"] == "question alpha"
+    from app.modules.evaluation.application.dataset_format import content_hash
+
+    assert version["content_hash"] == content_hash(snapshot)
+    assert datasets[("t1", "agt_a", "edge")]["revision"] == 1
+    assert len(versions) == 4
+    assert nullable["source_run_id"] is True
+    assert "uq_regression_datasets_name" in indexes

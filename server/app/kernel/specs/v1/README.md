@@ -10,6 +10,9 @@ Kernel v1 schemas:
 - otlp_trace_spec: a trace as an OTLP/JSON `ExportTraceServiceRequest` (one
   span per run and per run step, identifiers and numbers only), written by
   `app/kernel/runtime/runs/otlp.py` for `GET /api/v1/runs/trace/{trace_id}/otlp`
+- dataset_case_spec: one evaluation case as it is imported into and exported
+  from a dataset (one JSON object per JSONL line), used by
+  `app/modules/evaluation/application/dataset_format.py`
 
 Rules:
 - Keep v1 stable.

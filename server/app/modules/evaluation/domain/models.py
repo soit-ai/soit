@@ -28,6 +28,14 @@ def generate_model_replay_id() -> str:
     return f"regrpl_{generate_ulid()}"
 
 
+def generate_regression_dataset_id() -> str:
+    return f"regds_{generate_ulid()}"
+
+
+def generate_regression_dataset_version_id() -> str:
+    return f"regdsv_{generate_ulid()}"
+
+
 class RegressionCase(SQLModel, table=True):
     """Frozen historical run input and expected behavior."""
 
@@ -49,11 +57,19 @@ class RegressionCase(SQLModel, table=True):
     subject_kind: str = Field(index=True)
     subject_id: str = Field(index=True)
     subject_version_id: str | None = Field(default=None, nullable=True, index=True)
-    source_run_id: str = Field(index=True)
+    source_run_id: str | None = Field(default=None, nullable=True, index=True)
+    """The run the case was frozen from; empty for cases written or imported directly."""
+
     name: str = Field(index=True)
     status: str = Field(default="active", index=True)
+    """``active`` cases run; ``removed`` and ``archived`` ones are kept for history."""
+
     dataset: str = Field(default="default", index=True)
-    """Named set this case belongs to, so unrelated suites stay separable."""
+    """Named set this case belongs to, so unrelated suites stay separable.
+
+    The set's ``RegressionDataset`` row, when it has one, is found by this name
+    together with the subject.
+    """
 
     dataset_revision: int = Field(default=1, index=True)
     """Bumped whenever the set's membership changes.
@@ -188,5 +204,81 @@ class RegressionModelReplay(SQLModel, table=True):
     totals_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     """Both sides summed over every subject, and the difference."""
 
+    created_by: str | None = Field(default=None, nullable=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class RegressionDataset(SQLModel, table=True):
+    """A named, versioned set of regression cases for one subject.
+
+    Cases stay in ``regression_cases`` and name the set in their ``dataset``
+    column, so the publish gate, baselines and reports need no change; this row
+    is what makes the set an object of its own: something with a description,
+    a revision that moves on every change, and a snapshot per revision.
+    """
+
+    __tablename__ = "regression_datasets"
+    __table_args__ = (
+        Index(
+            "uq_regression_datasets_name",
+            "tenant_id",
+            "workspace_id",
+            "subject_kind",
+            "subject_id",
+            "name",
+            unique=True,
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_regression_dataset_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    subject_kind: str = Field(index=True)
+    subject_id: str = Field(index=True)
+    name: str
+    description: str = Field(default="")
+    revision: int = Field(default=1)
+    """Advances on every change to the set's cases; 1 when it was created."""
+
+    status: str = Field(default="active", index=True)
+    """``active`` or ``archived``; an archived set's cases no longer run."""
+
+    created_by: str | None = Field(default=None, nullable=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class RegressionDatasetVersion(SQLModel, table=True):
+    """The content of a dataset at one revision, kept so a report can be read
+    against the cases it actually ran."""
+
+    __tablename__ = "regression_dataset_versions"
+    __table_args__ = (
+        Index(
+            "uq_regression_dataset_versions_revision",
+            "tenant_id",
+            "workspace_id",
+            "dataset_id",
+            "revision",
+            unique=True,
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_regression_dataset_version_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    dataset_id: str = Field(index=True)
+    revision: int
+    case_count: int = Field(default=0)
+    content_hash: str
+    """SHA-256 of the snapshot, independent of case order."""
+
+    snapshot_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    """Each active case as ``{name, input, expected_features}``."""
+
+    changes_json: dict[str, int] = Field(default_factory=dict, sa_column=Column(JSON))
+    """Cases added, removed and changed since the previous revision."""
+
+    note: str = Field(default="")
     created_by: str | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now)
