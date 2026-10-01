@@ -29,6 +29,32 @@ record for operators.
   list's `has_more`, `first_id` and `last_id` beside OpenAI's fields. The
   official Anthropic Python SDK runs against the route in CI. See
   [Anthropic Messages](docs/gateway.md#anthropic-messages).
+- Evaluation datasets. An agent's regression set is now an object of its
+  own: `POST /api/v1/evaluations/datasets` creates a named dataset, and
+  cases are added, edited and removed through `/datasets/{id}/cases`
+  instead of only being frozen from a run. Every change advances the
+  dataset's revision, stamps the cases it touched and keeps a snapshot, so
+  `/datasets/{id}/versions` shows each revision's size, content hash and how
+  many cases were added, removed or changed, and a report is read against the
+  cases it actually ran (removing a case now starts a new baseline, which
+  the case revisions alone never showed). `POST /datasets/{id}/import` takes
+  a JSONL file, one `{name, input, expected_features}` case per line
+  validated against `kernel/specs/v1/dataset_case_spec`, all or nothing:
+  a file with any invalid line imports nothing and answers every bad line
+  with its number (at most 1,000 lines and 2 MB); `GET /datasets/{id}/export`
+  writes the same format back. `GET /api/v1/evaluations/reports` lists
+  reports by agent, dataset and outcome and `/reports/{id}` reads one with
+  every case's result; reports and cases now also show their dataset,
+  dataset revision and baseline. Cases and datasets are never deleted:
+  removing a case or archiving a dataset takes it out of every run, the
+  publish gate included, and keeps the row so history that names it still
+  reads. Dataset, import, export and case changes are written to the audit
+  ledger as `evaluation.dataset.*` and `evaluation.case.*`. Migration
+  `20261001100000` adds `regression_datasets` and
+  `regression_dataset_versions`, creates a dataset for every agent and
+  dataset name that already has cases, and lets `source_run_id` be empty for
+  cases that were not frozen from a run. A dataset names one agent and its
+  name cannot be changed.
 - A DeepSeek provider now has a model catalog: refreshing it lists the
   models DeepSeek's OpenAI-compatible `/models` answers, at the provider's
   base URL (`https://api.deepseek.com` or its `/v1` address), and the

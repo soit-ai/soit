@@ -33,6 +33,7 @@ def test_openapi_file_downloads_are_not_json_enveloped(client) -> None:
         "/api/v1/knowledge/{knowledge_id}/documents/{document_id}/download",
         "/api/v1/runs/{run_id}/artifacts/{artifact_id}/content",
         "/api/v1/attachments/{attachment_id}/content",
+        "/api/v1/evaluations/datasets/{dataset_id}/export",
     ):
         content = schema["paths"][path]["get"]["responses"]["200"].get("content", {})
         assert "application/json" not in content, path
