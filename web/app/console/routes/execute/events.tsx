@@ -42,6 +42,7 @@ const KINDS: Array<DeadLetterKind | 'all'> = [
   'workflow_run',
   'task',
   'knowledge_ingest',
+  'knowledge_sync',
   'outbox_event',
 ]
 

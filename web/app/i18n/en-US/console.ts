@@ -1178,6 +1178,7 @@ const translation = {
       workflow_run: 'Workflows',
       task: 'Tasks',
       knowledge_ingest: 'Ingest',
+      knowledge_sync: 'Source sync',
       outbox_event: 'Outbox',
     },
     redrivableOnly: 'Redrivable only',
