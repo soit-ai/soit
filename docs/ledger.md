@@ -104,6 +104,51 @@ the provider; enable the reaper once every replica is upgraded. Heartbeats
 and the cutoff are stamped by each replica's own clock, so keep replica
 clocks in sync: skew eats into the margin.
 
+## Checking costs against a bill
+
+Every metered call leaves one cost row, so the ledger can be read the way a
+provider's bill is: per key, per principal, per model or tool, per day. Each
+row has a pricing status:
+
+| Status | Meaning |
+| --- | --- |
+| `priced` | An amount computed from what the provider reported. |
+| `estimated` | An amount computed from usage SOIT estimated (`usage_estimated`, see above). |
+| `free` | An explicit price of zero. |
+| `unpriced` | No amount: no price applied. `unpriced_reason` says why, such as `pricing_not_configured`, `image_variant_not_priced` or `tool_pricing_not_declared`. |
+
+An unpriced row is never counted as zero, and amounts in different currencies
+are never added together.
+
+```
+GET /api/v1/runs/costs/entries?since=…&until=…&api_key_id=…&pricing_status=unpriced
+GET /api/v1/runs/costs/reconciliation?since=…&until=…&group_by=model
+```
+
+- Both take the same filters: the run's `api_key_id`, `user_id` (a member or
+  a service principal) and `source` (`platform` or `gateway`), and the row's
+  `model_ref`, `provider_slug`, `tool_ref`, `source_port`, `operation`,
+  `currency` and `pricing_status`.
+- `/costs/entries` lists rows oldest first, each with its run's
+  `api_key_id`, `user_id` and `run_source`, its `pricing_status` and, when
+  unpriced, its `unpriced_reason`. Its `until` is inclusive, as before.
+- `/costs/reconciliation` covers the half-open window `[since, until)`, like
+  the exports. It answers the priced total per currency (`amounts`), the part
+  of it computed from estimated usage (`estimated_amounts`), the rows per
+  status (`status_counts`) and the unpriced rows per reason
+  (`unpriced_reasons`). With `group_by` (`model`, `provider`, `tool`,
+  `api_key`, `user`, `source`, `operation` or `day`) it adds one row per
+  value and currency, with unpriced rows in a row of their own; at most 500
+  rows, and `groups_truncated` says when there were more.
+- Rows are dated when they were written. A charge the image job reaper
+  records for a lost call is dated when the reaper ran, so it can fall in a
+  later window than the call.
+- `external_reconciliation` is `not_performed`: this is the ledger's side of
+  the check only. SOIT does not store the provider's own request id, so a
+  bill is matched by model, key and time window, not row by row.
+- Workspace readers can call both, as they can the other `/runs/costs`
+  reads.
+
 ## Exports
 
 ```

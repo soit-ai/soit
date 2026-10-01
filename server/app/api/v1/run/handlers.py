@@ -9,6 +9,7 @@ from datetime import datetime
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.runs.cost_queries import CostEntryFilter
 from app.kernel.runtime.runs.schemas import (
     RunAuditLogResponse,
     RunCostByModelResponse,
@@ -300,6 +301,7 @@ class RunHandlers:
         since: datetime | None = None,
         until: datetime | None = None,
         run_id: str | None = None,
+        filters: CostEntryFilter | None = None,
         page_token: str | None = None,
         page_size: int = 200,
     ) -> PaginatedResponse[RunCostEntryResponse]:
@@ -312,6 +314,7 @@ class RunHandlers:
             since=since,
             until=until,
             run_id=run_id,
+            filters=filters,
             limit=limit_plus,
             offset=offset,
         )

@@ -12,6 +12,22 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- Cost rows can be checked against a provider's bill.
+  `GET /api/v1/runs/costs/entries` filters by the run's API key, principal
+  and source and by the row's model, provider, tool, port, operation,
+  currency and pricing status, and each row now carries its run's
+  `api_key_id`, `user_id` and `run_source`, its `pricing_status` (`priced`,
+  `estimated`, `free` or `unpriced`) and, when unpriced, its
+  `unpriced_reason`. `GET /api/v1/runs/costs/reconciliation` answers, for a
+  half-open window and the same filters, the priced total per currency with
+  its estimated part, the rows per status, the unpriced rows per reason, and
+  with `group_by` the same per model, provider, tool, key, principal, source,
+  operation or day. Unpriced rows are never counted as zero and currencies
+  are never added together. See
+  [Checking costs against a bill](docs/ledger.md#checking-costs-against-a-bill).
+
 ### Fixed
 
 - Costs in different currencies are no longer added together. The Overview

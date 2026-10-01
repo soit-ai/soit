@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.kernel.runtime.responses.schemas import ResponseEventRead, ToolCallRead
 
@@ -242,6 +242,29 @@ class RunObserveSummaryResponse(BaseModel):
     cost_entry_count: int = 0
 
 
+CostPricingStatus = Literal["priced", "free", "estimated", "unpriced"]
+"""How a cost entry was priced.
+
+``unpriced``: no amount, because no price applied (the reason is in the
+pricing snapshot). ``estimated``: an amount computed from usage SOIT estimated
+because the provider never reported it (a dropped stream, an unanswered image
+call). ``free``: an explicit price of zero. ``priced``: any other amount.
+"""
+
+COST_PRICING_STATUSES: tuple[CostPricingStatus, ...] = ("priced", "free", "estimated", "unpriced")
+
+
+def cost_pricing_status(amount: Decimal | None, snapshot: dict[str, Any] | None) -> CostPricingStatus:
+    """The pricing status of one cost entry; mirrors the SQL in ``cost_queries``."""
+    if amount is None:
+        return "unpriced"
+    if (snapshot or {}).get("usage_estimated") is True:
+        return "estimated"
+    if amount == 0:
+        return "free"
+    return "priced"
+
+
 class RunCostEntryResponse(BaseModel):
     """Normalized usage and cost entry response."""
 
@@ -275,8 +298,78 @@ class RunCostEntryResponse(BaseModel):
     vector_count: int | None = None
     storage_bytes: int | None = None
     created_at: datetime
+    api_key_id: str | None = None
+    """The run's API key. Set on ``/runs/costs/entries``; None elsewhere."""
+    user_id: str | None = None
+    """The run's member or service principal. Set on ``/runs/costs/entries``."""
+    run_source: str | None = None
+    """The run's source (``platform`` or ``gateway``). Set on ``/runs/costs/entries``."""
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def pricing_status(self) -> CostPricingStatus:
+        return cost_pricing_status(self.amount, self.pricing_snapshot_json)
+
+    @computed_field
+    @property
+    def unpriced_reason(self) -> str | None:
+        """Why no price applied, from the pricing snapshot; None when priced."""
+        if self.amount is not None:
+            return None
+        reason = (self.pricing_snapshot_json or {}).get("reason")
+        return str(reason) if reason else "unknown"
+
+
+CostGroupBy = Literal["model", "provider", "tool", "api_key", "user", "source", "operation", "day"]
+
+
+class CostReconciliationGroupResponse(BaseModel):
+    """Cost entries sharing one value of the grouping dimension and one currency.
+
+    Unpriced entries have no currency, so they form their own row per key.
+    """
+
+    key: str | None
+    currency: str | None
+    entry_count: int
+    amount: Decimal | None
+    """Sum of the priced amounts; None for the row of unpriced entries."""
+    estimated_count: int = 0
+    unpriced_count: int = 0
+    total_tokens: int = 0
+
+
+class CostUnpricedReasonResponse(BaseModel):
+    reason: str
+    entry_count: int
+
+
+class CostReconciliationResponse(BaseModel):
+    """What the ledger recorded in a window, ready to be checked against a bill.
+
+    Amounts are kept per currency and never added across currencies. The
+    window is half-open, ``[since, until)``, like the ledger exports, so
+    adjacent windows never count an entry twice.
+    """
+
+    since: datetime | None
+    until: datetime | None
+    entry_count: int
+    status_counts: dict[str, int]
+    """Entries per pricing status: priced, free, estimated, unpriced."""
+    amounts: dict[str, Decimal] = Field(default_factory=dict)
+    """Priced total per currency, estimated amounts included."""
+    estimated_amounts: dict[str, Decimal] = Field(default_factory=dict)
+    """The part of ``amounts`` computed from estimated usage."""
+    unpriced_reasons: list[CostUnpricedReasonResponse] = Field(default_factory=list)
+    group_by: CostGroupBy | None = None
+    groups: list[CostReconciliationGroupResponse] = Field(default_factory=list)
+    groups_truncated: bool = False
+    external_reconciliation: Literal["not_performed"] = "not_performed"
+    """Whether these figures were matched against a provider's bill. Always
+    ``not_performed`` here: this is the ledger's side only."""
 
 
 class RunGovernanceEvidenceResponse(BaseModel):

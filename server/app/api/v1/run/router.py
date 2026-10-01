@@ -23,8 +23,12 @@ from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.runtime.db.models.audit import AuditEvent
+from app.kernel.runtime.runs.cost_queries import CostEntryFilter
 from app.kernel.runtime.runs.otlp import build_trace_export, load_trace
 from app.kernel.runtime.runs.schemas import (
+    CostGroupBy,
+    CostPricingStatus,
+    CostReconciliationResponse,
     RunAuditLogResponse,
     RunCostByModelResponse,
     RunCostByModeResponse,
@@ -50,26 +54,84 @@ from app.modules.workflow.application.service import WorkflowService
 router = APIRouter()
 
 
+class _CostFilterParams:
+    """Query parameters shared by the cost entry list and the reconciliation summary."""
+
+    def __init__(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        run_id: str | None = None,
+        api_key_id: str | None = None,
+        user_id: str | None = None,
+        source: str | None = None,
+        model_ref: str | None = None,
+        provider_slug: str | None = None,
+        tool_ref: str | None = None,
+        source_port: str | None = None,
+        operation: str | None = None,
+        currency: str | None = None,
+        pricing_status: CostPricingStatus | None = None,
+    ) -> None:
+        self.values = {
+            "since": since,
+            "until": until,
+            "run_id": run_id,
+            "api_key_id": api_key_id,
+            "user_id": user_id,
+            "source": source,
+            "model_ref": model_ref,
+            "provider_slug": provider_slug,
+            "tool_ref": tool_ref,
+            "source_port": source_port,
+            "operation": operation,
+            "currency": currency,
+            "pricing_status": pricing_status,
+        }
+
+    def filter(self, *, until_inclusive: bool) -> CostEntryFilter:
+        return CostEntryFilter(until_inclusive=until_inclusive, **self.values)
+
+
 @router.get("/costs/entries", response_model=PaginatedResponse[RunCostEntryResponse])
 async def list_cost_entries(
-    since: datetime | None = None,
-    until: datetime | None = None,
-    run_id: str | None = None,
+    params: _CostFilterParams = Depends(),
     page_token: str | None = None,
     page_size: int = 200,
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: RunService = Depends(get_run_service),
 ):
-    """List per-run cost entries for incremental billing sync."""
+    """List per-run cost entries for incremental billing sync.
+
+    Filters narrow by the run's API key, principal and source and by the
+    entry's model, provider, tool, port, operation, currency and pricing
+    status; ``until`` is inclusive here. Each entry carries its pricing
+    status and, when unpriced, the reason.
+    """
     handlers = RunHandlers(service)
     return await handlers.list_cost_entries(
         ctx,
-        since=since,
-        until=until,
-        run_id=run_id,
+        filters=params.filter(until_inclusive=True),
         page_token=page_token,
         page_size=page_size,
     )
+
+
+@router.get("/costs/reconciliation", response_model=CostReconciliationResponse)
+async def reconcile_costs(
+    params: _CostFilterParams = Depends(),
+    group_by: CostGroupBy | None = None,
+    _: RequestContext = Depends(require_workspace_read_ctx),
+    service: RunService = Depends(get_run_service),
+):
+    """The ledger's side of a bill check for a half-open window ``[since, until)``.
+
+    Answers the priced total per currency (with the estimated part apart),
+    the entries per pricing status, why unpriced entries went unpriced, and,
+    with ``group_by``, the same per model, provider, tool, API key, principal,
+    source, operation or day.
+    """
+    return await service.reconcile_costs(params.filter(until_inclusive=False), group_by=group_by)
 
 
 @router.get("/summary/window", response_model=RunWindowSummaryResponse)

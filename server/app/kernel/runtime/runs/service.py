@@ -10,8 +10,11 @@ from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.responses.schemas import ResponseEventRead, ToolCallRead
+from app.kernel.runtime.runs.cost_queries import CostEntryFilter, CostLedgerQueries
 from app.kernel.runtime.runs.protocols import RunQueryRepositoryProtocol
 from app.kernel.runtime.runs.schemas import (
+    CostGroupBy,
+    CostReconciliationResponse,
     RunArtifactResponse,
     RunAuditLogResponse,
     RunChargeSummaryResponse,
@@ -1758,6 +1761,7 @@ class RunService:
         since: datetime | None = None,
         until: datetime | None = None,
         run_id: str | None = None,
+        filters: CostEntryFilter | None = None,
         limit: int = 200,
         offset: int = 0,
     ) -> list[RunCostEntryResponse]:
@@ -1765,28 +1769,20 @@ class RunService:
 
         Ascending created_at order keeps pages stable for external billing
         systems that pull entries incrementally with a since watermark.
+        ``filters`` narrows further; its window, when given, replaces
+        ``since``/``until``/``run_id``.
         """
-        clauses = [
-            RunCostEntry.tenant_id == self.ctx.tenant_id,
-            RunCostEntry.workspace_id == self.ctx.workspace_id,
-        ]
-        if since:
-            clauses.append(RunCostEntry.created_at >= since)
-        if until:
-            clauses.append(RunCostEntry.created_at <= until)
-        if run_id:
-            clauses.append(RunCostEntry.run_id == run_id)
+        filters = filters or CostEntryFilter(since=since, until=until, run_id=run_id)
+        return await CostLedgerQueries(self.db, self.ctx).list_entries(filters, limit=limit, offset=offset)
 
-        query = (
-            select(RunCostEntry)
-            .where(and_(*clauses))
-            .order_by(RunCostEntry.created_at, RunCostEntry.id)
-            .offset(offset)
-            .limit(limit)
-        )
-        rows = list((await self.db.exec(query)).all())
-        entries = [item if hasattr(item, "id") else item[0] for item in rows]
-        return [RunCostEntryResponse.model_validate(entry) for entry in entries]
+    async def reconcile_costs(
+        self,
+        filters: CostEntryFilter,
+        *,
+        group_by: CostGroupBy | None = None,
+    ) -> CostReconciliationResponse:
+        """The ledger's side of a bill check: totals, pricing statuses, unpriced reasons."""
+        return await CostLedgerQueries(self.db, self.ctx).reconcile(filters, group_by=group_by)
 
     async def summarize_costs_by_day(
         self,
