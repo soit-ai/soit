@@ -19,6 +19,7 @@ from app.api.v1.knowledge.dependencies import (
     get_knowledge_service,
 )
 from app.api.v1.knowledge.handlers import KnowledgeHandlers
+from app.api.v1.knowledge.sources import router as sources_router
 from app.api.v1.permissions import (
     require_workspace_read_ctx,
     require_workspace_write_ctx,
@@ -52,6 +53,9 @@ from app.modules.knowledge.application.schemas import (
 from app.modules.knowledge.application.service import KnowledgeService
 
 router = APIRouter()
+# Included first: its fixed /connectors path must be matched before the
+# /{knowledge_id} routes below would take "connectors" for an id.
+router.include_router(sources_router)
 
 
 @router.post("", response_model=KnowledgeResponse, status_code=status.HTTP_201_CREATED)

@@ -8,8 +8,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.infra.db.session import get_async_db
 from app.kernel.contracts.context import RequestContext
 from app.middleware.auth import get_current_context
+from app.modules.knowledge.application.connector_service import KnowledgeSourceService
 from app.modules.knowledge.application.service import KnowledgeService
-from app.wiring.services import build_knowledge_reader_service, build_knowledge_service
+from app.wiring.services import (
+    build_knowledge_reader_service,
+    build_knowledge_service,
+    build_knowledge_source_service,
+)
 
 
 def get_knowledge_service(
@@ -19,6 +24,15 @@ def get_knowledge_service(
     """Resolve the knowledge application service."""
 
     return build_knowledge_service(db=db, ctx=ctx)
+
+
+def get_knowledge_source_service(
+    ctx: Annotated[RequestContext, Depends(get_current_context)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
+) -> KnowledgeSourceService:
+    """Resolve the knowledge source management service."""
+
+    return build_knowledge_source_service(db=db, ctx=ctx)
 
 
 async def get_knowledge_reader_service(

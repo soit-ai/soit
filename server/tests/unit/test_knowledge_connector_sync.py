@@ -525,6 +525,30 @@ async def test_unreadable_secret_fails_the_run_without_echoing_anything(async_db
 
 
 @pytest.mark.asyncio
+async def test_secret_gateway_retry_errors_are_unwrapped_to_a_clear_message(async_db, ctx) -> None:
+    from concurrent.futures import Future
+
+    from tenacity import RetryError
+
+    from app.kernel.commons.errors import NotFoundError
+
+    class RetryingSecrets(FakeSecretsPort):
+        async def get_secret(self, secret_id, **kwargs):
+            future: Future = Future()
+            future.set_exception(NotFoundError("Secret not found"))
+            raise RetryError(future)
+
+    service, knowledge, source, remote, engine = await _setup(
+        async_db, ctx, secrets=RetryingSecrets(), secret_requirement="required", secret_id="sec_gone"
+    )
+
+    run = await _sync(async_db, engine, source)
+
+    assert run.status == "failed" and run.error_code == ConnectorError.CREDENTIALS_INVALID
+    assert run.error_message == "The secret was not found in this workspace"
+
+
+@pytest.mark.asyncio
 async def test_required_secret_missing_fails_the_run(async_db, ctx) -> None:
     service, knowledge, source, remote, engine = await _setup(async_db, ctx, secret_requirement="required")
 

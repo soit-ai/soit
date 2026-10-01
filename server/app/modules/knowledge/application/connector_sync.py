@@ -35,8 +35,9 @@ from typing import Any
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tenacity import RetryError
 
-from app.kernel.commons.errors import ConflictError, KernelError
+from app.kernel.commons.errors import ConflictError, KernelError, NotFoundError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.connectors import (
@@ -122,6 +123,30 @@ class SyncLimits:
                 settings.knowledge_sync_max_total_bytes_ceiling,
             ),
         )
+
+
+async def read_secret_value(secrets_port: SecretsPort | None, secret_id: str) -> str:
+    """Resolve a source's secret, failing with an error that never repeats it.
+
+    The secrets gateway retries, so a missing secret can surface wrapped in a
+    retry error; the cause is looked through so the message stays accurate.
+    """
+    if secrets_port is None:
+        raise ConnectorError(ConnectorError.CREDENTIALS_INVALID, "Secrets are not available here")
+    try:
+        return await secrets_port.get_secret(secret_id)
+    except Exception as exc:
+        cause: BaseException = exc
+        if isinstance(exc, RetryError):
+            cause = exc.last_attempt.exception() or exc
+        if isinstance(cause, NotFoundError):
+            raise ConnectorError(
+                ConnectorError.CREDENTIALS_INVALID, "The secret was not found in this workspace"
+            ) from exc
+        code = cause.code if isinstance(cause, KernelError) else cause.__class__.__name__
+        raise ConnectorError(
+            ConnectorError.CREDENTIALS_INVALID, f"The secret could not be read ({code})"
+        ) from exc
 
 
 def connector_doc_key(source_id: str, external_id: str) -> str:
@@ -675,15 +700,7 @@ class KnowledgeSyncEngine:
         secret_value: str | None = None
         needs = registration.descriptor.secret
         if source.secret_id:
-            if self.secrets_port is None:
-                raise ConnectorError(ConnectorError.CREDENTIALS_INVALID, "Secrets are not available to the worker")
-            try:
-                secret_value = await self.secrets_port.get_secret(source.secret_id)
-            except KernelError as exc:
-                raise ConnectorError(
-                    ConnectorError.CREDENTIALS_INVALID,
-                    f"The source's secret could not be read ({exc.code})",
-                ) from exc
+            secret_value = await read_secret_value(self.secrets_port, source.secret_id)
         elif needs == "required":
             raise ConnectorError(ConnectorError.CREDENTIALS_INVALID, "This connector needs a secret")
         registration.validate_credentials(secret_value)
@@ -898,5 +915,6 @@ __all__ = [
     "create_sync_run",
     "enqueue_due_runs",
     "fail_if_attempts_exhausted",
+    "read_secret_value",
     "record_source_audit",
 ]

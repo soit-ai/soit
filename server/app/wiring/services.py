@@ -59,6 +59,7 @@ from app.modules.identity.infra.repository import (
     WorkspaceMembershipRepository,
     WorkspaceRepository,
 )
+from app.modules.knowledge.application.connector_service import KnowledgeSourceService
 from app.modules.knowledge.application.runtime_service import KnowledgeRuntimeService
 from app.modules.knowledge.application.service import KnowledgeService
 
@@ -243,6 +244,20 @@ def build_tool_invocation_service(*, db: AsyncSession, ctx: RequestContext) -> T
         trace_writer=trace_writer,
         approvals=SessionToolApprovals(db),
         approval_checkpoint_gateway=_get_optional_approval_checkpoint_gateway(),
+    )
+
+
+def build_knowledge_source_service(*, db: AsyncSession, ctx: RequestContext) -> KnowledgeSourceService:
+    """Knowledge source management: sources, connection tests and sync runs."""
+
+    from app.wiring.connectors import get_connector_registry
+
+    return KnowledgeSourceService(
+        db=db,
+        ctx=ctx,
+        runtime=build_knowledge_runtime_service(db=db, ctx=ctx),
+        registry=get_connector_registry(),
+        secrets_port=get_container().get_secrets_port(ctx, db=db),
     )
 
 

@@ -81,6 +81,22 @@ record for operators.
   dataset name that already has cases, and lets `source_run_id` be empty for
   cases that were not frozen from a run. A dataset names one agent and its
   name cannot be changed.
+- A knowledge base can stay in step with an external system. Sources under
+  `/api/v1/knowledge/{id}/sources` read an S3-compatible bucket (AWS S3,
+  MinIO, R2; credentials come from a secret holding JSON) or crawl a website
+  (same-host links, depth and page caps, `robots.txt` obeyed, no
+  credentials). A sync lists the remote, ingests new items, saves changed
+  ones as a new version of the same document, skips what is unchanged by
+  ETag or by content hash, and, when the source says so, deletes documents
+  whose items disappeared, but never from a listing that failed or hit a
+  cap. A source syncs on demand (with a connection test and cancel) or on a
+  cron schedule, in the ingest worker; one failing item makes a run
+  partial instead of failing it, and a failed run shows in Observe dead
+  letters as `knowledge_sync`, where redrive queues a fresh run. Requests
+  go through the egress policy, so a private endpoint needs its network in
+  `EGRESS_PRIVATE_NETWORKS`. `GET /api/v1/knowledge/connectors` lists the
+  kinds and their settings. Per-document access mapping and OAuth sources
+  are not part of this release.
 - A DeepSeek provider now has a model catalog: refreshing it lists the
   models DeepSeek's OpenAI-compatible `/models` answers, at the provider's
   base URL (`https://api.deepseek.com` or its `/v1` address), and the
