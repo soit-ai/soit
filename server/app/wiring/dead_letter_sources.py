@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
+from sqlalchemy.orm import aliased
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
@@ -31,7 +32,12 @@ from app.kernel.runtime.deadletter.contracts import (
 from app.kernel.runtime.status import TaskStatus
 from app.kernel.runtime.tasks.drivers import is_drivable, not_rerunnable_reason
 from app.kernel.runtime.tasks.service import TaskService
-from app.modules.knowledge.domain.models import KnowledgeIngestTask
+from app.modules.knowledge.application.connector_sync import create_sync_run
+from app.modules.knowledge.domain.models import (
+    KnowledgeIngestTask,
+    KnowledgeSource,
+    KnowledgeSyncRun,
+)
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.resume import (
     RESUME_BLOCKED_CHECKPOINT_MISSING,
@@ -221,6 +227,100 @@ class KnowledgeIngestDeadLetterSource:
         db.add(task)
         await db.commit()
         return RedriveResult(outcome=RedriveOutcome.REDRIVEN, redriven_as=task.id)
+
+
+class KnowledgeSyncDeadLetterSource:
+    """Connector syncs that failed outright, and have not been superseded.
+
+    A sync that merely skipped some items ends ``partial`` and is not a dead
+    letter. A failed one stops being listed as soon as a later run of the same
+    source exists, because that run already did the work the redrive would.
+    """
+
+    kind = DeadLetterKind.KNOWLEDGE_SYNC
+    redrivable = True
+
+    async def list_dead_letters(
+        self, db: AsyncSession, ctx: RequestContext, *, limit: int, offset: int
+    ) -> Sequence[DeadLetter]:
+        later = aliased(KnowledgeSyncRun)
+        rows = await _scalars(
+            db,
+            select(KnowledgeSyncRun)
+            .where(
+                KnowledgeSyncRun.tenant_id == ctx.tenant_id,
+                KnowledgeSyncRun.workspace_id == ctx.workspace_id,
+                KnowledgeSyncRun.status == "failed",
+                ~exists().where(
+                    later.source_id == KnowledgeSyncRun.source_id,
+                    later.tenant_id == KnowledgeSyncRun.tenant_id,
+                    later.workspace_id == KnowledgeSyncRun.workspace_id,
+                    later.created_at > KnowledgeSyncRun.created_at,
+                ),
+            )
+            .order_by(KnowledgeSyncRun.finished_at.desc())
+            .limit(limit)
+            .offset(offset),
+        )
+        names = await self._source_names(db, ctx, {row.source_id for row in rows})
+        return [
+            DeadLetter(
+                kind=self.kind,
+                id=row.id,
+                tenant_id=row.tenant_id,
+                workspace_id=row.workspace_id,
+                failed_at=row.finished_at,
+                error_code=row.error_code,
+                error_message=row.error_message,
+                attempt_count=int(row.attempt_count or 0),
+                subject=names.get(row.source_id) or row.source_id,
+                redrivable=True,
+                details={"source_id": row.source_id, "knowledge_id": row.knowledge_id, "trigger": row.trigger},
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    async def _source_names(db: AsyncSession, ctx: RequestContext, source_ids: set[str]) -> dict[str, str]:
+        if not source_ids:
+            return {}
+        rows = (
+            await db.exec(
+                select(KnowledgeSource.id, KnowledgeSource.name).where(
+                    KnowledgeSource.tenant_id == ctx.tenant_id,
+                    KnowledgeSource.workspace_id == ctx.workspace_id,
+                    KnowledgeSource.id.in_(source_ids),
+                )
+            )
+        ).all()
+        return {row[0]: row[1] for row in rows}
+
+    async def redrive(
+        self, db: AsyncSession, ctx: RequestContext, dead_letter_id: str
+    ) -> RedriveResult:
+        run = await db.get(KnowledgeSyncRun, dead_letter_id)
+        if run is None or run.tenant_id != ctx.tenant_id or run.workspace_id != ctx.workspace_id:
+            return RedriveResult(outcome=RedriveOutcome.NOT_FOUND)
+        if run.status != "failed":
+            return RedriveResult(outcome=RedriveOutcome.NOT_DEAD, detail=f"Run is {run.status}")
+        source = await db.get(KnowledgeSource, run.source_id)
+        if (
+            source is None
+            or source.deleted_at is not None
+            or source.tenant_id != ctx.tenant_id
+            or source.workspace_id != ctx.workspace_id
+        ):
+            return RedriveResult(outcome=RedriveOutcome.UNSUPPORTED, detail="The source no longer exists")
+        # A sync reads the remote afresh, so a redrive is a new run of the
+        # source rather than a replay of the failed one; the failed run stays
+        # as the record of what happened.
+        try:
+            queued = await create_sync_run(db, source, trigger="manual", requested_by=ctx.user_id)
+        except ConflictError:
+            return RedriveResult(
+                outcome=RedriveOutcome.NOT_DEAD, detail="A sync is already queued or running for this source"
+            )
+        return RedriveResult(outcome=RedriveOutcome.REDRIVEN, redriven_as=queued.id)
 
 
 class ResponseInteractionDeadLetterSource:
@@ -413,6 +513,7 @@ def register_dead_letter_sources() -> None:
         OutboxDeadLetterSource(),
         TaskDeadLetterSource(),
         KnowledgeIngestDeadLetterSource(),
+        KnowledgeSyncDeadLetterSource(),
         ResponseInteractionDeadLetterSource(),
         WorkflowRunDeadLetterSource(),
     ):

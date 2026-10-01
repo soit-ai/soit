@@ -376,11 +376,17 @@ class Settings(BaseSettings):
     knowledge_sync_scheduler_interval_seconds: float = 30.0
     """How often the sync worker looks for sources whose schedule is due."""
 
+    knowledge_sync_worker_concurrency: int = 2
+    """Max connector sync runs executing at once per worker loop."""
+
     knowledge_sync_worker_lease_seconds: int = 300
     """Lease duration held while one connector sync run executes."""
 
     knowledge_sync_max_attempts: int = 3
     """Times a sync run may be claimed (including crash recovery) before it fails."""
+
+    knowledge_sync_min_interval_seconds: int = 300
+    """Shortest allowed gap between two scheduled syncs of one source."""
 
     knowledge_sync_default_max_items: int = 1000
     """Per-run item cap for a source that sets none."""

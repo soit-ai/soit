@@ -40,9 +40,10 @@ async def test_the_combined_worker_starts_all_its_loops(monkeypatch: pytest.Monk
     monkeypatch.setattr(module, "OutboxDispatcherService", lambda *_, **__: Loop("outbox"))
     monkeypatch.setattr(module, "OutboxRetentionService", lambda *_, **__: Loop("retention"))
     monkeypatch.setattr(module, "GlobalKnowledgeIngestWorker", lambda: Loop("ingest"))
+    monkeypatch.setattr(module, "GlobalKnowledgeSyncWorker", lambda: Loop("knowledge-sync"))
     monkeypatch.setattr(module, "ScheduleWorker", lambda *_, **__: Loop("schedule"))
     monkeypatch.setattr(module, "UsageAggregateReconciler", lambda *_, **__: Loop("usage"))
 
     await asyncio.wait_for(module.main(), timeout=5)
 
-    assert sorted(started) == ["ingest", "outbox", "retention", "schedule", "usage"]
+    assert sorted(started) == ["ingest", "knowledge-sync", "outbox", "retention", "schedule", "usage"]

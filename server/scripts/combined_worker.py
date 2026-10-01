@@ -1,8 +1,9 @@
 """Run every background worker of a small install in one process.
 
 The lite profile (docker/docker-compose.lite.yml) runs the knowledge ingest
-worker, the outbox dispatcher with its retention sweep, and the schedule
-worker here instead of in three containers. Each loop is the same one its
+worker with its connector sync worker, the outbox dispatcher with its
+retention sweep, and the schedule worker here instead of in separate
+containers. Each loop is the same one its
 dedicated script runs, and each claims work through the same leases, so a
 deployment can later split them out without changing behaviour. The chat
 interaction worker stays in the API process for the lite profile.
@@ -26,6 +27,7 @@ from app.kernel.events.retention import OutboxRetentionService
 from app.kernel.observe.logging import setup_logging
 from app.kernel.observe.usage_aggregates import UsageAggregateReconciler
 from app.modules.knowledge.runtime.ingest_worker import GlobalKnowledgeIngestWorker
+from app.modules.knowledge.runtime.sync_worker import GlobalKnowledgeSyncWorker
 from app.modules.plugin.runtime.loader import PluginRuntimeLoader
 from app.settings.settings import settings
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
@@ -58,6 +60,7 @@ async def main() -> None:
         batch_size=int(settings.outbox_retention_batch_size),
     )
     ingest = GlobalKnowledgeIngestWorker()
+    knowledge_sync = GlobalKnowledgeSyncWorker()
     scheduler = ScheduleWorker(
         lambda: session_local(),
         lease_seconds=int(settings.schedule_worker_lease_seconds),
@@ -81,6 +84,17 @@ async def main() -> None:
             heartbeat_interval=settings.knowledge_ingest_worker_heartbeat_seconds,
         ),
         scheduler.run_loop(poll_interval=max(1.0, float(settings.schedule_worker_poll_interval))),
+        *(
+            [
+                knowledge_sync.run_loop(
+                    poll_interval=max(0.1, settings.knowledge_sync_worker_poll_interval),
+                    concurrency=settings.knowledge_sync_worker_concurrency,
+                    heartbeat_interval=settings.knowledge_ingest_worker_heartbeat_seconds,
+                )
+            ]
+            if settings.knowledge_sync_worker_enabled
+            else []
+        ),
     )
 
 

@@ -19,7 +19,11 @@ from app.kernel.runtime.deadletter.contracts import (
 from app.kernel.runtime.deadletter.service import DeadLetterService
 from app.kernel.runtime.status import TaskStatus
 from app.kernel.runtime.tasks import drivers
-from app.modules.knowledge.domain.models import KnowledgeIngestTask
+from app.modules.knowledge.domain.models import (
+    KnowledgeIngestTask,
+    KnowledgeSource,
+    KnowledgeSyncRun,
+)
 from app.modules.workflow.domain.models import (
     Workflow,
     WorkflowRun,
@@ -213,6 +217,20 @@ async def test_dead_letters_from_all_kinds_appear_in_one_view(async_db, ctx):
     await _failed_ingest(async_db, ctx, task_id="ingest_1")
     await _failed_workflow(async_db, ctx, row_id="wfr_1")
     await _failed_interaction(async_db, ctx, interaction_id="rint_1")
+    async_db.add(KnowledgeSource(id="ksrc_1", tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, knowledge_id="knw_1", name="docs", connector_kind="s3"))
+    async_db.add(
+        KnowledgeSyncRun(
+            id="ksync_1",
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            knowledge_id="knw_1",
+            source_id="ksrc_1",
+            status="failed",
+            error_code="CONNECTOR_AUTH_FAILED",
+            finished_at=utc_now(),
+        )
+    )
+    await async_db.commit()
 
     letters = await DeadLetterService(async_db, ctx).list_dead_letters(limit=50)
 

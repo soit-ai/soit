@@ -33,6 +33,7 @@ class DeadLetterKind(str, Enum):
     WORKFLOW_RUN = "workflow_run"
     TASK = "task"
     KNOWLEDGE_INGEST = "knowledge_ingest"
+    KNOWLEDGE_SYNC = "knowledge_sync"
     OUTBOX_EVENT = "outbox_event"
 
 

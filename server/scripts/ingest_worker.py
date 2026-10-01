@@ -8,6 +8,7 @@ import sys
 
 from app.infra.telemetry import configure_telemetry
 from app.modules.knowledge.runtime.ingest_worker import GlobalKnowledgeIngestWorker
+from app.modules.knowledge.runtime.sync_worker import GlobalKnowledgeSyncWorker
 from app.settings.settings import settings
 
 
@@ -31,14 +32,27 @@ async def main() -> None:
         settings.knowledge_ingest_worker_heartbeat_seconds,
     )
     worker = GlobalKnowledgeIngestWorker()
-    await worker.run_loop(
-        poll_interval=max(0.1, settings.knowledge_ingest_worker_poll_interval),
-        # A dedicated worker container must keep draining the queue; a positive
-        # limit is only for bounded runs such as tests and one-shot drains.
-        max_tasks=settings.knowledge_ingest_worker_max_tasks or None,
-        concurrency=settings.knowledge_ingest_worker_concurrency,
-        heartbeat_interval=settings.knowledge_ingest_worker_heartbeat_seconds,
-    )
+    loops = [
+        worker.run_loop(
+            poll_interval=max(0.1, settings.knowledge_ingest_worker_poll_interval),
+            # A dedicated worker container must keep draining the queue; a positive
+            # limit is only for bounded runs such as tests and one-shot drains.
+            max_tasks=settings.knowledge_ingest_worker_max_tasks or None,
+            concurrency=settings.knowledge_ingest_worker_concurrency,
+            heartbeat_interval=settings.knowledge_ingest_worker_heartbeat_seconds,
+        )
+    ]
+    if settings.knowledge_sync_worker_enabled:
+        # Connector syncs hand their documents to the ingest loop above, so the
+        # two run together.
+        loops.append(
+            GlobalKnowledgeSyncWorker().run_loop(
+                poll_interval=max(0.1, settings.knowledge_sync_worker_poll_interval),
+                concurrency=settings.knowledge_sync_worker_concurrency,
+                heartbeat_interval=settings.knowledge_ingest_worker_heartbeat_seconds,
+            )
+        )
+    await asyncio.gather(*loops)
 
 
 if __name__ == "__main__":

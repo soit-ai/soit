@@ -193,6 +193,22 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("knowledge ingest worker", exc)
 
+    # Connector syncs queue their documents for the ingest worker, so the sync
+    # worker runs wherever the ingest worker does.
+    knowledge_sync_worker = None
+    if (
+        knowledge_worker is not None
+        and getattr(app_settings, "knowledge_sync_worker_enabled", True)
+    ):
+        try:
+            from app.modules.knowledge.runtime.sync_worker import (
+                GlobalKnowledgeSyncWorker,
+            )
+
+            knowledge_sync_worker = GlobalKnowledgeSyncWorker()
+        except Exception as exc:
+            _handle_startup_failure("knowledge sync worker", exc)
+
     outbox_service = None
     if runs_background and getattr(app_settings, "outbox_dispatcher_enabled", False):
         try:
@@ -287,6 +303,18 @@ async def lifespan(app: FastAPI):
                         max_tasks=app_settings.knowledge_ingest_worker_max_tasks
                         or None,
                         concurrency=app_settings.knowledge_ingest_worker_concurrency,
+                    )
+                )
+            )
+        if knowledge_sync_worker is not None:
+            background_tasks.append(
+                asyncio.create_task(
+                    knowledge_sync_worker.run_loop(
+                        poll_interval=max(
+                            0.1,
+                            app_settings.knowledge_sync_worker_poll_interval,
+                        ),
+                        concurrency=app_settings.knowledge_sync_worker_concurrency,
                     )
                 )
             )
