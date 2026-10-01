@@ -26,6 +26,8 @@ export SOIT_MODEL=model:openai-main:gpt-5.5
 | [`node_openai.mjs`](node_openai.mjs) | OpenAI Node SDK | `npm install openai` |
 | [`langchain_chat.py`](langchain_chat.py) | LangChain `ChatOpenAI` | `pip install langchain-openai` |
 | [`openai_agents.py`](openai_agents.py) | OpenAI Agents SDK | `pip install openai-agents` |
+| [`python_anthropic.py`](python_anthropic.py) | Anthropic Python SDK | `pip install anthropic` |
+| [`claude_code.md`](claude_code.md) | Claude Code | the `claude` CLI |
 | [`tools.sh`](tools.sh) | curl, SOIT tools API | curl, jq |
 
 ## Served endpoints
@@ -33,6 +35,9 @@ export SOIT_MODEL=model:openai-main:gpt-5.5
 - `POST /v1/chat/completions`: whole or streamed, with tools, images in
   messages and structured output (`response_format`).
 - `GET /v1/models`: the models and virtual models the key may call.
+- `POST /v1/messages` and `POST /v1/messages/count_tokens`: the Anthropic
+  Messages API, for the Anthropic SDKs and Claude Code. Its base URL has no
+  `/v1`, its key goes in `x-api-key`, and refusals use Anthropic's error body.
 - `POST /v1/embeddings`: float or base64 vectors.
 - `POST /v1/images/generations` and `POST /v1/images/edits`.
 
@@ -59,7 +64,9 @@ chat-completions model, as `openai_agents.py` shows.
 
 ## How these are tested
 
-`server/tests/compat` drives the OpenAI Python SDK against the gateway in CI:
+`server/tests/compat` drives the official Anthropic Python SDK against
+`/v1/messages` and the OpenAI Python SDK against the rest of the gateway in CI.
+The OpenAI suite covers
 completions, streams, tool calls, structured output, embeddings, model
 listing, image generation and edits, and error classes. LangChain's
 `ChatOpenAI` and the Agents SDK's chat-completions model call through that
