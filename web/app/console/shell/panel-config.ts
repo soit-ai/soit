@@ -5,6 +5,7 @@ import {
   IconNavAgents,
   IconNavApprovals,
   IconNavAudit,
+  IconNavEvaluations,
   IconNavEvents,
   IconNavKnowledge,
   IconNavModels,
@@ -56,6 +57,7 @@ export type ConsoleCountKey =
   | 'threads'
   | 'runs'
   | 'traces'
+  | 'evaluations'
   | 'policies'
   | 'audit'
   | 'access'
@@ -197,6 +199,7 @@ export const PANEL_CONFIG: PillarConfig[] = [
         links: [
           { labelKey: 'console.nav.runs', to: '/observe/runs', count: 'runs', icon: IconObserve },
           { labelKey: 'console.nav.traces', to: '/observe/traces', count: 'traces', icon: IconNavTraces },
+          { labelKey: 'console.nav.evaluations', to: '/observe/evaluations', count: 'evaluations', icon: IconNavEvaluations },
         ],
       },
       { captionKey: 'console.shell.savedViews', slot: 'savedViews' },

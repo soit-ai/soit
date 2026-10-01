@@ -29,6 +29,20 @@ record for operators.
   list's `has_more`, `first_id` and `last_id` beside OpenAI's fields. The
   official Anthropic Python SDK runs against the route in CI. See
   [Anthropic Messages](docs/gateway.md#anthropic-messages).
+- Observe › Evaluations in the console. It lists the workspace's datasets
+  with the agent, revision, case count and how the latest report went (and
+  whether the dataset has changed since it ran), and **New dataset** creates
+  one for an agent, optionally seeded from a JSONL file in the same step. A
+  dataset opens to three tabs: **Cases** (add, edit and remove a case, with
+  an editor for required output terms, a latency ceiling, a cost ceiling
+  and an LLM-judge rubric, and import and export of JSONL), **Reports**
+  (pass rate per report over time, and for the report picked each case's
+  result with the ones that regressed or were fixed against its baseline and
+  the judge's score) and **Versions** (each revision's size, content hash,
+  and cases added, removed and changed, with the cases it held). **Run
+  evaluation** runs the dataset on the published version, or a version
+  named, optionally on another model, and opens the report it records. An
+  archived dataset can be exported and restored but not run or edited.
 - Evaluation datasets. An agent's regression set is now an object of its
   own: `POST /api/v1/evaluations/datasets` creates a named dataset, and
   cases are added, edited and removed through `/datasets/{id}/cases`

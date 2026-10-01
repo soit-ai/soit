@@ -253,6 +253,14 @@ export const IconNavTraces = makeIcon(
   14
 )
 
+export const IconNavEvaluations = makeIcon(
+  <>
+    <path d="m4 6 1.8 1.8L9 4.5M4 14l1.8 1.8L9 12.5" />
+    <path d="M13 6h7M13 14h7M13 18h5" strokeLinecap="round" />
+  </>,
+  14
+)
+
 export const IconNavApprovals = makeIcon(
   <>
     <circle cx="12" cy="12" r="9" />

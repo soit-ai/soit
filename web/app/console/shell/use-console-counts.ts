@@ -14,6 +14,7 @@ import { listPlugins } from '@/services/plugin-service'
 import { getModelWorkbenchOverview } from '@/services/provider-service'
 import { getRunWindowSummary, listRunAudits, listRunSteps, listRuns } from '@/services/run-service'
 import { getEgressBlockSummary, getPolicyBundle } from '@/services/security-service'
+import { listDatasets } from '@/services/evaluation-service'
 import { listSchedules } from '@/services/schedule-service'
 import { listSecrets } from '@/services/secrets-service'
 import { getTaskWorkbench } from '@/services/task-service'
@@ -295,6 +296,11 @@ export function useConsolePanelData(
     queryFn: () => listSchedules({ limit: 100 }, { suppressErrorToast: true }),
     options: { ...SHARED, enabled: isExecute },
   })
+  const evaluationDatasets = useQuery({
+    queryKey: ['console', 'counts', 'evaluation-datasets'],
+    queryFn: () => listDatasets({ limit: 200 }, { suppressErrorToast: true }),
+    options: { ...SHARED, enabled: isObserve },
+  })
   const grants = useQuery({
     queryKey: ['console', 'counts', 'grants'],
     queryFn: () => listWorkspaceResourceGrants({ limit: 500 }),
@@ -362,6 +368,7 @@ export function useConsolePanelData(
     apiKeys: apiKeys.data?.items?.length,
     runs: countLabel(runCount.data?.total),
     traces: spanLabel(spanCount.data?.total),
+    evaluations: evaluationDatasets.data?.length,
     audit: windowLabel(auditCount.data?.total),
     access: grants.data?.length,
     policies: policyLabel(policyBundle.data),

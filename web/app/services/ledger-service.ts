@@ -4,12 +4,12 @@ import request, { type RequestConfigWithToast } from '@/utils/request'
 export type LedgerExportKind = 'runs' | 'steps' | 'costs' | 'audit' | 'events'
 export type LedgerExportFormat = 'jsonl' | 'csv'
 
-function filenameOf(disposition: unknown, fallback: string): string {
+export function filenameOf(disposition: unknown, fallback: string): string {
   const match = /filename="?([^";]+)"?/.exec(String(disposition || ''))
   return match?.[1] || fallback
 }
 
-function save(data: Blob, filename: string): void {
+export function saveBlob(data: Blob, filename: string): void {
   const href = URL.createObjectURL(data)
   const link = document.createElement('a')
   link.href = href
@@ -30,7 +30,7 @@ export async function downloadRunEvidence(
   const config: RequestConfigWithToast = { responseType: 'blob', suppressErrorToast: true }
   const response = await request.get<Blob>(`/runs/${runId}/evidence`, config)
   const filename = filenameOf(response.headers?.['content-disposition'], `soit-evidence-${runId}.zip`)
-  save(response.data, filename)
+  saveBlob(response.data, filename)
   return { filename, sha256: (response.headers?.['x-soit-evidence-sha256'] as string) || null }
 }
 
@@ -42,7 +42,7 @@ export async function downloadTraceOtlp(traceId: string): Promise<string> {
   const config: RequestConfigWithToast = { responseType: 'blob', suppressErrorToast: true }
   const response = await request.get<Blob>(`/runs/trace/${traceId}/otlp`, config)
   const filename = filenameOf(response.headers?.['content-disposition'], `trace-${traceId}.otlp.json`)
-  save(response.data, filename)
+  saveBlob(response.data, filename)
   return filename
 }
 
@@ -57,6 +57,6 @@ export async function downloadLedgerExport(
   const config: RequestConfigWithToast = { params, responseType: 'blob', suppressErrorToast: true }
   const response = await request.get<Blob>(`/exports/${kind}`, config)
   const filename = filenameOf(response.headers?.['content-disposition'], `soit-${kind}.${params.format}`)
-  save(response.data, filename)
+  saveBlob(response.data, filename)
   return filename
 }

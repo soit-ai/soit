@@ -42,6 +42,8 @@ export default [
       route('runs/:id', './console/routes/observe/run-detail.tsx'),
       route('traces', './console/routes/observe/traces.tsx'),
       route('traces/:traceId', './console/routes/observe/trace-detail.tsx'),
+      route('evaluations', './console/routes/observe/evaluations.tsx'),
+      route('evaluations/:datasetId', './console/routes/observe/evaluation-detail.tsx'),
     ]),
     ...prefix('govern', [
       route('approvals', './console/routes/govern/approvals.tsx'),
