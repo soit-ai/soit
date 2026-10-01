@@ -308,6 +308,22 @@ async def test_update_changes_only_the_fields_sent_and_recomputes_the_schedule(a
     assert events and "name" in events[0].payload_json["changed"]
 
 
+async def test_limit_changes_merge_into_the_stored_caps(async_client, async_db, ctx) -> None:
+    knowledge_id = await _knowledge(async_client, async_db, ctx)
+    source = await _create(async_client, knowledge_id, limits={"max_items": 40, "max_item_bytes": 2048})
+    url = f"{_base(knowledge_id)}/{source['id']}"
+
+    added = (await async_client.patch(url, json={"limits": {"max_total_bytes": 4096}})).json()["data"]
+    assert added["limits"] == {"max_items": 40, "max_item_bytes": 2048, "max_total_bytes": 4096}
+
+    reset_one = (await async_client.patch(url, json={"limits": {"max_items": None}})).json()["data"]
+    assert reset_one["limits"]["max_items"] == 1000
+    assert reset_one["limits"]["max_item_bytes"] == 2048
+
+    reset_all = (await async_client.patch(url, json={"limits": None})).json()["data"]
+    assert reset_all["limits"] == {"max_items": 1000, "max_item_bytes": 5 * 1024 * 1024, "max_total_bytes": 256 * 1024 * 1024}
+
+
 async def test_removing_the_secret_from_an_s3_source_is_refused(async_client, async_db, ctx) -> None:
     knowledge_id = await _knowledge(async_client, async_db, ctx)
     secret_id = await _secret(async_client)

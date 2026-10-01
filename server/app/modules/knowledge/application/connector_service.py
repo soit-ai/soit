@@ -232,7 +232,7 @@ class KnowledgeSourceService:
                 changed.append("delete_removed")
             source.delete_removed = payload.delete_removed
         if "limits" in sent:
-            source.limits_json = self._validated_limits(payload.limits)
+            source.limits_json = self._merged_limits(source.limits_json, payload.limits)
             changed.append("limits")
 
         if schedule_changed:
@@ -487,6 +487,23 @@ class KnowledgeSourceService:
         if second - first < timedelta(seconds=minimum):
             raise ValidationError(f"Syncs may run at most once every {minimum // 60} minutes")
         return expression, zone
+
+    @classmethod
+    def _merged_limits(cls, current: dict[str, Any] | None, limits: SourceLimitsPayload | None) -> dict[str, Any]:
+        """Apply a limits change to the stored caps.
+
+        Only the caps named in the request change, so adjusting one does not
+        reset the others; naming a cap as null returns it to the deployment
+        default, and sending ``limits: null`` clears them all.
+        """
+        if limits is None:
+            return {}
+        merged = dict(current or {})
+        for key in limits.model_fields_set:
+            if getattr(limits, key) is None:
+                merged.pop(key, None)
+        merged.update(cls._validated_limits(limits))
+        return merged
 
     @staticmethod
     def _validated_limits(limits: SourceLimitsPayload | None) -> dict[str, Any]:
