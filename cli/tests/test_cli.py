@@ -376,3 +376,250 @@ def test_logout_forgets_the_key(_isolated: Path, capsys) -> None:
     assert main(["logout"]) == EXIT_OK
     assert not _isolated.exists()
     assert "Signed out" in capsys.readouterr().out
+
+
+def _dataset(dataset_id: str = "regds_1", name: str = "refunds", agent: str = "agt_1", **extra) -> dict:
+    return {
+        "id": dataset_id,
+        "subject_kind": "agent",
+        "subject_id": agent,
+        "name": name,
+        "description": "",
+        "revision": 3,
+        "status": "active",
+        "case_count": 2,
+        "latest_report": {"id": "regrep_1", "passed": False, "total": 2, "passed_count": 1, "dataset_revision": 3},
+        **extra,
+    }
+
+
+def _report(*, regressed: list[str], failed: int, baseline: str | None = "regrep_0") -> dict:
+    return {
+        "id": "regrep_2",
+        "subject_version_id": "ver_9",
+        "passed": failed == 0,
+        "dataset": "refunds",
+        "dataset_revision": 3,
+        "baseline_report_id": baseline,
+        "regressed_case_ids_json": regressed,
+        "fixed_case_ids_json": [],
+        "summary_json": {"total": 2, "passed": 2 - failed, "failed": failed},
+        "metrics_json": {},
+        "case_results_json": [
+            {"case_id": "regcase_1", "name": "refund-window", "passed": True, "latency_ms": 800},
+            {
+                "case_id": "regcase_2",
+                "name": "tone",
+                "passed": failed == 0,
+                "latency_ms": 880,
+                "failure_reasons": [] if failed == 0 else ["llm_judge_below_threshold"],
+            },
+        ],
+    }
+
+
+def test_dataset_list_shows_revision_cases_and_the_latest_report(capsys) -> None:
+    _signed_in()
+    api = Api(
+        {
+            ("GET", "/api/v1/evaluations/datasets"): lambda _: ok(
+                [_dataset(), _dataset("regds_2", "tone", latest_report=None, case_count=0, revision=1)]
+            )
+        }
+    )
+
+    assert main(["dataset", "list", "--agent", "agt_1"], transport=api.transport()) == EXIT_OK
+
+    assert dict(api.requests[0].url.params) == {"status": "active", "limit": "200", "subject_id": "agt_1"}
+    out = capsys.readouterr().out
+    assert "regds_1" in out and "FAIL 1/2 (r3)" in out
+    assert "never run" in out
+
+
+def test_dataset_export_writes_the_jsonl_the_server_renders(tmp_path: Path, capsys) -> None:
+    _signed_in()
+    jsonl = '{"name":"a","input":"hi","expected_features":{"max_latency_ms":5}}\n'
+    api = Api(
+        {
+            ("GET", "/api/v1/evaluations/datasets"): lambda _: ok([_dataset()]),
+            ("GET", "/api/v1/evaluations/datasets/regds_1/export"): lambda _: httpx.Response(
+                200, content=jsonl.encode("utf-8"), headers={"content-type": "application/x-ndjson"}
+            ),
+        }
+    )
+    target = tmp_path / "out" / "refunds.jsonl"
+
+    assert main(["dataset", "export", "refunds", "-o", str(target)], transport=api.transport()) == EXIT_OK
+    assert target.read_text(encoding="utf-8") == jsonl
+    assert "2 cases from refunds r3" in capsys.readouterr().err
+
+    assert main(["dataset", "export", "regds_1"], transport=api.transport()) == EXIT_OK
+    assert capsys.readouterr().out == jsonl
+
+
+def test_a_dataset_name_two_agents_share_must_be_disambiguated(capsys) -> None:
+    _signed_in()
+    api = Api({("GET", "/api/v1/evaluations/datasets"): lambda _: ok([_dataset(), _dataset("regds_2", agent="agt_2")])})
+
+    assert main(["dataset", "export", "refunds"], transport=api.transport()) == EXIT_FAILED
+    assert "2 datasets are named 'refunds' (agents agt_1, agt_2)" in capsys.readouterr().err
+
+
+def test_dataset_import_sends_the_file_text_to_the_dataset(tmp_path: Path, capsys) -> None:
+    _signed_in()
+    seen: dict = {}
+
+    def imported(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return ok({"imported": 2, "dataset": _dataset(revision=4, case_count=4)})
+
+    api = Api(
+        {
+            ("GET", "/api/v1/evaluations/datasets"): lambda _: ok([_dataset()]),
+            ("POST", "/api/v1/evaluations/datasets/regds_1/import"): imported,
+        }
+    )
+    source = tmp_path / "cases.jsonl"
+    source.write_text('{"name":"a"}\n{"name":"b"}\n', encoding="utf-8")
+
+    code = main(["dataset", "import", "refunds", str(source), "--note", "from CI"], transport=api.transport())
+
+    assert code == EXIT_OK
+    assert seen == {"content": '{"name":"a"}\n{"name":"b"}\n', "note": "from CI"}
+    out = capsys.readouterr()
+    assert out.out.strip() == "regds_1"
+    assert "imported 2 cases into refunds, now r4 with 4 cases" in out.err
+
+
+def test_a_refused_import_lists_every_bad_line_and_exits_1(tmp_path: Path, capsys) -> None:
+    _signed_in()
+    refusal = {
+        "success": False,
+        "code": "VALIDATION_ERROR",
+        "message": "2 of 3 lines are not valid cases; nothing was imported",
+        "details": {
+            "error_count": 2,
+            "errors": [
+                {"line": 2, "message": "not valid JSON: Expecting value"},
+                {"line": 3, "message": "/expected_features: {} should be non-empty"},
+            ],
+        },
+    }
+    api = Api(
+        {
+            ("GET", "/api/v1/evaluations/datasets"): lambda _: ok([_dataset()]),
+            ("POST", "/api/v1/evaluations/datasets/regds_1/import"): lambda _: httpx.Response(400, json=refusal),
+        }
+    )
+    source = tmp_path / "cases.jsonl"
+    source.write_text("x\n", encoding="utf-8")
+
+    assert main(["dataset", "import", "regds_1", str(source)], transport=api.transport()) == EXIT_FAILED
+
+    err = capsys.readouterr().err
+    assert f"{source}:2: not valid JSON" in err
+    assert f"{source}:3: /expected_features" in err
+    assert "(2 problems)" in err
+
+
+def test_dataset_import_can_create_the_dataset_first(tmp_path: Path, capsys) -> None:
+    _signed_in()
+    created: dict = {}
+
+    def create(request: httpx.Request) -> httpx.Response:
+        created.update(json.loads(request.content))
+        return ok(_dataset("regds_new", "fresh", revision=1, case_count=0))
+
+    api = Api(
+        {
+            ("GET", "/api/v1/evaluations/datasets"): lambda _: ok([]),
+            ("POST", "/api/v1/evaluations/datasets"): create,
+            ("POST", "/api/v1/evaluations/datasets/regds_new/import"): lambda _: ok(
+                {"imported": 1, "dataset": _dataset("regds_new", "fresh", revision=2, case_count=1)}
+            ),
+        }
+    )
+    source = tmp_path / "cases.jsonl"
+    source.write_text('{"name":"a"}\n', encoding="utf-8")
+
+    refused = main(["dataset", "import", "fresh", str(source)], transport=api.transport())
+    assert refused == EXIT_FAILED
+    assert "pass --create" in capsys.readouterr().err
+
+    code = main(["dataset", "import", "fresh", str(source), "--agent", "agt_1", "--create"], transport=api.transport())
+
+    assert code == EXIT_OK
+    assert created == {"subject_id": "agt_1", "name": "fresh", "description": ""}
+    assert capsys.readouterr().out.strip() == "regds_new"
+
+
+def test_eval_run_prints_the_cases_and_names_the_report(capsys) -> None:
+    _signed_in()
+    api = Api({("POST", "/api/v1/evaluations/run"): lambda _: ok(_report(regressed=["regcase_2"], failed=1))})
+
+    code = main(
+        [
+            "eval",
+            "run",
+            "agt_1",
+            "--dataset",
+            "refunds",
+            "--version",
+            "ver_9",
+            "--model",
+            "model:x:y",
+            "--max-cases",
+            "10",
+        ],
+        transport=api.transport(),
+    )
+
+    assert code == EXIT_OK
+    assert json.loads(api.requests[0].content) == {
+        "subject_id": "agt_1",
+        "dataset": "refunds",
+        "subject_version_id": "ver_9",
+        "model_ref": "model:x:y",
+        "max_cases": 10,
+    }
+    out = capsys.readouterr()
+    assert "tone" in out.out and "FAIL" in out.out and "llm_judge_below_threshold (regressed)" in out.out
+    assert "1/2 cases passed (50.0%) on refunds r3, version ver_9; 1 regressed, 0 fixed against regrep_0" in out.out
+    assert "report regrep_2" in out.err
+
+
+def test_eval_run_defaults_to_the_default_dataset(capsys) -> None:
+    _signed_in()
+    api = Api({("POST", "/api/v1/evaluations/run"): lambda _: ok(_report(regressed=[], failed=0, baseline=None))})
+
+    assert main(["eval", "run", "agt_1"], transport=api.transport()) == EXIT_OK
+
+    assert json.loads(api.requests[0].content) == {"subject_id": "agt_1", "dataset": "default"}
+    assert "no comparable baseline yet" in capsys.readouterr().out
+
+
+def test_eval_run_fails_a_ci_step_on_a_regression_or_on_any_failure(capsys) -> None:
+    _signed_in()
+    regressing = Api({("POST", "/api/v1/evaluations/run"): lambda _: ok(_report(regressed=["regcase_2"], failed=1))})
+    known_gap = Api({("POST", "/api/v1/evaluations/run"): lambda _: ok(_report(regressed=[], failed=1))})
+
+    lenient = main(["eval", "run", "agt_1"], transport=regressing.transport())
+    on_regression = main(["eval", "run", "agt_1", "--fail-on-regression", "--json"], transport=regressing.transport())
+    gap_on_regression = main(["eval", "run", "agt_1", "--fail-on-regression"], transport=known_gap.transport())
+    on_failure = main(["eval", "run", "agt_1", "--fail-on-failure"], transport=known_gap.transport())
+
+    assert (lenient, on_regression, gap_on_regression, on_failure) == (
+        EXIT_OK,
+        EXIT_REGRESSED,
+        EXIT_OK,
+        EXIT_REGRESSED,
+    )
+    assert "1 case(s) passed in the baseline and fail now" in capsys.readouterr().err
+
+
+def test_eval_with_a_model_still_means_a_replay() -> None:
+    _signed_in()
+    api = Api({("POST", "/api/v1/evaluations/model-replays"): lambda _: ok(_replay([]))})
+
+    assert main(["eval", "model:openai:gpt-6"], transport=api.transport()) == EXIT_OK
+    assert api.requests[0].url.path == "/api/v1/evaluations/model-replays"

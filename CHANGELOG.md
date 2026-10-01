@@ -29,6 +29,18 @@ record for operators.
   list's `has_more`, `first_id` and `last_id` beside OpenAI's fields. The
   official Anthropic Python SDK runs against the route in CI. See
   [Anthropic Messages](docs/gateway.md#anthropic-messages).
+- `soit dataset list|export|import` and `soit eval run` in the command line.
+  `dataset list` shows each dataset's revision, case count and latest report;
+  `dataset export` writes one as JSONL (by id, or by name for one agent) and
+  `dataset import FILE` adds a JSONL file's cases all or none, listing every
+  bad line as `FILE:LINE: message` and exiting 1 if any is refused, with
+  `--create --agent ID` to create the dataset first. `eval run AGENT_ID`
+  runs a dataset (`default` unless `--dataset`) on the published version, or
+  `--version`, optionally on `--model`, and prints each case's result and
+  the report it records; `--fail-on-regression` exits 3 when a case that
+  passed in the baseline fails now and `--fail-on-failure` when any case
+  fails, so a CI job can evaluate every change against a dataset kept in the
+  repository. `soit eval MODEL_REF` still replays on a model.
 - Observe › Evaluations in the console. It lists the workspace's datasets
   with the agent, revision, case count and how the latest report went (and
   whether the dataset has changed since it ran), and **New dataset** creates

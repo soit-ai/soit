@@ -20,10 +20,18 @@ EXPORT_TIMEOUT = 600.0
 class SoitError(Exception):
     """A refusal from SOIT, or a failure to reach it."""
 
-    def __init__(self, message: str, *, status: int | None = None, code: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        code: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
+        self.details = details or {}
 
     def __str__(self) -> str:
         return f"{self.code}: {self.args[0]}" if self.code else str(self.args[0])
@@ -68,12 +76,15 @@ class SoitClient:
             body = response.json()
         except ValueError:
             body = {}
+        details: dict[str, Any] = {}
         if isinstance(body, dict):
             code = body.get("code")
             message = body.get("message") or response.reason_phrase
+            if isinstance(body.get("details"), dict):
+                details = body["details"]
         else:
             code, message = None, response.reason_phrase
-        raise SoitError(str(message), status=response.status_code, code=str(code) if code else None)
+        raise SoitError(str(message), status=response.status_code, code=str(code) if code else None, details=details)
 
     def _data(self, method: str, path: str, **kwargs: Any) -> Any:
         body = self._send(method, path, **kwargs).json()
@@ -110,6 +121,48 @@ class SoitClient:
         if max_cases is not None:
             body["max_cases"] = max_cases
         return self._data("POST", "/api/v1/evaluations/model-replays", json=body, timeout=REPLAY_TIMEOUT)
+
+    def list_datasets(self, *, agent_id: str | None = None, archived: bool = False) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"status": "archived" if archived else "active", "limit": 200}
+        if agent_id:
+            params["subject_id"] = agent_id
+        return self._data("GET", "/api/v1/evaluations/datasets", params=params)
+
+    def create_dataset(self, agent_id: str, name: str, *, description: str = "") -> dict[str, Any]:
+        body = {"subject_id": agent_id, "name": name, "description": description}
+        return self._data("POST", "/api/v1/evaluations/datasets", json=body)
+
+    def export_dataset(self, dataset_id: str) -> str:
+        """The dataset's cases as JSONL, in the format import reads."""
+
+        response = self._send("GET", f"/api/v1/evaluations/datasets/{dataset_id}/export", timeout=EXPORT_TIMEOUT)
+        return response.content.decode("utf-8")
+
+    def import_dataset(self, dataset_id: str, content: str, *, note: str = "") -> dict[str, Any]:
+        """Add every case of a JSONL text, or none of them if any line is wrong."""
+
+        body = {"content": content, "note": note}
+        return self._data("POST", f"/api/v1/evaluations/datasets/{dataset_id}/import", json=body)
+
+    def run_evaluation(
+        self,
+        agent_id: str,
+        *,
+        dataset: str,
+        version_id: str | None = None,
+        model_ref: str | None = None,
+        max_cases: int | None = None,
+    ) -> dict[str, Any]:
+        """Run a dataset on an agent version and answer with the report it records."""
+
+        body: dict[str, Any] = {"subject_id": agent_id, "dataset": dataset}
+        if version_id:
+            body["subject_version_id"] = version_id
+        if model_ref:
+            body["model_ref"] = model_ref
+        if max_cases is not None:
+            body["max_cases"] = max_cases
+        return self._data("POST", "/api/v1/evaluations/run", json=body, timeout=REPLAY_TIMEOUT)
 
     def export_agent(self, agent_id: str) -> dict[str, Any]:
         """The agent as a file: its fields and its published or current version's specification."""

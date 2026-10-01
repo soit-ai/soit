@@ -1,8 +1,9 @@
-"""``soit``: sign in, run an agent, replay regressions on a model, export evidence.
+"""``soit``: sign in, run an agent, evaluate it, manage datasets, export evidence.
 
 Results go to standard output, progress and errors to standard error. Exit
-codes: 0 success, 1 a refusal or failure, 2 a usage error, 3 a model replay
-that found regressions when ``--fail-on-regression`` asked to fail on them.
+codes: 0 success, 1 a refusal or failure, 2 a usage error, 3 a model replay or
+an evaluation run that found regressions (or failures) when
+``--fail-on-regression`` (or ``--fail-on-failure``) asked to fail on them.
 """
 
 from __future__ import annotations
@@ -163,6 +164,154 @@ def _print_replay(replay: dict[str, Any]) -> None:
     print(f"replay {replay.get('id')}", file=sys.stderr)
 
 
+def _eval_run(client: SoitClient, args: argparse.Namespace) -> int:
+    target = f" on {args.model}" if args.model else ""
+    print(f"Running dataset {args.dataset}{target}...", file=sys.stderr)
+    report = client.run_evaluation(
+        args.agent_id,
+        dataset=args.dataset,
+        version_id=args.version,
+        model_ref=args.model,
+        max_cases=args.max_cases,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        _print_report(report)
+    regressed = len(report.get("regressed_case_ids_json") or [])
+    failed = int((report.get("summary_json") or {}).get("failed") or 0)
+    if args.fail_on_regression and regressed:
+        _err(f"{regressed} case(s) passed in the baseline and fail now")
+        return EXIT_REGRESSED
+    if args.fail_on_failure and failed:
+        _err(f"{failed} case(s) failed")
+        return EXIT_REGRESSED
+    return EXIT_OK
+
+
+def _print_report(report: dict[str, Any]) -> None:
+    regressed = set(report.get("regressed_case_ids_json") or [])
+    fixed = set(report.get("fixed_case_ids_json") or [])
+    rows = [("CASE", "RESULT", "LATENCY", "WHY")]
+    for case in report.get("case_results_json") or []:
+        marks = [mark for mark, ids in (("regressed", regressed), ("fixed", fixed)) if case.get("case_id") in ids]
+        reasons = "; ".join(case.get("failure_reasons") or [])
+        why = " ".join(part for part in (reasons, f"({', '.join(marks)})" if marks else "") if part)
+        rows.append(
+            (
+                str(case.get("name") or case.get("case_id")),
+                "pass" if case.get("passed") else "FAIL",
+                f"{case.get('latency_ms', 0)}ms",
+                why,
+            )
+        )
+    widths = [max(len(row[index]) for row in rows) for index in range(len(rows[0]))]
+    for row in rows:
+        print("  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip())
+    summary = report.get("summary_json") or {}
+    total = int(summary.get("total") or 0)
+    passed = int(summary.get("passed") or 0)
+    baseline = report.get("baseline_report_id")
+    print(
+        f"\n{passed}/{total} cases passed ({_percent(passed / total if total else None)})"
+        f" on {report.get('dataset')} r{report.get('dataset_revision')},"
+        f" version {report.get('subject_version_id')};"
+        + (
+            f" {len(regressed)} regressed, {len(fixed)} fixed against {baseline}"
+            if baseline
+            else " no comparable baseline yet"
+        )
+    )
+    if summary.get("model_ref"):
+        print(f"ran on {summary['model_ref']}: this report is never a baseline", file=sys.stderr)
+    print(f"report {report.get('id')}", file=sys.stderr)
+
+
+def _find_dataset(client: SoitClient, reference: str, agent_id: str | None) -> dict[str, Any] | None:
+    """A dataset by id, or by name (for one agent when several share it); None if there is none."""
+    matches = [
+        item
+        for item in client.list_datasets(agent_id=agent_id)
+        if item["id"] == reference or item["name"] == reference
+    ]
+    if len(matches) > 1:
+        agents = ", ".join(sorted(item["subject_id"] for item in matches))
+        raise SoitError(f"{len(matches)} datasets are named {reference!r} (agents {agents}); name one with --agent")
+    return matches[0] if matches else None
+
+
+def _resolve_dataset(client: SoitClient, reference: str, agent_id: str | None) -> dict[str, Any]:
+    dataset = _find_dataset(client, reference, agent_id)
+    if dataset is None:
+        raise SoitError(f"no dataset {reference!r}" + (f" for agent {agent_id}" if agent_id else ""))
+    return dataset
+
+
+def _dataset_list(client: SoitClient, args: argparse.Namespace) -> int:
+    datasets = client.list_datasets(agent_id=args.agent, archived=args.archived)
+    if args.json:
+        print(json.dumps(datasets, indent=2, ensure_ascii=False))
+        return EXIT_OK
+    rows = [("ID", "NAME", "AGENT", "REV", "CASES", "LATEST REPORT")]
+    for item in datasets:
+        latest = item.get("latest_report")
+        if latest:
+            state = "pass" if latest["passed"] else "FAIL"
+            summary = f"{state} {latest['passed_count']}/{latest['total']} (r{latest['dataset_revision']})"
+        else:
+            summary = "never run"
+        revision, cases = f"r{item['revision']}", str(item["case_count"])
+        rows.append((item["id"], item["name"], item["subject_id"], revision, cases, summary))
+    widths = [max(len(row[index]) for row in rows) for index in range(len(rows[0]))]
+    for row in rows:
+        print("  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip())
+    return EXIT_OK
+
+
+def _dataset_export(client: SoitClient, args: argparse.Namespace) -> int:
+    dataset = _resolve_dataset(client, args.dataset, args.agent)
+    content = client.export_dataset(dataset["id"])
+    if not args.output or args.output == "-":
+        sys.stdout.write(content)
+        return EXIT_OK
+    path = _write(Path(args.output), content.encode("utf-8"))
+    print(path)
+    print(f"{dataset['case_count']} cases from {dataset['name']} r{dataset['revision']}", file=sys.stderr)
+    return EXIT_OK
+
+
+def _dataset_import(client: SoitClient, args: argparse.Namespace) -> int:
+    content = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+    dataset = _find_dataset(client, args.dataset, args.agent)
+    if dataset is None:
+        if not (args.create and args.agent):
+            raise SoitError(f"no dataset {args.dataset!r}; name its agent with --agent and pass --create to create it")
+        dataset = client.create_dataset(args.agent, args.dataset)
+        print(f"created dataset {dataset['name']} ({dataset['id']})", file=sys.stderr)
+    try:
+        result = client.import_dataset(dataset["id"], content, note=args.note or "")
+    except SoitError as exc:
+        # A refused file is refused whole; list every line so one run fixes them all.
+        errors = exc.details.get("errors")
+        if isinstance(errors, list) and errors:
+            for item in errors:
+                line = item.get("line")
+                where = f"{args.file}:{line}" if line else args.file
+                print(f"{where}: {item.get('message')}", file=sys.stderr)
+            total = exc.details.get("error_count", len(errors))
+            _err(f"{exc.args[0]} ({total} problem{'s' if total != 1 else ''})")
+            return EXIT_FAILED
+        raise
+    imported = result["dataset"]
+    print(dataset["id"])
+    print(
+        f"imported {result['imported']} cases into {imported['name']}, now r{imported['revision']}"
+        f" with {imported['case_count']} cases",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
 def _export(client: SoitClient, args: argparse.Namespace) -> int:
     if args.what == "evidence":
         if not args.run_id:
@@ -245,7 +394,9 @@ def _parser() -> argparse.ArgumentParser:
     run.set_defaults(handler=_run, signed_in=True)
 
     evaluate = commands.add_parser(
-        "eval", help="replay agents' regression sets on a model next to the one they use"
+        "eval",
+        help="replay agents' regression sets on a model next to the one they use (`eval run`: run one dataset)",
+        epilog="`soit eval run AGENT_ID` runs one dataset on one agent; see `soit eval run --help`.",
     )
     evaluate.add_argument("model_ref", help="the candidate model, e.g. model:openai:gpt-6")
     evaluate.add_argument("--agent", action="append", help="replay this agent only (repeatable)")
@@ -270,6 +421,30 @@ def _parser() -> argparse.ArgumentParser:
     agent_import.add_argument("--name", help="the name for the new agent, instead of the file's")
     agent_import.set_defaults(handler=_agent_import, signed_in=True)
 
+    dataset = commands.add_parser("dataset", help="list, export and import evaluation datasets")
+    dataset_commands = dataset.add_subparsers(dest="dataset_command", required=True, metavar="ACTION")
+    dataset_list = dataset_commands.add_parser("list", help="list the workspace datasets")
+    dataset_list.add_argument("--agent", help="only this agent's datasets")
+    dataset_list.add_argument("--archived", action="store_true", help="list archived datasets instead")
+    dataset_list.add_argument("--json", action="store_true", help="print the datasets as JSON")
+    dataset_list.set_defaults(handler=_dataset_list, signed_in=True)
+    dataset_export = dataset_commands.add_parser("export", help="write a dataset as JSONL")
+    dataset_export.add_argument("dataset", help="the dataset id or name")
+    dataset_export.add_argument("--agent", help="the agent, when several have a dataset of that name")
+    dataset_export.add_argument("-o", "--output", help="the file to write (default: standard output)")
+    dataset_export.set_defaults(handler=_dataset_export, signed_in=True)
+    dataset_import = dataset_commands.add_parser(
+        "import", help="add the cases of a JSONL file to a dataset, all or none"
+    )
+    dataset_import.add_argument("dataset", help="the dataset id or name")
+    dataset_import.add_argument("file", help="the JSONL file; '-' reads standard input")
+    dataset_import.add_argument("--agent", help="the agent, when several have a dataset of that name")
+    dataset_import.add_argument(
+        "--create", action="store_true", help="create the dataset first if it does not exist (needs --agent)"
+    )
+    dataset_import.add_argument("--note", help="a note for the dataset's new revision")
+    dataset_import.set_defaults(handler=_dataset_import, signed_in=True)
+
     export = commands.add_parser("export", help="export a run's evidence bundle, or ledger records")
     export.add_argument("what", choices=("evidence", *LEDGER_KINDS))
     export.add_argument("run_id", nargs="?", help="the run, for evidence")
@@ -281,8 +456,39 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _eval_run_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="soit eval run",
+        description="Run a dataset on an agent version now and print the report it records.",
+    )
+    parser.add_argument("agent_id")
+    parser.add_argument("--dataset", default="default", help="the dataset name (default: default)")
+    parser.add_argument("--version", help="the agent version to run (default: the published one)")
+    parser.add_argument("--model", help="run on this model; the report is then never a baseline")
+    parser.add_argument("--max-cases", type=int, help="refuse a run with more cases (server default 50, at most 200)")
+    parser.add_argument("--json", action="store_true", help="print the whole report as JSON")
+    parser.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help=f"exit {EXIT_REGRESSED} when a case that passed in the baseline fails now",
+    )
+    parser.add_argument(
+        "--fail-on-failure",
+        action="store_true",
+        help=f"exit {EXIT_REGRESSED} when any case fails, as the publish gate would",
+    )
+    parser.set_defaults(handler=_eval_run, signed_in=True)
+    return parser
+
+
 def main(argv: Sequence[str] | None = None, *, transport: httpx.BaseTransport | None = None) -> int:
-    args = _parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    # `eval run` is a second use of `eval`, whose own argument is a model ref
+    # (never "run"), so it is told apart here rather than inside argparse.
+    if arguments[:2] == ["eval", "run"]:
+        args = _eval_run_parser().parse_args(arguments[2:])
+    else:
+        args = _parser().parse_args(arguments)
     try:
         if not args.signed_in:
             return args.handler(args, transport)
