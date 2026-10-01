@@ -6,7 +6,7 @@ import fnmatch
 import posixpath
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -144,7 +144,8 @@ def config_string_list(
     if not isinstance(value, list):
         raise ConnectorError(ConnectorError.CONFIG_INVALID, f"{key} must be a list of text values")
     cleaned: list[str] = []
-    for entry in value:
+    entries = cast("list[Any]", value)
+    for entry in entries:
         if not isinstance(entry, str):
             raise ConnectorError(ConnectorError.CONFIG_INVALID, f"{key} must be a list of text values")
         entry = entry.strip()
@@ -158,7 +159,7 @@ def config_string_list(
     return cleaned
 
 
-def validate_http_url(value: str, *, key: str, allow_path: bool) -> str:
+def validate_http_url(value: str, *, key: str, allow_path: bool, allow_query: bool = False) -> str:
     """Check a user-supplied http(s) URL and return it without a trailing slash."""
     try:
         parts = urlsplit(value)
@@ -172,7 +173,7 @@ def validate_http_url(value: str, *, key: str, allow_path: bool) -> str:
             ConnectorError.CONFIG_INVALID,
             f"{key} must not contain credentials; use a secret for authentication",
         )
-    if parts.query or parts.fragment:
+    if not allow_query and (parts.query or parts.fragment):
         raise ConnectorError(ConnectorError.CONFIG_INVALID, f"{key} must not contain a query or fragment")
     if not allow_path and parts.path not in ("", "/"):
         raise ConnectorError(ConnectorError.CONFIG_INVALID, f"{key} must not contain a path")

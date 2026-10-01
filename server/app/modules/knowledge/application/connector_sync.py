@@ -445,9 +445,12 @@ class KnowledgeSyncEngine:
                 truncated = True
                 break
 
-        for key, value in connector.stats().items():
-            if key == "skipped":
-                counters.skipped += int(value)
+        stats = connector.stats()
+        counters.skipped += int(stats.get("skipped", 0))
+        if stats.get("incomplete"):
+            # The connector stopped before it had seen everything (a crawl hit
+            # its page cap), so what it did not report proves nothing.
+            truncated = True
 
         complete = not truncated
         if complete:

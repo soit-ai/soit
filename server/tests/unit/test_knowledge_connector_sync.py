@@ -381,6 +381,22 @@ async def test_item_cap_truncates_the_listing_and_skips_removals(async_db, ctx) 
 
 
 @pytest.mark.asyncio
+async def test_connector_reporting_an_incomplete_listing_blocks_removals(async_db, ctx) -> None:
+    service, knowledge, source, remote, engine = await _setup(async_db, ctx, delete_removed=True)
+    remote.put("a.txt", b"one")
+    remote.put("b.txt", b"two")
+    await _sync(async_db, engine, source)
+    del remote.objects["b.txt"]
+    remote.incomplete = True
+
+    run = await _sync(async_db, engine, source)
+
+    assert run.truncated is True and run.removed_count == 0
+    live = [doc for doc in await _documents(async_db, knowledge.id) if doc.deleted_at is None]
+    assert len(live) == 2
+
+
+@pytest.mark.asyncio
 async def test_oversized_item_fails_without_being_downloaded(async_db, ctx) -> None:
     service, knowledge, source, remote, engine = await _setup(
         async_db, ctx, limits_json={"max_item_bytes": 10}

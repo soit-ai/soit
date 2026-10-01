@@ -3,6 +3,7 @@
     "app/kernel/contracts",
     "app/kernel/ports/http",
     "app/kernel/ports/connectors",
+    "app/adapters/connectors",
     "app/kernel/identity/workspace_access.py",
     "app/auth/context_resolver.py",
     "app/auth/client_address.py",

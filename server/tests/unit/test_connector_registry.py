@@ -55,12 +55,12 @@ def test_unknown_kind_error_names_the_available_ones() -> None:
     assert "s3" in raised.value.message
 
 
-def test_built_in_registry_offers_s3() -> None:
+def test_built_in_registry_offers_s3_and_web() -> None:
     registry = build_connector_registry()
 
-    assert "s3" in registry.kinds()
-    descriptor = registry.get("s3").descriptor
-    assert descriptor.secret == "required"
+    assert registry.kinds() == ["s3", "web"]
+    assert registry.get("s3").descriptor.secret == "required"
+    assert registry.get("web").descriptor.secret == "none"
 
 
 def test_shared_registry_is_built_once() -> None:

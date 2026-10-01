@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.adapters.connectors import s3
+from app.adapters.connectors import s3, web
 from app.kernel.ports.connectors import ConnectorRegistry
 
 
@@ -17,6 +17,7 @@ def build_connector_registry() -> ConnectorRegistry:
     """A fresh registry holding every built-in connector kind."""
     registry = ConnectorRegistry()
     registry.register(s3.REGISTRATION)
+    registry.register(web.REGISTRATION)
     return registry
 
 

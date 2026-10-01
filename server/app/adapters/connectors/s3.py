@@ -13,7 +13,7 @@ import json
 import xml.etree.ElementTree as ET
 from collections.abc import AsyncIterator, Callable, Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -139,6 +139,7 @@ def parse_credentials(secret_value: str | None) -> sigv4.AwsCredentials:
     """Read the secret's JSON without ever repeating any of it in an error."""
     if not secret_value:
         raise ConnectorError(ConnectorError.CREDENTIALS_INVALID, "This connector needs a secret with credentials")
+    data: Any
     try:
         data = json.loads(secret_value)
     except ValueError:
@@ -148,9 +149,10 @@ def parse_credentials(secret_value: str | None) -> sigv4.AwsCredentials:
             ConnectorError.CREDENTIALS_INVALID,
             "The secret must be JSON with access_key_id and secret_access_key",
         )
-    access_key = data.get("access_key_id")
-    secret_key = data.get("secret_access_key")
-    token = data.get("session_token")
+    fields = cast("dict[str, Any]", data)
+    access_key = fields.get("access_key_id")
+    secret_key = fields.get("secret_access_key")
+    token = fields.get("session_token")
     if not isinstance(access_key, str) or not access_key or not isinstance(secret_key, str) or not secret_key:
         raise ConnectorError(
             ConnectorError.CREDENTIALS_INVALID,

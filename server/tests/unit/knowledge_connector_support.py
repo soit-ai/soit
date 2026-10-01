@@ -37,6 +37,7 @@ class FakeRemote:
     objects: dict[str, RemoteObject] = field(default_factory=dict)
     list_failure: ConnectorError | None = None
     fail_after: int | None = None
+    incomplete: bool = False
     fetches: list[str] = field(default_factory=list)
     seen_known: dict[str, KnownItem] = field(default_factory=dict)
     built_with: list[tuple[dict[str, Any], str | None]] = field(default_factory=list)
@@ -79,7 +80,7 @@ class FakeConnector:
         return FetchedItem(content=obj.content, content_type=obj.content_type, filename=item.name, etag=obj.etag)
 
     def stats(self) -> Mapping[str, int]:
-        return {"skipped": self._skipped}
+        return {"skipped": self._skipped, "incomplete": int(self.remote.incomplete)}
 
 
 def build_registry(remote: FakeRemote, *, secret: str = "none") -> ConnectorRegistry:

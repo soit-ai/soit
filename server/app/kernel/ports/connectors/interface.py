@@ -168,7 +168,13 @@ class KnowledgeConnector(Protocol):
         ...
 
     def stats(self) -> Mapping[str, int]:
-        """Counters from the current run, such as items skipped as unsupported."""
+        """Counters from the current run.
+
+        ``skipped`` counts remote objects left out on purpose, such as
+        unsupported file types. A non-zero ``incomplete`` says the listing
+        stopped before the connector had seen everything (a crawl reached its
+        page cap), so the sync must not treat unseen items as removed.
+        """
         ...
 
 
