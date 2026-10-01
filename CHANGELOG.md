@@ -12,6 +12,8 @@ record for operators.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-01
+
 ### Changed
 
 - The `soit` command line is published to PyPI as `soit-cli`, not
@@ -1724,7 +1726,8 @@ compatibility and known limitations: [docs/releases/v1.0.0.md](./docs/releases/v
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
   differ from the development value.
 
-[Unreleased]: https://github.com/soit-ai/soit/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/soit-ai/soit/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/soit-ai/soit/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/soit-ai/soit/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/soit-ai/soit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/soit-ai/soit/compare/7f7b8dc72e3503cf6457de5bbf2e3f68fbc3c9c5...v1.3.0
