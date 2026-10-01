@@ -243,7 +243,7 @@ test('adding an S3 source renders the connector fields and creates it with a sec
   await expect(create).toBeDisabled()
   await modal.getByLabel('Secret').selectOption('sec_aws')
   await modal.getByLabel('Include patterns').fill('*.pdf\ndocs/*')
-  await modal.getByLabel('Schedule').selectOption('daily')
+  await modal.getByLabel('Schedule', { exact: true }).selectOption('daily')
   await modal.getByLabel('Time zone').fill('Europe/Berlin')
   await expect(create).toBeEnabled()
   await create.click()
@@ -278,7 +278,7 @@ test('a website source takes no secret and offers a custom cron', async ({ page 
   await expect(modal.getByLabel('Secret')).toHaveCount(0)
   await modal.getByLabel('Name', { exact: true }).fill('docs site')
   await modal.getByLabel('Seed URLs').fill('https://docs.acme.io/')
-  await modal.getByLabel('Schedule').selectOption('custom')
+  await modal.getByLabel('Schedule', { exact: true }).selectOption('custom')
   await modal.getByLabel('Cron expression').fill('*/30 * * * *')
   await modal.getByRole('checkbox', { name: /^When an item disappears/ }).check()
   await modal.getByRole('button', { name: 'Create' }).click()
@@ -362,7 +362,8 @@ test('Sync now queues a run, and a refusal from the server is shown', async ({ p
   await expect(page.getByText('Sync queued.')).toBeVisible()
 
   await row.getByRole('button', { name: 'Sync now' }).click()
-  await expect(page.getByText('A sync is already queued or running for this source')).toBeVisible()
+  // The request layer toasts the refusal as well as the panel, so two copies show.
+  await expect(page.getByText('A sync is already queued or running for this source').first()).toBeVisible()
   expect(calls).toBe(2)
 })
 
@@ -476,7 +477,7 @@ test('editing a source loads its settings and sends only what changed', async ({
   await expect(modal.getByLabel('Bucket')).toHaveValue('handbook')
   await expect(modal.getByLabel('Region')).toHaveValue('eu-west-1')
   await expect(modal.getByLabel('Secret')).toHaveValue('sec_aws')
-  await expect(modal.getByLabel('Schedule')).toHaveValue('daily')
+  await expect(modal.getByLabel('Schedule', { exact: true })).toHaveValue('daily')
   // The connector cannot be switched on a saved source.
   await expect(modal.getByLabel('Connector')).toBeDisabled()
 
