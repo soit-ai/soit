@@ -27,6 +27,12 @@ record for operators.
   operation or day. Unpriced rows are never counted as zero and currencies
   are never added together. See
   [Checking costs against a bill](docs/ledger.md#checking-costs-against-a-bill).
+- Observe › Costs in the console: the ledger's spend for the last 24 hours,
+  7 or 30 days or this month, one figure per currency with the estimated part
+  apart, the unpriced entries counted and listed by reason, and a table
+  grouped by model, provider, tool, API key, principal or day, filtered by
+  pricing status and source, that exports as CSV to set beside a provider's
+  bill. The page says the bill itself has not been checked.
 
 ### Fixed
 

@@ -178,6 +178,73 @@ export interface RunCostEntryResponse {
   vector_count?: number | null
   storage_bytes?: number | null
   created_at: string
+  /** The run's key, principal and source; set on `/runs/costs/entries` only. */
+  api_key_id?: string | null
+  user_id?: string | null
+  run_source?: RunSource | null
+  pricing_status?: CostPricingStatus
+  unpriced_reason?: string | null
+}
+
+/**
+ * How a cost entry was priced: `unpriced` has no amount (the reason says
+ * why), `estimated` was computed from usage SOIT estimated, `free` is an
+ * explicit zero price, `priced` is any other amount.
+ */
+export type CostPricingStatus = 'priced' | 'estimated' | 'free' | 'unpriced'
+
+export type CostGroupBy =
+  | 'model'
+  | 'provider'
+  | 'tool'
+  | 'api_key'
+  | 'user'
+  | 'source'
+  | 'operation'
+  | 'day'
+
+/** Filters shared by `/runs/costs/entries` and `/runs/costs/reconciliation`. */
+export interface CostEntryFilterParams {
+  since?: string
+  until?: string
+  run_id?: string
+  api_key_id?: string
+  user_id?: string
+  source?: RunSource
+  model_ref?: string
+  provider_slug?: string
+  tool_ref?: string
+  source_port?: string
+  operation?: string
+  currency?: string
+  pricing_status?: CostPricingStatus
+}
+
+export interface CostReconciliationGroup {
+  key: string | null
+  /** Null on the row of unpriced entries, which carry no currency. */
+  currency: string | null
+  entry_count: number
+  /** Decimal string; null on the row of unpriced entries. */
+  amount: string | null
+  estimated_count: number
+  unpriced_count: number
+  total_tokens: number
+}
+
+export interface CostReconciliation {
+  since: string | null
+  until: string | null
+  entry_count: number
+  status_counts: Record<CostPricingStatus, number>
+  /** Priced total per currency (decimal strings), estimated amounts included. */
+  amounts: Record<string, string>
+  estimated_amounts: Record<string, string>
+  unpriced_reasons: { reason: string; entry_count: number }[]
+  group_by: CostGroupBy | null
+  groups: CostReconciliationGroup[]
+  groups_truncated: boolean
+  external_reconciliation: 'not_performed'
 }
 
 export interface RunResponseEvent {
@@ -409,6 +476,19 @@ export const getRunCostByModel = (params?: RunEntryFilter & {
   started_before?: string
 }): Promise<RunCostByModel[]> => {
   return get<RunCostByModel[]>('/runs/costs/by-model', params)
+}
+
+/** The ledger's side of a bill check over the half-open window `[since, until)`. */
+export const getCostReconciliation = (
+  params?: CostEntryFilterParams & { group_by?: CostGroupBy },
+): Promise<CostReconciliation> => {
+  return get<CostReconciliation>('/runs/costs/reconciliation', params)
+}
+
+export const listCostEntries = (
+  params?: CostEntryFilterParams & { page_token?: string; page_size?: number },
+): Promise<PaginatedResponse<RunCostEntryResponse>> => {
+  return get<PaginatedResponse<RunCostEntryResponse>>('/runs/costs/entries', params)
 }
 
 export const getRunDetail = (

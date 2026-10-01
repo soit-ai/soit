@@ -149,6 +149,9 @@ GET /api/v1/runs/costs/reconciliation?since=…&until=…&group_by=model
 - Workspace readers can call both, as they can the other `/runs/costs`
   reads.
 
+In the console, Observe › Costs shows the reconciliation for a window, with
+the grouping and filters above, and **Export CSV** downloads the grouped rows.
+
 ## Exports
 
 ```

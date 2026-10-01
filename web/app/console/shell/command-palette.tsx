@@ -28,6 +28,7 @@ const JUMP_TARGETS: { labelKey: TranslationKey; to: string }[] = [
   { labelKey: 'console.nav.runs', to: '/observe/runs' },
   { labelKey: 'console.nav.traces', to: '/observe/traces' },
   { labelKey: 'console.nav.evaluations', to: '/observe/evaluations' },
+  { labelKey: 'console.nav.costs', to: '/observe/costs' },
   { labelKey: 'console.nav.approvals', to: '/govern/approvals' },
   { labelKey: 'console.nav.policies', to: '/govern/policies' },
   { labelKey: 'console.nav.audit', to: '/govern/audit' },
