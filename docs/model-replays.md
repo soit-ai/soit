@@ -9,9 +9,10 @@ cost.
 
 ## What runs
 
-- An agent's regression cases are the runs frozen with
-  `POST /api/v1/evaluations/regression-cases/from-run`, grouped in datasets.
-  They are the same cases that gate the agent's publishes.
+- An agent's regression cases are the cases of its [datasets](evaluations.md):
+  written in the console, imported from JSONL, or frozen from a past run with
+  `POST /api/v1/evaluations/regression-cases/from-run`. They are the same cases
+  that gate the agent's publishes.
 - Each case runs twice, against the agent's **published** version: once on
   the model that version binds, once on the candidate. Both run now, so
   neither side is measured against a stale report.
