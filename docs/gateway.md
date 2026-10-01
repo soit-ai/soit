@@ -25,7 +25,10 @@ Examples for curl, Python, Node, LangChain and the Agents SDK are in
 | API key  | a SOIT API key, sent as `Authorization: Bearer sk_…` |
 | Model    | a model ref, `model:{provider}:{model}`, or a virtual model, `vmodel:{slug}` |
 
-`GET /v1/models` lists what the key may call, by the name a call uses.
+`GET /v1/models` lists what the key may call, by the name a call uses. Each
+entry carries OpenAI's fields and Anthropic's (`type`, `display_name`,
+`created_at`), and the list `has_more`, `first_id` and `last_id`, so the SDKs
+of either parse it.
 
 Create keys under **Settings › API** or with `POST /api/v1/api-keys`. A key
 carries scopes (`read`, `write`, `admin`) that cap what it may do below its
@@ -104,7 +107,7 @@ the turn, so that case is `end_turn`, and `stop_sequence` is always `null`.
 
 `POST /v1/messages/count_tokens` returns `{"input_tokens": n}` for a prompt. It
 is SOIT's estimate, not the provider's tokenizer, calls no model, opens no run
-and is not billed. The Message Batches, Files and Models APIs are not served.
+and is not billed. The Message Batches and Files APIs are not served; `GET /v1/models` answers the Models API's list.
 
 ## Image options by route
 
@@ -453,11 +456,10 @@ through the composition root, which an import contract in CI holds them to.
 
 ## Compatibility testing
 
-The Anthropic-compatible route is covered by entrypoint tests that drive it
-over HTTP, with streaming, tool use and error shapes; no Anthropic SDK runs
-against it in CI yet.
-
-`server/tests/compat` drives the OpenAI Python SDK against the gateway in CI:
+`server/tests/compat` drives the official Anthropic Python SDK against
+`/v1/messages` in CI (messages, the stream helper, tool use and streamed tool
+input, token counting, the models list and error classes), and the OpenAI
+Python SDK against the rest of the gateway:
 completions, streams, tool calls, structured output, base64 embeddings, model
 listing, image generation and edits, and error classes. LangChain's
 `ChatOpenAI` and the Agents SDK's chat-completions model call through that

@@ -24,7 +24,10 @@ record for operators.
   `thinking`, `cache_control`, `top_k` and `metadata` are accepted and not
   sent; a content block or server tool SOIT cannot carry is refused with
   `400` by name. Refusals under `/v1/messages` use Anthropic's error body.
-  `count_tokens` is an estimate that calls no model. See
+  `count_tokens` is an estimate that calls no model. `GET /v1/models` now
+  also carries Anthropic's `type`, `display_name`, `created_at` and the
+  list's `has_more`, `first_id` and `last_id` beside OpenAI's fields. The
+  official Anthropic Python SDK runs against the route in CI. See
   [Anthropic Messages](docs/gateway.md#anthropic-messages).
 - A DeepSeek provider now has a model catalog: refreshing it lists the
   models DeepSeek's OpenAI-compatible `/models` answers, at the provider's

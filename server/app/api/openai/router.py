@@ -16,6 +16,7 @@ import logging
 import re
 import time
 from collections.abc import AsyncIterator
+from datetime import UTC
 from functools import partial
 from typing import Annotated, Any, Literal
 
@@ -328,7 +329,10 @@ async def list_models(
     """The workspace's callable models, by the ref a call names.
 
     A key limited to some models lists only those, so a client that picks a
-    model from the list never picks one it will be refused.
+    model from the list never picks one it will be refused. Each entry and the
+    list carry OpenAI's fields and Anthropic's (``type``, ``display_name``,
+    ``created_at``, ``has_more``, ``first_id``, ``last_id``), so the clients of
+    either SDK parse the same answer.
     """
 
     entries = [
@@ -337,12 +341,23 @@ async def list_models(
             "object": "model",
             "created": int(model.created_at.timestamp()),
             "owned_by": model.owned_by,
+            # Anthropic clients read these from the same entry.
+            "type": "model",
+            "display_name": model.id,
+            "created_at": model.created_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         for model in await catalog.list_callable_models()
     ]
     if ctx.allowed_models is not None:
         entries = [entry for entry in entries if entry["id"] in ctx.allowed_models]
-    return {"object": "list", "data": entries}
+    return {
+        "object": "list",
+        "data": entries,
+        # The list is never paged; Anthropic clients look for these.
+        "has_more": False,
+        "first_id": entries[0]["id"] if entries else None,
+        "last_id": entries[-1]["id"] if entries else None,
+    }
 
 
 def _embedding_value(vector: list[float], encoding_format: str) -> list[float] | str:
