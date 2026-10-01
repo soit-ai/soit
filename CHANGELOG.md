@@ -12,6 +12,18 @@ record for operators.
 
 ## [Unreleased]
 
+### Fixed
+
+- Costs in different currencies are no longer added together. The Overview
+  spend tile, from the Observe dashboard's `total_cost_usd` card, summed every
+  amount and called it USD; it now shows one figure per currency, names the
+  currency in its label when there is one, and gives a change against the
+  previous window only when both windows are in the same currency. A run's
+  dashboard cost (`cost_usd`, `latest_run_cost_usd`) is left out when the run
+  is priced in more than one currency, and the run detail page totals each
+  currency apart instead of showing every sum in dollars. Unpriced entries
+  add nothing, so a run with only those shows a dash, not zero.
+
 ## [1.5.1] - 2026-10-01
 
 ### Changed

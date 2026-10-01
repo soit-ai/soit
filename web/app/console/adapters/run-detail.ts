@@ -7,7 +7,6 @@
  */
 import type {
   RunArtifactResponse,
-  RunCostEntryResponse,
   RunDetailResponse,
   RunGovernanceEvidence,
   RunResponseEvent,
@@ -17,6 +16,7 @@ import type {
 import { runStatusToConsole, type ConsoleStatus } from '../components/status-chip'
 import type { ConsoleKind } from '../components/kind-chip'
 import { CONSOLE_KIND_COLOR } from '../components/kind-chip'
+import { formatCostTotal } from './cost-totals'
 
 export interface RunDetailView {
   id: string
@@ -122,12 +122,6 @@ function eventStamp(iso?: string | null): string {
   return date.toISOString().slice(14, 23)
 }
 
-function sumAmount(costs: RunCostEntryResponse[]): string {
-  const total = costs.reduce((acc, entry) => acc + Number(entry.amount || 0), 0)
-  if (!Number.isFinite(total) || total === 0) return '—'
-  return `$${total.toFixed(3)}`
-}
-
 function evidenceStatus(status: RunGovernanceEvidence['status']): ConsoleStatus {
   if (status === 'pass') return 'pass'
   if (status === 'warning') return 'warn'
@@ -196,7 +190,7 @@ export function toRunDetailView(detail: RunDetailResponse): RunDetailView {
   const passCount = evidence.filter((row) => row.status === 'pass').length
   const warnCount = evidence.filter((row) => row.status === 'warning' || row.status === 'fail').length
   const naCount = evidence.filter((row) => row.status === 'not_applicable').length
-  const totalCost = sumAmount(detail.costs || [])
+  const totalCost = formatCostTotal(detail.costs || [])
   const modelRef = detail.costs?.find((entry) => entry.model_ref)?.model_ref || '—'
   const subjectKind = (run.subject_kind && run.subject_kind in CONSOLE_KIND_COLOR
     ? run.subject_kind

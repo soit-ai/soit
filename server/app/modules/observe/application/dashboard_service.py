@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, func, select
@@ -271,11 +272,58 @@ class ObserveDashboardService:
         return None
 
     @staticmethod
-    def _cost_by_run(costs: list[RunCostEntry]) -> dict[str, float]:
-        totals: dict[str, float] = defaultdict(float)
+    def _cost_by_currency(costs: list[RunCostEntry]) -> dict[str, Decimal]:
+        """Priced cost per currency; unpriced entries (no amount) add nothing."""
+        totals: dict[str, Decimal] = {}
         for cost in costs:
-            totals[cost.run_id] += float(cost.amount or 0)
+            if cost.amount is None or not cost.currency:
+                continue
+            totals[cost.currency] = totals.get(cost.currency, Decimal("0")) + cost.amount
         return totals
+
+    @classmethod
+    def _cost_by_run(cls, costs: list[RunCostEntry]) -> dict[str, float]:
+        """Priced cost per run, for runs priced in a single currency.
+
+        A run whose priced entries span currencies has no total here: amounts
+        in different currencies are never added together.
+        """
+        by_run: dict[str, list[RunCostEntry]] = defaultdict(list)
+        for cost in costs:
+            by_run[cost.run_id].append(cost)
+        totals: dict[str, float] = {}
+        for run_id, run_costs in by_run.items():
+            per_currency = cls._cost_by_currency(run_costs)
+            if len(per_currency) == 1:
+                totals[run_id] = float(next(iter(per_currency.values())))
+        return totals
+
+    @staticmethod
+    def _cost_card_text(
+        current: dict[str, Decimal],
+        previous: dict[str, Decimal],
+    ) -> tuple[str, str, str | None]:
+        """Label, value and delta of the cost card, one figure per currency.
+
+        The delta is given only when both windows are priced in at most one
+        currency, the same one; otherwise there is no single difference.
+        """
+        currencies = sorted(current)
+        if len(currencies) == 1:
+            label = f"Cost ({currencies[0]})"
+        else:
+            label = "Cost"
+        if currencies:
+            value = " · ".join(f"{current[code]:.2f} {code}" for code in currencies)
+        else:
+            value = "0.00"
+        delta: str | None = None
+        if len(set(current) | set(previous)) <= 1:
+            code = next(iter(set(current) | set(previous)), None)
+            now_amount = current.get(code, Decimal("0")) if code else Decimal("0")
+            before_amount = previous.get(code, Decimal("0")) if code else Decimal("0")
+            delta = f"{now_amount - before_amount:.2f}"
+        return label, value, delta
 
     @staticmethod
     def _failure_reason(run: Run) -> str | None:
@@ -680,8 +728,10 @@ class ObserveDashboardService:
             approved=sum(1 for item in approvals if item.status == ApprovalStatus.APPROVED.value),
             rejected=sum(1 for item in approvals if item.status == ApprovalStatus.REJECTED.value),
         )
-        total_cost_usd = sum(float(cost.amount or 0) for cost in costs)
-        previous_cost_usd = sum(float(cost.amount or 0) for cost in previous_costs)
+        cost_label, cost_value, cost_delta = self._cost_card_text(
+            self._cost_by_currency(costs),
+            self._cost_by_currency(previous_costs),
+        )
         previous_run_count = len(previous_runs)
         previous_failed_run_count = sum(1 for run in previous_runs if run.status == "failed")
 
@@ -749,7 +799,7 @@ class ObserveDashboardService:
             MetricCardResponse(id="failed_run_count", label="Failed Runs", value=str(failed_run_count), delta=str(failed_run_count - previous_failed_run_count), trend=[row["failed_run_count"] for row in trend_rows], tone="red", **self._metric_run_fields(latest_failed_run, cost_by_run)),
             MetricCardResponse(id="active_run_count", label="Active Runs", value=str(active_run_count), delta="0", trend=[active_run_count], tone="cyan", **self._metric_run_fields(latest_active_run, cost_by_run)),
             MetricCardResponse(id="pending_approvals", label="Pending Approvals", value=str(approvals_summary.pending), delta="0", trend=[approvals_summary.pending], tone="amber"),
-            MetricCardResponse(id="total_cost_usd", label="Cost (USD)", value=f"{total_cost_usd:.2f}", delta=f"{total_cost_usd - previous_cost_usd:.2f}", trend=[float(row.get("run_count", 0)) for row in trend_rows], tone="green", **self._metric_run_fields(latest_run, cost_by_run)),
+            MetricCardResponse(id="total_cost_usd", label=cost_label, value=cost_value, delta=cost_delta, trend=[float(row.get("run_count", 0)) for row in trend_rows], tone="green", **self._metric_run_fields(latest_run, cost_by_run)),
         ]
 
         priority_alert = None
