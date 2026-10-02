@@ -146,7 +146,7 @@ async def test_the_bundle_holds_the_runs_evidence_and_checks_itself(async_client
     assert (manifest["schema"], manifest["version"], manifest["ledger_schema_version"]) == (
         "soit.evidence",
         "1.0",
-        "1.0",
+        "1.1",
     )
     assert manifest["content_capture"] == "full"
     records = {item["path"]: item["records"] for item in manifest["files"]}
