@@ -53,6 +53,8 @@ record for operators.
   `/v1`) before the provider or the tool is called, and is audited as
   `billing.unpriced.blocked`; a virtual model moves on to a priced target.
   Migration `20261002110000` adds the column; existing workspaces allow.
+  A refused model call gives back the budget hold its budget check took,
+  instead of keeping it until the hold expired.
 
 ### Fixed
 

@@ -372,3 +372,39 @@ async def test_a_priced_tool_runs_without_asking() -> None:
     assert response.success is True
     assert tools.invoked == 1
     assert guard.asked == []
+
+
+@pytest.mark.asyncio
+async def test_a_refused_unpriced_call_gives_back_the_hold_its_budget_check_took(async_db, ctx) -> None:
+    import asyncio
+
+    from app.modules.billing.application import budget_holds
+    from app.modules.billing.infra.reservations import LocalBudgetReservations
+
+    budget = Budget(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name="Team",
+        amount=Decimal("10"),
+        currency="USD",
+        created_by=ctx.user_id,
+    )
+    async_db.add(budget)
+    await async_db.commit()
+    holds = LocalBudgetReservations()
+
+    async def refuse() -> str:
+        return "refuse"
+
+    guard = BudgetGuard(async_db, ctx, reservations=holds, unpriced_policy=refuse)
+    # A call held its budget, then turned out to have no price.
+    await guard.check(operation="chat", run_id="run_unpriced")
+    assert holds.held(budget.id) == 1
+    with pytest.raises(UnpricedCallRefusedError):
+        await guard.check_unpriced(
+            operation="chat", run_id="run_unpriced", ref=UNPRICED_REF, reason="pricing_not_configured"
+        )
+    while budget_holds._RELEASES:
+        await asyncio.gather(*list(budget_holds._RELEASES))
+
+    assert holds.held(budget.id) == 0

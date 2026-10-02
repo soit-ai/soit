@@ -40,7 +40,7 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry
 from app.kernel.runtime.db.models.usage import UsageDailyAggregate
-from app.modules.billing.application.budget_holds import track_hold
+from app.modules.billing.application.budget_holds import session_holds, track_hold
 from app.modules.billing.application.schemas import BudgetCreate, BudgetUpdate
 from app.modules.billing.domain.models import BUDGET_PERIODS, BUDGET_SCOPES, Budget
 from app.settings.settings import settings
@@ -381,6 +381,11 @@ class BudgetGuard:
             "operation": operation,
             "budget_ids": [budget.id for budget in budgets],
         }
+        # The call's budgets were checked, and held, before its target was
+        # known; refused now, it records no cost, so give the hold back.
+        holds = session_holds(self.db)
+        if holds is not None:
+            holds.release_latest(run_id)
         record = getattr(self.recorder, "record_unpriced_block", None)
         if record is not None:
             try:

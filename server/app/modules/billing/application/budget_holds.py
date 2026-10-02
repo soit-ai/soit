@@ -59,6 +59,17 @@ class SessionHolds:
                 self.settled.append(self.pending.pop(index))
                 return
 
+    def release_latest(self, run_id: str | None) -> None:
+        """Release at once the hold taken last for ``run_id``: its call was refused.
+
+        A call refused after its budgets were checked records no cost, and its
+        run may go on, so nothing else would release the hold before it expired.
+        """
+        for index in range(len(self.pending) - 1, -1, -1):
+            if self.pending[index].run_id == run_id:
+                _schedule_release([self.pending.pop(index)])
+                return
+
     def settle_run(self, run_id: str) -> None:
         ended = [hold for hold in self.pending if hold.run_id == run_id]
         if ended:
