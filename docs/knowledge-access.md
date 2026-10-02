@@ -53,6 +53,10 @@ PUT /api/v1/knowledge/{id}/document-restrictions   {"doc_key": "payroll", "restr
   `{"resource_type": "knowledge_document", "resource_id": "<knowledge id>:<doc_key>", "user_id": "...", "actions": ["read"]}`.
   Each restriction in the listing carries that `grant_resource_id`.
 
+In the console, **Access** on a document's row in **Build › Knowledge** shows
+whether it is restricted, restricts it or lifts the restriction, and, once it
+is restricted, lists the members granted read and grants or revokes it.
+
 ## Connector-synced documents
 
 Documents a [connector](knowledge-connectors.md) syncs take the knowledge

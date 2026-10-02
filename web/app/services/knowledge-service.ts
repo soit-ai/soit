@@ -360,6 +360,33 @@ export const listKnowledgeDocuments = (
   return get<KnowledgeDocument[]>(`/knowledge/${knowledgeId}/documents`, params)
 }
 
+/**
+ * A restricted document: readable only by the workspace's admins, the base's
+ * creator and members holding a `knowledge_document` read grant on
+ * `grant_resource_id`.
+ */
+export interface KnowledgeDocumentRestriction {
+  knowledge_id: string
+  doc_key: string
+  created_by?: string | null
+  created_at?: string | null
+  grant_resource_id: string
+}
+
+/** The base's restricted documents the caller may read. */
+export const listDocumentRestrictions = (knowledgeId: string): Promise<KnowledgeDocumentRestriction[]> => {
+  return get<KnowledgeDocumentRestriction[]>(`/knowledge/${knowledgeId}/document-restrictions`)
+}
+
+/** Restrict a document or lift its restriction (workspace admins and the base's creator). */
+export const setDocumentRestriction = (
+  knowledgeId: string,
+  data: { doc_key: string; restricted: boolean },
+  config?: RequestConfigWithToast,
+): Promise<KnowledgeDocumentRestriction[]> => {
+  return put<KnowledgeDocumentRestriction[]>(`/knowledge/${knowledgeId}/document-restrictions`, data, config)
+}
+
 export const listKnowledgeRuns = (
   knowledgeId: string,
   params?: { page_token?: string; page_size?: number }

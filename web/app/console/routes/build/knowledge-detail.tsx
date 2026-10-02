@@ -21,6 +21,7 @@ import {
   useKnowledgeSources,
   type ConsoleStatus,
 } from '../../components'
+import { DocumentAccessModal } from '../../components/document-access-modal'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { relativeFuture } from '../../adapters/knowledge-sources'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
@@ -35,7 +36,9 @@ import {
   getKnowledgeRunCostSummary,
   listKnowledgeChunks,
   listKnowledgeDocumentVersions,
+  listDocumentRestrictions,
   listKnowledgeDocuments,
+  setDocumentRestriction,
   createKnowledgeIndex,
   deleteKnowledgeIndex,
   listKnowledgeIndexes,
@@ -234,6 +237,16 @@ export default function ConsoleKnowledgeDetail() {
 
   const base = baseQuery.data
   const documents = documentsQuery.data || []
+  const restrictionsQuery = useQuery({
+    queryKey: ['console', 'knowledge', 'document-restrictions', knowledgeId],
+    queryFn: () => listDocumentRestrictions(knowledgeId),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  // doc_key -> the grant resource id that opens it to one member.
+  const restrictions = new Map(
+    (restrictionsQuery.data || []).map((row) => [row.doc_key, row.grant_resource_id]),
+  )
+  const [accessDoc, setAccessDoc] = useState<{ docKey: string; label: string } | null>(null)
   const indexes = indexesQuery.data || []
   const usages = usagesQuery.data || []
   const sources = sourcesQuery.data || []
@@ -340,6 +353,28 @@ export default function ConsoleKnowledgeDetail() {
     setRetryDocId(null)
     toast.error(requestErrorMessage(error, fallback))
   }
+
+  type RestrictRequest = { docKey: string; label: string; restricted: boolean }
+  const restrictMutation = useMutation<RestrictRequest, unknown, RestrictRequest>({
+    mutationKey: ['console', 'knowledge', 'restrict-document'],
+    mutationFn: async (request) => {
+      await setDocumentRestriction(
+        knowledgeId,
+        { doc_key: request.docKey, restricted: request.restricted },
+        { suppressErrorToast: true },
+      )
+      return request
+    },
+    onSuccess: ({ label, restricted }) => {
+      void restrictionsQuery.refetch()
+      toast.success(
+        restricted
+          ? t('console.knowDetail.restrictedOn', { document: label })
+          : t('console.knowDetail.restrictedOff', { document: label }),
+      )
+    },
+    onError: onWriteError(t('console.knowDetail.restrictFailed')),
+  })
 
   // "Sync now" rebuilds the primary index — the same call the legacy settings
   // page makes; there is no library-level re-sync endpoint.
@@ -712,6 +747,11 @@ export default function ConsoleKnowledgeDetail() {
                   >
                     <td>
                       <span className="mono">{documentLabel(doc)}</span>
+                      {restrictions.has(doc.doc_key) && (
+                        <span className="chip" style={{ marginLeft: 8 }}>
+                          {t('console.knowDetail.restricted')}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <StatusChip status={pipelineStatus(doc.status)} label={doc.status.toUpperCase()} />
@@ -724,49 +764,63 @@ export default function ConsoleKnowledgeDetail() {
                     <td className="num dim">—</td>
                     <td className="num dimmer">{relativeTime(doc.updated_at)}</td>
                     <td className="num" onClick={(event) => event.stopPropagation()}>
-                      {doc.status !== 'failed' && (
+                      <div className="flex flex-wrap items-center justify-end gap-1">
+                        {doc.status !== 'failed' && (
+                          <ConsoleButton
+                            variant="ghost"
+                            size="sm"
+                            disabled={retryDocId === doc.id}
+                            onClick={() => retryDocMutation.mutate(doc)}
+                          >
+                            {t('console.knowDetail.recrawl')}
+                          </ConsoleButton>
+                        )}
                         <ConsoleButton
                           variant="ghost"
                           size="sm"
-                          disabled={retryDocId === doc.id}
-                          onClick={() => retryDocMutation.mutate(doc)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setVersionsDoc(doc)
+                          }}
                         >
-                          {t('console.knowDetail.recrawl')}
+                          {t('console.knowDetail.versions')}
                         </ConsoleButton>
-                      )}
-                      <ConsoleButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setVersionsDoc(doc)
-                        }}
-                      >
-                        {t('console.knowDetail.versions')}
-                      </ConsoleButton>
-                      {doc.status === 'failed' && (
                         <ConsoleButton
+                          variant="ghost"
                           size="sm"
-                          disabled={retryDocId === doc.id}
-                          onClick={() => retryDocMutation.mutate(doc)}
+                          onClick={() => setAccessDoc({ docKey: doc.doc_key, label: documentLabel(doc) })}
                         >
-                          {t('console.knowledge.reprocess')}
+                          {t('console.knowDetail.documentAccess')}
                         </ConsoleButton>
-                      )}
-                      <ConsoleButton
-                        variant="ghost"
-                        size="sm"
-                        style={{ color: 'var(--danger-foreground)' }}
-                        onClick={() => setDeletingDoc(doc)}
-                      >
-                        {t('console.knowDetail.deleteDoc')}
-                      </ConsoleButton>
+                        {doc.status === 'failed' && (
+                          <ConsoleButton
+                            size="sm"
+                            disabled={retryDocId === doc.id}
+                            onClick={() => retryDocMutation.mutate(doc)}
+                          >
+                            {t('console.knowledge.reprocess')}
+                          </ConsoleButton>
+                        )}
+                        <ConsoleButton
+                          variant="ghost"
+                          size="sm"
+                          style={{ color: 'var(--danger-foreground)' }}
+                          onClick={() => setDeletingDoc(doc)}
+                        >
+                          {t('console.knowDetail.deleteDoc')}
+                        </ConsoleButton>
+                      </div>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+          {restrictions.size > 0 && (
+            <div className="dimmer" style={{ fontSize: 11.5, padding: '8px 12px' }}>
+              {t('console.knowDetail.restrictedNote')}
+            </div>
+          )}
           <div className="pager">
             <span>
               {t('console.knowDetail.docsPager', {
@@ -1263,6 +1317,25 @@ export default function ConsoleKnowledgeDetail() {
           </div>
         </WorkbenchPanel>
       )}
+
+      <DocumentAccessModal
+        open={accessDoc !== null}
+        onOpenChange={(open) => !open && setAccessDoc(null)}
+        documentLabel={accessDoc?.label || ''}
+        grantResourceId={
+          (accessDoc && restrictions.get(accessDoc.docKey)) || `${knowledgeId}:${accessDoc?.docKey || ''}`
+        }
+        restricted={Boolean(accessDoc && restrictions.has(accessDoc.docKey))}
+        toggling={restrictMutation.isPending}
+        onToggleRestriction={() =>
+          accessDoc &&
+          restrictMutation.mutate({
+            docKey: accessDoc.docKey,
+            label: accessDoc.label,
+            restricted: !restrictions.has(accessDoc.docKey),
+          })
+        }
+      />
 
       <ConsoleModal
         open={uploadOpen}

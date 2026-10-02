@@ -600,3 +600,53 @@ test('a knowledge base shared by another workspace is queried, not edited, from 
   await expect.poll(() => asked).toEqual({ query: 'how much leave', top_k: 5 })
   await expect(modal.getByTestId('shared-knowledge-result')).toContainText('Annual leave is 25 days')
 })
+
+test('a document is restricted from its row and opened to one member', async ({ page }) => {
+  await mockDetail(page)
+  let restrictions: unknown[] = []
+  const puts: unknown[] = []
+  await page.route(`**/api/v1/knowledge/${KB}/document-restrictions`, async (route) => {
+    if (route.request().method() === 'PUT') {
+      const body = JSON.parse(route.request().postData() || '{}')
+      puts.push(body)
+      restrictions = body.restricted
+        ? [{ knowledge_id: KB, doc_key: body.doc_key, grant_resource_id: `${KB}:${body.doc_key}` }]
+        : []
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(restrictions) })
+  })
+  await json(page, '**/api/v1/workspaces/*/members', [
+    { user_id: 'u_dana', email: 'dana@example.com', name: 'Dana', role: 'Dev', status: 'active', created_at: NOW },
+  ])
+  const grants: unknown[] = []
+  await page.route('**/api/v1/resource-grants**', async (route) => {
+    if (route.request().method() === 'POST') {
+      grants.push(JSON.parse(route.request().postData() || '{}'))
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(route.request().method() === 'POST' ? grants[0] : []) })
+  })
+
+  await page.goto(`/build/knowledge/${KB}`, { waitUntil: 'domcontentloaded' })
+  const row = page.locator('tr', { hasText: 'getting-started.md' })
+  await row.getByRole('button', { name: 'Access' }).click()
+  const modal = page.locator('.console-modal')
+  await expect(modal.getByText('Readable by every reader of this base')).toBeVisible()
+  // Nothing to grant until the document is restricted.
+  await expect(modal.getByRole('button', { name: 'Grant read' })).toBeDisabled()
+  await modal.getByRole('button', { name: 'Restrict' }).click()
+
+  await expect.poll(() => puts).toEqual([{ doc_key: 'guides/getting-started.md', restricted: true }])
+  await expect(row.getByText('Restricted', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Restricted documents are readable only by workspace admins/)).toBeVisible()
+
+  await modal.getByLabel('Grant read to').selectOption('u_dana')
+  await modal.getByRole('button', { name: 'Grant read' }).click()
+  await expect.poll(() => grants).toEqual([
+    {
+      resource_type: 'knowledge_document',
+      resource_id: `${KB}:guides/getting-started.md`,
+      user_id: 'u_dana',
+      actions: ['read'],
+    },
+  ])
+})

@@ -287,7 +287,7 @@ export const listResourceGrants = (
  * per object; `limit` caps what the server will return.
  */
 export const listWorkspaceResourceGrants = (
-  params?: { resource_type?: string; limit?: number },
+  params?: { resource_type?: string; resource_id?: string; limit?: number },
   config?: RequestConfigWithToast,
 ): Promise<ResourceGrant[]> => {
   return get<ResourceGrant[]>('/resource-grants', params, config)

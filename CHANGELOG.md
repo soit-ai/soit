@@ -81,6 +81,9 @@ record for operators.
   latest version of each document only. Migration `20261002120000` adds the
   table; nothing is restricted until someone restricts it. See
   [Knowledge access](docs/knowledge-access.md).
+- **Access** on each document of a knowledge base in the console restricts
+  the document or lifts the restriction, marks restricted documents in the
+  list, and grants and revokes read on a restricted one for a member.
 
 ### Fixed
 
