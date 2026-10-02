@@ -1887,9 +1887,14 @@ class IdentityService:
         data: ResourceGrantCreate,
         ctx: RequestContext,
     ) -> ResourceGrant:
-        """Create or update a resource grant."""
-        if not ctx.can_write():
-            raise ValidationError("Workspace write permission required")
+        """Create or update a resource grant.
+
+        A grant reaches past every role and visibility check, a private
+        resource's included, so granting is a workspace admin's call: with
+        write permission alone a member could grant themselves anything.
+        """
+        if not ctx.can_govern():
+            raise ForbiddenError("Workspace admin role required to grant access to a resource")
 
         if not data.actions:
             raise ValidationError("At least one action is required")
@@ -1945,9 +1950,9 @@ class IdentityService:
         user_id: str,
         ctx: RequestContext,
     ) -> None:
-        """Revoke a resource grant."""
-        if not ctx.can_write():
-            raise ValidationError("Workspace write permission required")
+        """Revoke a resource grant; a workspace admin's call, as granting is."""
+        if not ctx.can_govern():
+            raise ForbiddenError("Workspace admin role required to revoke access to a resource")
 
         grant_repo = self.resource_grant_repo_factory(ctx)
         deleted = await grant_repo.delete_by_resource_user(resource_type, resource_id, user_id)

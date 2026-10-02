@@ -78,6 +78,17 @@ record for operators.
   currency apart instead of showing every sum in dollars. Unpriced entries
   add nothing, so a run with only those shows a dash, not zero.
 
+### Security
+
+- Granting or revoking access to a resource (`POST` and `DELETE
+  /api/v1/resource-grants`) takes a workspace Owner or Admin. Workspace write
+  permission was enough, so any developer could grant themselves every
+  action on a private knowledge base, agent or workflow.
+- A knowledge document's `file_id` must name a file uploaded to the same
+  knowledge base. Any other storage key was taken as given, so a member who
+  could update one knowledge base could point a document at another base's
+  file, a private one included, and download it.
+
 ## [1.5.1] - 2026-10-01
 
 ### Changed
