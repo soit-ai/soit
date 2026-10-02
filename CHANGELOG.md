@@ -12,6 +12,8 @@ record for operators.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-02
+
 ### Added
 
 - Cost rows can be checked against a provider's bill.
@@ -1839,7 +1841,8 @@ compatibility and known limitations: [docs/releases/v1.0.0.md](./docs/releases/v
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
   differ from the development value.
 
-[Unreleased]: https://github.com/soit-ai/soit/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/soit-ai/soit/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/soit-ai/soit/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/soit-ai/soit/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/soit-ai/soit/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/soit-ai/soit/compare/v1.4.0...v1.5.0

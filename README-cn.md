@@ -154,7 +154,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
-用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.5.2`）。镜像可用 `gh attestation verify` 校验。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如果覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
+用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.6.0`）。镜像可用 `gh attestation verify` 校验。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如果覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
 
 不是每个演示都需要全部服务。[docs/minimal-topology.md](./docs/minimal-topology.md) 列出每个容器的用途、哪些场景可以省掉哪些容器，以及省掉之后哪些功能会停止工作。
 
@@ -360,6 +360,7 @@ lite 配置（`docker/docker-compose.lite.yml`）只需 5 个常驻容器：带 
 - [x] SOIT 作为 MCP server，服务运行在别处的 Agent
 - [x] 独立的网关进程（`SOIT_ROLE=gateway`）与私有网络中的模型服务器
 - [x] 已签名的 Enterprise 许可证与扩展包
+- [x] 按供应商账单核对费用，以及知识库的文档级权限
 - [ ] 成本感知的多模型路由策略
 - [ ] 一键安装工具的 MCP 市场
 
