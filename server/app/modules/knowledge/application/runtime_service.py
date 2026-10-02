@@ -770,6 +770,26 @@ class KnowledgeRuntimeService:
 
         return document
 
+    def _require_own_file_id(self, knowledge_id: str, file_id: str | None) -> None:
+        """Refuse a stored file that is not this knowledge base's own upload.
+
+        A document's ``file_id`` is the storage key it is read from, for
+        ingestion and download. Taken as given, it would let a caller who may
+        update one knowledge base point a document at any other file and
+        download it, another base's private documents included.
+        """
+        if not file_id:
+            return
+        prefix = (
+            f"tenants/{self.ctx.tenant_id}/workspaces/{self.ctx.workspace_id}/"
+            f"knowledge/{knowledge_id}/"
+        )
+        if not file_id.startswith(prefix) or ".." in file_id:
+            raise ValidationError(
+                "file_id must name a file uploaded to this knowledge base",
+                {"param": "file_id"},
+            )
+
     async def enqueue_ingest_task(
         self,
         knowledge_id: str,
@@ -778,6 +798,7 @@ class KnowledgeRuntimeService:
         max_retries: int = 1,
     ) -> tuple[KnowledgeDocument, KnowledgeIngestTask]:
         """Enqueue a knowledge ingestion task and return the document."""
+        self._require_own_file_id(knowledge_id, document_in.file_id)
         if not self.ingest_task_repo:
             raise KernelError("INGEST_TASK_REPO_NOT_AVAILABLE", "Ingest task repository is not configured")
         if not self.pipeline:
@@ -1458,6 +1479,7 @@ class KnowledgeRuntimeService:
             raise KernelError("INVALID_SOURCE_URI", "source_uri is required for crawler source")
         if document_in.source_kind == "connector":
             raise ValidationError("Connector documents are created by a source sync, not uploaded")
+        self._require_own_file_id(knowledge_id, document_in.file_id)
 
         await self._require_index(knowledge_id)
 
