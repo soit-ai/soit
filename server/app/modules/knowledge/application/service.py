@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import and_, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -599,6 +600,12 @@ class KnowledgeService:
 
     async def list_document_versions(self, knowledge_id: str, doc_key: str) -> list[DocumentResponse]:
         return await self.runtime_service.list_document_versions(knowledge_id, doc_key)
+
+    async def list_document_restrictions(self, knowledge_id: str) -> list[Any]:
+        return await self.runtime_service.list_document_restrictions(knowledge_id)
+
+    async def set_document_restriction(self, knowledge_id: str, doc_key: str, restricted: bool) -> bool:
+        return await self.runtime_service.set_document_restriction(knowledge_id, doc_key, restricted)
 
     async def rollback_document_version(self, knowledge_id: str, doc_key: str, version: int):
         return await self.runtime_service.rollback_document_version(knowledge_id, doc_key, version)

@@ -36,6 +36,7 @@ from app.kernel.identity.permissions import (
 from app.kernel.ports.http.interface import HttpFetchPort
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.vector.interface import VectorPort
+from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry
 from app.kernel.runtime.runs.schemas import (
     RunCostByModelResponse,
@@ -46,6 +47,11 @@ from app.kernel.runtime.runs.schemas import (
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.knowledge.application.chunker import TextChunker
+from app.modules.knowledge.application.document_access import (
+    RESOURCE_KNOWLEDGE_DOCUMENT,
+    DocumentAccess,
+    document_resource_id,
+)
 from app.modules.knowledge.application.ports import (
     ChunkRepositoryPort,
     DocumentRepositoryPort,
@@ -68,6 +74,7 @@ from app.modules.knowledge.application.runtime_schemas import (
 from app.modules.knowledge.domain.models import (
     Knowledge,
     KnowledgeDocument,
+    KnowledgeDocumentRestriction,
     KnowledgeIndex,
     KnowledgeIngestTask,
 )
@@ -286,6 +293,7 @@ class KnowledgeRuntimeService:
         knowledge_id: str,
         query: str,
         top_k: int,
+        exclude_doc_keys: frozenset[str] = frozenset(),
     ) -> list[QueryResult]:
         chunks = await self.chunk_repo.list_by_knowledge(
             knowledge_id,
@@ -310,8 +318,14 @@ class KnowledgeRuntimeService:
         ranked.sort(key=lambda item: (item[0], item[1].chunk_no), reverse=True)
 
         results: list[QueryResult] = []
-        for score, chunk in ranked[:top_k]:
+        for score, chunk in ranked:
+            if len(results) >= top_k:
+                break
             document = await self.document_repo.get_by_id(chunk.document_id)
+            # The same documents the index answers from: latest versions,
+            # restricted ones left out for a caller who may not read them.
+            if not document or not document.is_latest or document.doc_key in exclude_doc_keys:
+                continue
             metadata = {
                 "knowledge_id": chunk.knowledge_id,
                 "doc_key": document.doc_key if document else None,
@@ -561,6 +575,15 @@ class KnowledgeRuntimeService:
         if document.knowledge_id != knowledge_id:
             raise KernelError("NOT_FOUND", f"Document {document_id} not found")
         return document
+
+    def _document_access(self) -> DocumentAccess:
+        return DocumentAccess(self.db, self.ctx)
+
+    async def _require_document_readable(self, knowledge_id: str, doc_key: str, label: str) -> None:
+        """Answer a restricted document the caller may not read as missing."""
+        knowledge = await self.knowledge_repo.get_by_id(knowledge_id)
+        if knowledge is None or not await self._document_access().may_read(knowledge, doc_key):
+            raise KernelError("NOT_FOUND", f"Document {label} not found")
 
     async def _persist_upload_file(
         self,
@@ -1385,6 +1408,92 @@ class KnowledgeRuntimeService:
             raise
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
+    async def list_document_restrictions(self, knowledge_id: str) -> list[KnowledgeDocumentRestriction]:
+        """The base's restricted documents, those the caller may read.
+
+        A reader is not told which documents are kept from them.
+        """
+        knowledge = await self.get_knowledge(knowledge_id)
+        access = self._document_access()
+        rows = list(
+            (
+                await self.db.exec(
+                    select(KnowledgeDocumentRestriction)
+                    .where(
+                        and_(
+                            KnowledgeDocumentRestriction.tenant_id == self.ctx.tenant_id,
+                            KnowledgeDocumentRestriction.workspace_id == self.ctx.workspace_id,
+                            KnowledgeDocumentRestriction.knowledge_id == knowledge_id,
+                        )
+                    )
+                    .order_by(KnowledgeDocumentRestriction.doc_key)
+                )
+            ).scalars()
+        )
+        denied = await access.denied_doc_keys(knowledge)
+        return [row for row in rows if row.doc_key not in denied]
+
+    @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
+    async def set_document_restriction(self, knowledge_id: str, doc_key: str, restricted: bool) -> bool:
+        """Restrict a document to the base's admins, its creator and grant holders, or lift that.
+
+        Only a workspace Owner or Admin or the base's creator decides it: a
+        member who may update the base could otherwise lift a restriction on a
+        document they may not read.
+        """
+        knowledge = await self.get_knowledge(knowledge_id)
+        access = self._document_access()
+        if not access.sees_every_document(knowledge):
+            raise ForbiddenError(
+                "Only a workspace admin or the knowledge base's creator restricts its documents"
+            )
+        if not await self.versioning.list_versions(knowledge_id, doc_key):
+            raise KernelError("NOT_FOUND", f"Document {doc_key} not found")
+        existing = (
+            await self.db.exec(
+                select(KnowledgeDocumentRestriction).where(
+                    and_(
+                        KnowledgeDocumentRestriction.tenant_id == self.ctx.tenant_id,
+                        KnowledgeDocumentRestriction.workspace_id == self.ctx.workspace_id,
+                        KnowledgeDocumentRestriction.knowledge_id == knowledge_id,
+                        KnowledgeDocumentRestriction.doc_key == doc_key,
+                    )
+                )
+            )
+        ).scalars().first()
+        if restricted == (existing is not None):
+            return restricted
+        if restricted:
+            self.db.add(
+                KnowledgeDocumentRestriction(
+                    tenant_id=self.ctx.tenant_id,
+                    workspace_id=self.ctx.workspace_id,
+                    knowledge_id=knowledge_id,
+                    doc_key=doc_key,
+                    created_by=self.ctx.user_id,
+                )
+            )
+        else:
+            await self.db.delete(existing)
+        self.db.add(
+            AuditEvent(
+                tenant_id=self.ctx.tenant_id,
+                workspace_id=self.ctx.workspace_id,
+                event_type="knowledge.document.restricted" if restricted else "knowledge.document.unrestricted",
+                resource_type=RESOURCE_KNOWLEDGE_DOCUMENT,
+                resource_id=document_resource_id(knowledge_id, doc_key),
+                operation="restrict" if restricted else "unrestrict",
+                actor_user_id=self.ctx.user_id,
+                trace_id=self.ctx.trace_id,
+                outcome="allowed",
+                scope="workspace",
+                payload_json={"knowledge_id": knowledge_id, "doc_key": doc_key},
+            )
+        )
+        await self.db.commit()
+        return restricted
+
+    @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
     async def list_document_versions(
         self,
         knowledge_id: str,
@@ -1400,6 +1509,7 @@ class KnowledgeRuntimeService:
             List of KnowledgeDocument instances.
         """
         await self.get_knowledge(knowledge_id)
+        await self._require_document_readable(knowledge_id, doc_key, doc_key)
         return await self.versioning.list_versions(knowledge_id, doc_key)
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "update", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
@@ -1575,11 +1685,14 @@ class KnowledgeRuntimeService:
         Returns:
             List of KnowledgeDocument instances.
         """
+        knowledge = await self.knowledge_repo.get_by_id(knowledge_id)
+        denied = await self._document_access().denied_doc_keys(knowledge) if knowledge else frozenset()
         return await self.document_repo.list_by_knowledge(
             knowledge_id=knowledge_id,
             is_latest_only=is_latest_only,
             limit=limit,
             offset=offset,
+            exclude_doc_keys=denied,
         )
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
@@ -1651,6 +1764,7 @@ class KnowledgeRuntimeService:
         document = await self.document_repo.get_by_id(document_id)
         if not document:
             raise KernelError("NOT_FOUND", f"Document {document_id} not found")
+        await self._require_document_readable(document.knowledge_id, document.doc_key, document_id)
         return document
 
     @rbac_guard(RESOURCE_KNOWLEDGE, "read", resource_id_arg="knowledge_id", visibility_resolver=_knowledge_visibility)
@@ -2158,6 +2272,9 @@ class KnowledgeRuntimeService:
         retrieval_config = knowledge.retrieval_json or {}
 
         filter_value = query_request.filter or retrieval_config.get("filter")
+        # Restricted documents the caller may not read never reach ranking,
+        # reranking or the fallback; the run records how many were left out.
+        excluded_doc_keys = await self._document_access().denied_doc_keys(knowledge)
         use_rerank = query_request.use_rerank or retrieval_config.get("use_rerank", False)
         reranker_ref = query_request.reranker_ref or knowledge.default_reranker_ref
         strategy = query_request.strategy or retrieval_config.get("strategy", "vector")
@@ -2215,6 +2332,7 @@ class KnowledgeRuntimeService:
                     if not index_ids:
                         raise KernelError("NOT_FOUND", "No ready indexes available for multi-index retrieval")
                     results = await self.retrieval_service.query_multiple_indexes(
+                        exclude_doc_keys=excluded_doc_keys,
                         knowledge_id=knowledge_id,
                         query_text=query_request.query,
                         index_ids=index_ids,
@@ -2226,6 +2344,7 @@ class KnowledgeRuntimeService:
                     )
                 elif strategy == "keyword":
                     results = await self.retrieval_service.query_keyword(
+                        exclude_doc_keys=excluded_doc_keys,
                         knowledge_id=knowledge_id,
                         query_text=query_request.query,
                         top_k=keyword_top_k,
@@ -2237,6 +2356,7 @@ class KnowledgeRuntimeService:
                 elif strategy == "hybrid":
                     index_id = query_request.index_id or knowledge.default_index_id
                     results = await self.retrieval_service.query_hybrid(
+                        exclude_doc_keys=excluded_doc_keys,
                         knowledge_id=knowledge_id,
                         query_text=query_request.query,
                         top_k=query_request.top_k,
@@ -2253,6 +2373,7 @@ class KnowledgeRuntimeService:
                 else:
                     index_id = query_request.index_id or knowledge.default_index_id
                     results = await self.retrieval_service.query(
+                        exclude_doc_keys=excluded_doc_keys,
                         knowledge_id=knowledge_id,
                         query_text=query_request.query,
                         top_k=query_request.top_k,
@@ -2269,6 +2390,7 @@ class KnowledgeRuntimeService:
                 raise
             except Exception:
                 results = await self._query_indexed_chunks_fallback(
+                    exclude_doc_keys=excluded_doc_keys,
                     knowledge_id=knowledge_id,
                     query=query_request.query,
                     top_k=query_request.top_k,
@@ -2279,6 +2401,7 @@ class KnowledgeRuntimeService:
 
             if not results:
                 fallback_results = await self._query_indexed_chunks_fallback(
+                    exclude_doc_keys=excluded_doc_keys,
                     knowledge_id=knowledge_id,
                     query=query_request.query,
                     top_k=query_request.top_k,
@@ -2325,6 +2448,8 @@ class KnowledgeRuntimeService:
                 "citation_count": len(citations),
                 "use_rerank": use_rerank,
             }
+            if excluded_doc_keys:
+                metrics["restricted_documents_excluded"] = len(excluded_doc_keys)
             scores = [float(result.score) for result in results if result.score is not None]
             if scores:
                 metrics["avg_score"] = sum(scores) / len(scores)

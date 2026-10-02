@@ -244,12 +244,13 @@ changing, testing, syncing, cancelling and deleting needs update access, with
 the knowledge base's visibility applied: a private knowledge base's sources are
 as hidden as the base itself. Sources are scoped to the tenant and workspace.
 
-Documents a connector creates take the knowledge base's own visibility. **Mapping
-the access rights of the source system (who may read an object or page) onto
-documents is not part of this version**: everyone who can retrieve from the
-knowledge base can retrieve from synced documents. Do not sync content into a
-knowledge base that is shared more widely than the content is. Enforcing
-document-level access is a separate piece of work.
+Documents a connector creates take the knowledge base's own visibility, and
+can be [restricted](knowledge-access.md#restricted-documents) one by one; a
+restriction survives every later sync of the same item. **Mapping the access
+rights of the source system (who may read an object or page) onto documents is
+not part of this version**: everyone who can retrieve from the knowledge base
+can retrieve from synced documents that are not restricted. Do not sync content
+into a knowledge base that is shared more widely than the content is.
 
 ## What is not included
 

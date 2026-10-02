@@ -736,3 +736,49 @@ class KnowledgeSyncRun(SQLModel, table=True):
 
     updated_at: datetime = Field(default_factory=utc_now)
     """Last update timestamp."""
+
+
+def generate_document_restriction_id() -> str:
+    return f"kdr_{generate_ulid()}"
+
+
+class KnowledgeDocumentRestriction(SQLModel, table=True):
+    """A document of a knowledge base that only some readers of the base may read.
+
+    Keyed by the document's ``doc_key``, so it holds for every version. Its
+    readers are the workspace's Owners and Admins, the base's creator, and
+    holders of a ``knowledge_document`` grant with ``read``.
+    """
+
+    __tablename__ = "knowledge_document_restrictions"
+    __table_args__ = (
+        Index(
+            "uq_knowledge_document_restrictions_doc",
+            "tenant_id",
+            "workspace_id",
+            "knowledge_id",
+            "doc_key",
+            unique=True,
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=generate_document_restriction_id)
+    """Restriction ID."""
+
+    tenant_id: str = Field()
+    """Tenant ID."""
+
+    workspace_id: str = Field()
+    """Workspace ID."""
+
+    knowledge_id: str = Field(index=True)
+    """Knowledge base ID (reference enforced in code)."""
+
+    doc_key: str = Field()
+    """Key of the restricted document, all of its versions."""
+
+    created_by: str | None = Field(default=None, nullable=True)
+    """Who restricted it."""
+
+    created_at: datetime = Field(default_factory=utc_now)
+    """When it was restricted."""

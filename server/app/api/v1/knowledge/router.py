@@ -36,6 +36,8 @@ from app.modules.knowledge.application.schemas import (
     KnowledgeChunkUpdate,
     KnowledgeCreateRequest,
     KnowledgeDocumentResponse,
+    KnowledgeDocumentRestrictionResponse,
+    KnowledgeDocumentRestrictionUpdate,
     KnowledgeDocumentUpload,
     KnowledgeIndexCreate,
     KnowledgeIndexResponse,
@@ -411,6 +413,38 @@ async def download_knowledge_document(
     content, media_type, filename = await service.download_document(knowledge_id, document_id)
     headers = {"Content-Disposition": f'attachment; filename=\"{filename}\"'}
     return Response(content=content, media_type=media_type, headers=headers)
+
+
+def _restriction_response(row) -> KnowledgeDocumentRestrictionResponse:
+    return KnowledgeDocumentRestrictionResponse(
+        knowledge_id=row.knowledge_id,
+        doc_key=row.doc_key,
+        created_by=row.created_by,
+        created_at=row.created_at,
+        grant_resource_id=f"{row.knowledge_id}:{row.doc_key}",
+    )
+
+
+@router.get("/{knowledge_id}/document-restrictions", response_model=list[KnowledgeDocumentRestrictionResponse])
+async def list_knowledge_document_restrictions(
+    knowledge_id: str,
+    _: RequestContext = Depends(require_workspace_read_ctx),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """The base's restricted documents the caller may read."""
+    return [_restriction_response(row) for row in await service.list_document_restrictions(knowledge_id)]
+
+
+@router.put("/{knowledge_id}/document-restrictions", response_model=list[KnowledgeDocumentRestrictionResponse])
+async def set_knowledge_document_restriction(
+    knowledge_id: str,
+    body: KnowledgeDocumentRestrictionUpdate,
+    _: RequestContext = Depends(require_workspace_write_ctx),
+    service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """Restrict a document, or lift its restriction; answers the base's restrictions after."""
+    await service.set_document_restriction(knowledge_id, body.doc_key, body.restricted)
+    return [_restriction_response(row) for row in await service.list_document_restrictions(knowledge_id)]
 
 
 @router.get("/{knowledge_id}/documents/{doc_key}/versions", response_model=list[KnowledgeDocumentResponse])

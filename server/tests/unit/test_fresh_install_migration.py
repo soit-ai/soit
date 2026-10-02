@@ -81,6 +81,7 @@ EVALUATION_DATASETS_PATH = VERSIONS_ROOT / "20261001100000_evaluation_datasets.p
 KNOWLEDGE_CONNECTORS_PATH = VERSIONS_ROOT / "20261001110000_knowledge_connectors.py"
 COST_UPSTREAM_IDS_PATH = VERSIONS_ROOT / "20261002100000_cost_upstream_ids.py"
 WORKSPACE_UNPRICED_POLICY_PATH = VERSIONS_ROOT / "20261002110000_workspace_unpriced_call_policy.py"
+KNOWLEDGE_DOCUMENT_RESTRICTIONS_PATH = VERSIONS_ROOT / "20261002120000_knowledge_document_restrictions.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -158,6 +159,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         KNOWLEDGE_CONNECTORS_PATH.name,
         COST_UPSTREAM_IDS_PATH.name,
         WORKSPACE_UNPRICED_POLICY_PATH.name,
+        KNOWLEDGE_DOCUMENT_RESTRICTIONS_PATH.name,
     ]
 
     module = _load_baseline()

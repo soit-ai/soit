@@ -141,6 +141,7 @@ class RetrievalService:
         use_rerank: bool = False,
         reranker_ref: str | None = None,
         run_id: str | None = None,
+        exclude_doc_keys: frozenset[str] = frozenset(),
     ) -> list[QueryResult]:
         """Query a knowledge base for relevant documents.
 
@@ -190,10 +191,13 @@ class RetrievalService:
 
         # Query vector database
         collection_name = index.collection_name or f"idx_{index.id}"
+        # Restricted documents are left out after the vector search, so ask it
+        # for more than top_k to still answer top_k.
+        fetch_k = min(max(top_k * 4, top_k + 20), 400) if exclude_doc_keys else top_k
         results = await self.vector_port.query(
             collection=collection_name,
             vector=query_embedding,
-            top_k=top_k,
+            top_k=fetch_k,
             filter=filter,
             include_metadata=True,
             run_id=run_id,
@@ -207,6 +211,8 @@ class RetrievalService:
                 continue
             document = await self.document_repo.get_by_id(chunk.document_id)
             if not document or not document.is_latest:
+                continue
+            if document.doc_key in exclude_doc_keys:
                 continue
 
             text = await self._load_chunk_text(chunk, run_id, prefer_full_text=True)
@@ -222,6 +228,8 @@ class RetrievalService:
                     metadata=metadata,
                 )
             )
+
+        query_results = query_results[:top_k]
 
         # Rerank if requested
         if use_rerank and query_results:
@@ -261,6 +269,7 @@ class RetrievalService:
         run_id: str | None = None,
         candidate_limit: int = 500,
         min_score: int = 1,
+        exclude_doc_keys: frozenset[str] = frozenset(),
     ) -> list[QueryResult]:
         """Keyword-based retrieval over chunk text previews."""
         tokens = self._tokenize_query(query_text)
@@ -284,6 +293,8 @@ class RetrievalService:
                 document = await self.document_repo.get_by_id(chunk.document_id)
                 document_cache[chunk.document_id] = document
             if not document or not document.is_latest:
+                continue
+            if document.doc_key in exclude_doc_keys:
                 continue
 
             text = chunk.text_preview or ""
@@ -328,6 +339,7 @@ class RetrievalService:
         min_score: int = 1,
         alpha: float = 0.7,
         keyword_top_k: int | None = None,
+        exclude_doc_keys: frozenset[str] = frozenset(),
     ) -> list[QueryResult]:
         """Hybrid retrieval combining vector and keyword scores."""
         vector_results = await self.query(
@@ -339,6 +351,7 @@ class RetrievalService:
             use_rerank=False,
             reranker_ref=reranker_ref,
             run_id=run_id,
+            exclude_doc_keys=exclude_doc_keys,
         )
         keyword_results = await self.query_keyword(
             knowledge_id=knowledge_id,
@@ -346,6 +359,7 @@ class RetrievalService:
             top_k=keyword_top_k or top_k,
             filter=filter,
             run_id=run_id,
+            exclude_doc_keys=exclude_doc_keys,
             candidate_limit=candidate_limit,
             min_score=min_score,
         )
@@ -440,6 +454,7 @@ class RetrievalService:
         use_rerank: bool = False,
         reranker_ref: str | None = None,
         run_id: str | None = None,
+        exclude_doc_keys: frozenset[str] = frozenset(),
     ) -> list[QueryResult]:
         """Query multiple indexes and merge results.
 
@@ -464,6 +479,7 @@ class RetrievalService:
                 filter=filter,
                 use_rerank=False,
                 run_id=run_id,
+                exclude_doc_keys=exclude_doc_keys,
             )
             all_results.extend(results)
 

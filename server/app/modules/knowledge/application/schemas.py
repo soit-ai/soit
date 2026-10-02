@@ -206,3 +206,22 @@ class KnowledgeRetrievalSummary(BaseModel):
     """Hits over queries. None when nothing was queried in the window."""
 
     zero_hit_rate: float | None = None
+
+
+class KnowledgeDocumentRestrictionUpdate(BaseModel):
+    """Restrict a document of a knowledge base, or lift its restriction."""
+
+    doc_key: str = Field(..., min_length=1, max_length=512)
+    restricted: bool
+
+
+class KnowledgeDocumentRestrictionResponse(BaseModel):
+    """A restricted document: readable by the workspace's admins, the base's creator and grant holders."""
+
+    knowledge_id: str
+    doc_key: str
+    created_by: str | None = None
+    created_at: datetime | None = None
+    grant_resource_id: str
+    """What a ``knowledge_document`` grant names to let a member read it."""
+

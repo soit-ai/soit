@@ -66,6 +66,22 @@ record for operators.
   A standard-library mock provider rehearses it without credentials, and a
   pilot record template keeps onboarding time, failures and effort.
 
+- Documents of a knowledge base can be restricted. A restricted document is
+  readable only by the workspace's Owners and Admins, the knowledge base's
+  creator and holders of a `knowledge_document` read grant; everyone else
+  meets it nowhere: not in the document listing, not as the document, its
+  content, download, chunks or versions (`404`), and not in retrieval by any
+  strategy or the keyword fallback, so not in an agent's RAG, a workflow's
+  retrieve node, the `knowledge_query` tool or MCP either. A restriction is
+  kept per document key, so new versions and connector syncs stay restricted,
+  and it takes effect at once. `GET` and `PUT
+  /api/v1/knowledge/{id}/document-restrictions` list and change them (Owners,
+  Admins and the base's creator; audited), and the retrieval step records how
+  many documents it left out. The keyword fallback now also answers from the
+  latest version of each document only. Migration `20261002120000` adds the
+  table; nothing is restricted until someone restricts it. See
+  [Knowledge access](docs/knowledge-access.md).
+
 ### Fixed
 
 - Costs in different currencies are no longer added together. The Overview

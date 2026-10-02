@@ -230,6 +230,7 @@ class DocumentRepository(AsyncRepository[KnowledgeDocument]):
         is_latest_only: bool = True,
         limit: int = 20,
         offset: int = 0,
+        exclude_doc_keys: frozenset[str] = frozenset(),
     ) -> list[KnowledgeDocument]:
         """List documents in knowledge.
 
@@ -253,6 +254,8 @@ class DocumentRepository(AsyncRepository[KnowledgeDocument]):
 
         if is_latest_only:
             query = query.where(KnowledgeDocument.is_latest.is_(True))
+        if exclude_doc_keys:
+            query = query.where(KnowledgeDocument.doc_key.not_in(sorted(exclude_doc_keys)))
 
         query = query.order_by(KnowledgeDocument.created_at.desc()).offset(offset).limit(limit)
 
