@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.runs.knowledge_redaction import KnowledgeRedactor
 from app.kernel.runtime.threads.schemas import (
     ThreadCreateRequest,
     ThreadDetailResponse,
@@ -116,9 +117,19 @@ class ThreadHandlers:
     async def get_thread(self, ctx: RequestContext, thread_id: str) -> ThreadDetailResponse:
         thread = await self.query_service.get_thread(thread_id)
         messages = await self.query_service.list_thread_messages(thread_id)
+        redactor = KnowledgeRedactor(self.query_service.db, ctx)
+        responses: list[ThreadMessageResponse] = []
+        for item in messages:
+            message = ThreadMessageResponse.model_validate(item)
+            update = {
+                field: await redactor.redact(getattr(message, field))
+                for field in ("citations_json", "tool_calls_json", "metadata_json")
+                if hasattr(message, field)
+            }
+            responses.append(message.model_copy(update=update))
         return ThreadDetailResponse(
             thread=self._serialize_thread(thread),
-            messages=[ThreadMessageResponse.model_validate(item) for item in messages],
+            messages=responses,
         )
 
     async def update_thread(

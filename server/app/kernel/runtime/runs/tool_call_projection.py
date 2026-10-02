@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.kernel.commons.errors import KernelError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import RunStepToolCall
+from app.kernel.runtime.runs.knowledge_redaction import KnowledgeRedactor
 
 _PUBLIC_STATUS = {
     "claimed": "preparing",
@@ -136,6 +137,11 @@ async def project_run_tool_calls(
             }
         )
 
+    # Knowledge content a reader may no longer read is filtered out of
+    # stored results as they are read back.
+    redactor = KnowledgeRedactor(db, ctx)
+    for projection in projections:
+        projection["result_json"] = await redactor.redact(projection["result_json"])
     return projections
 
 

@@ -420,6 +420,13 @@ class Container:
 
         register_workspace_capture_lookup(workspace_content_capture)
 
+        from app.kernel.runtime.runs.knowledge_redaction import (
+            register_knowledge_read_filter,
+        )
+        from app.modules.knowledge.infra.read_filter import KnowledgeDocumentReadFilter
+
+        register_knowledge_read_filter(KnowledgeDocumentReadFilter())
+
         from app.kernel.safety.workspace_overrides import register_workspace_pii_lookup
         from app.modules.identity.infra.safety_overrides import workspace_pii_actions
 

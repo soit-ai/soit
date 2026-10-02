@@ -11,6 +11,7 @@ from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.responses.schemas import ResponseEventRead, ToolCallRead
 from app.kernel.runtime.runs.cost_queries import CostEntryFilter, CostLedgerQueries
+from app.kernel.runtime.runs.knowledge_redaction import KnowledgeRedactor
 from app.kernel.runtime.runs.protocols import RunQueryRepositoryProtocol
 from app.kernel.runtime.runs.schemas import (
     CostGroupBy,
@@ -148,9 +149,14 @@ class RunService:
             )
             .order_by(ResponseEvent.created_at.asc(), ResponseEvent.sequence.asc(), ResponseEvent.id.asc())
         )
-        return [
+        events = [
             ResponseEventRead.model_validate(self._unwrap_row(row))
             for row in list((await self.db.exec(query)).all())
+        ]
+        redactor = KnowledgeRedactor(self.db, self.ctx)
+        return [
+            event.model_copy(update={"payload_json": await redactor.redact(event.payload_json)})
+            for event in events
         ]
 
     async def _project_tool_calls_for_run(
@@ -1376,7 +1382,7 @@ class RunService:
             steps=steps,
             response_id=responses[0].id if responses else None,
         )
-        citations = self._response_citations(responses)
+        citations = await KnowledgeRedactor(self.db, self.ctx).redact(self._response_citations(responses))
         child_run_ids = self._extract_child_run_ids(tool_calls)
         audits = await self.list_audits(run_id=run_id, limit=200, offset=0)
         for child_run_id in child_run_ids:

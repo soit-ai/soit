@@ -65,10 +65,27 @@ restriction survives every later sync of the same item. SOIT does not map the
 source system's own permissions onto documents: keep content with different
 audiences in different knowledge bases, or restrict the documents that need it.
 
+## Copies kept in runs, responses and threads
+
+Runs keep what retrieval returned: citations, `knowledge_query` results, a
+source event, a thread message's citations and tool results. Reading them
+back obeys the reader's access now, not the access of whoever ran the
+retrieval or the access when it ran. A document the reader may not read
+(restricted from them, or in a private knowledge base of someone else's, or
+in a base not shared with their workspace) is left out of every list it
+appears in, totals are recounted, and a single item outside a list is
+replaced by a withheld marker. This applies to run detail (citations, tool
+calls and response events), the response endpoints and their event stream,
+thread messages, tool result downloads, and a repeated tool call answered
+from its stored result. The stored records themselves are not changed, so
+lifting a restriction shows them again.
+
+A copy that names a document no longer present, a deleted document or
+knowledge base, is shown as it was: there is nothing left to enforce.
+
 ## Not covered yet
 
-- Copies made before a restriction: citations, tool results and node outputs
-  already stored in runs, threads, responses and evidence bundles keep the
-  text they were given, and are served by the run and thread endpoints by
-  workspace read access, not filtered by the document's current restriction.
+- Text kept as a whole: a step's output summary, a workflow's retrieve node
+  output, an agent's retrieved context in an approval checkpoint, and answers
+  a model wrote from retrieved text. These are not filtered item by item.
 - Groups: a grant names one member or service principal.

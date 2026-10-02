@@ -14,6 +14,7 @@ from app.kernel.runtime.responses.schemas import (
     ToolCallRead,
 )
 from app.kernel.runtime.responses.service import ResponseService
+from app.kernel.runtime.runs.knowledge_redaction import redact_knowledge
 
 
 class ResponseHandlers:
@@ -22,15 +23,21 @@ class ResponseHandlers:
     def __init__(self, service: ResponseService) -> None:
         self.service = service
 
+    async def _read(self, response) -> ResponseRead:
+        """A response as its reader may read it now: knowledge it may not read left out."""
+        read = ResponseRead.model_validate(response)
+        output = await redact_knowledge(self.service.db, self.service.ctx, read.output_json)
+        return read if output is read.output_json else read.model_copy(update={"output_json": output})
+
     async def get_response(self, ctx: RequestContext, response_id: str) -> ResponseRead:
         del ctx
-        return ResponseRead.model_validate(await self.service.get_response(response_id))
+        return await self._read(await self.service.get_response(response_id))
 
     async def get_response_detail(self, ctx: RequestContext, response_id: str) -> ResponseDetailRead:
         del ctx
         response, events, tool_calls = await self.service.get_response_detail(response_id)
         return ResponseDetailRead(
-            response=ResponseRead.model_validate(response),
+            response=await self._read(response),
             events=[ResponseEventRead.model_validate(item) for item in events],
             tool_calls=[ToolCallRead.model_validate(item) for item in tool_calls],
         )
@@ -42,7 +49,7 @@ class ResponseHandlers:
             run_id=timeline["run_id"],
             items=[
                 ResponseTimelineItemRead(
-                    response=ResponseRead.model_validate(item["response"]),
+                    response=await self._read(item["response"]),
                     events=[ResponseEventRead.model_validate(event) for event in item["events"]],
                     tool_calls=[ToolCallRead.model_validate(tool_call) for tool_call in item["tool_calls"]],
                 )

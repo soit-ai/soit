@@ -25,6 +25,7 @@ from app.kernel.runtime.runs.content_capture import (
     withheld_object,
     writer_capture,
 )
+from app.kernel.runtime.runs.knowledge_redaction import redact_knowledge
 from app.kernel.runtime.runs.writer import TraceWriter
 
 _SENSITIVE_KEYS = frozenset(
@@ -678,7 +679,17 @@ class RuntimeToolExecutionService:
         if not claim.replayed:
             return None
         if claim.record.result_artifact_id is None:
-            return claim.cached_response
+            cached = claim.cached_response
+            if cached is None:
+                return None
+            # A replay hands back a stored result: knowledge in it the caller
+            # may no longer read is left out, as a fresh call would leave it.
+            return ToolResponse(
+                result=await redact_knowledge(self.db, self.ctx, cached.result),
+                success=cached.success,
+                error=cached.error,
+                metadata=cached.metadata,
+            )
         if self.storage_port is None:
             raise ValueError("Storage port is required to replay a large tool result")
         artifact = await self.db.get(RunArtifact, claim.record.result_artifact_id)
@@ -691,7 +702,7 @@ class RuntimeToolExecutionService:
             raise ValueError("Tool result artifact scope mismatch")
         payload = json.loads((await self.storage_port.get(artifact.storage_key)).decode("utf-8"))
         return ToolResponse(
-            result=payload.get("result"),
+            result=await redact_knowledge(self.db, self.ctx, payload.get("result")),
             success=claim.record.status == "succeeded",
             error=claim.record.error_message,
             metadata={

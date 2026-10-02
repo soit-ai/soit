@@ -25,6 +25,7 @@ from app.kernel.runtime.responses.protocols import (
 )
 from app.kernel.runtime.responses.schemas import ResponseCreateRequest
 from app.kernel.runtime.responses.streaming import response_event_key
+from app.kernel.runtime.runs.knowledge_redaction import KnowledgeRedactor
 from app.kernel.runtime.runs.tool_call_projection import project_run_tool_calls
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.status import (
@@ -448,11 +449,13 @@ class ResponseService:
 
     async def get_run_timeline(self, run_id: str) -> dict[str, Any]:
         responses = await self.response_repo.list_for_run(run_id)
-        events = [
-            event
-            for event in await self.event_repo.list_for_run(run_id)
-            if getattr(event, "visibility", "user") == "user"
-        ]
+        events = await self._redacted_events(
+            [
+                event
+                for event in await self.event_repo.list_for_run(run_id)
+                if getattr(event, "visibility", "user") == "user"
+            ]
+        )
         events_by_response: dict[str, list[ResponseEvent]] = {}
         for event in events:
             events_by_response.setdefault(event.response_id, []).append(event)
@@ -487,9 +490,21 @@ class ResponseService:
             after_sequence=after_sequence,
             interaction_id=interaction_id,
         )
-        return [
-            event for event in events if getattr(event, "visibility", "user") == "user"
-        ]
+        return await self._redacted_events(
+            [event for event in events if getattr(event, "visibility", "user") == "user"]
+        )
+
+    async def _redacted_events(self, events: list[ResponseEvent]) -> list[ResponseEvent]:
+        """Events as their reader may read them now; stored rows are never changed."""
+        redactor = KnowledgeRedactor(self.db, self.ctx)
+        out: list[ResponseEvent] = []
+        for event in events:
+            payload = await redactor.redact(event.payload_json)
+            if payload is event.payload_json:
+                out.append(event)
+            else:
+                out.append(ResponseEvent.model_validate({**event.model_dump(), "payload_json": payload}))
+        return out
 
     async def get_interaction(self, interaction_id: str) -> ResponseInteraction | None:
         """Return one scoped protocol interaction mapping."""

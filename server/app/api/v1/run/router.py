@@ -24,6 +24,7 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.runs.cost_queries import CostEntryFilter
+from app.kernel.runtime.runs.knowledge_redaction import redact_knowledge
 from app.kernel.runtime.runs.otlp import build_trace_export, load_trace
 from app.kernel.runtime.runs.schemas import (
     CostGroupBy,
@@ -663,10 +664,19 @@ async def download_run_artifact(
 ):
     """Download governed Run artifact content without exposing its storage key."""
 
-    del ctx
     artifact = await service.get_artifact(run_id, artifact_id)
     content = await storage.get(artifact.storage_key)
     metadata = artifact.meta_json or {}
+    if metadata.get("kind") == "tool_result":
+        # A stored tool result: knowledge the reader may no longer read is left out.
+        try:
+            stored = orjson.loads(content)
+        except orjson.JSONDecodeError:
+            stored = None
+        if isinstance(stored, dict):
+            redacted = await redact_knowledge(service.db, ctx, stored)
+            if redacted is not stored:
+                content = orjson.dumps(redacted)
     filename = str(metadata.get("name") or metadata.get("filename") or artifact.id)
     encoded_filename = quote(filename, safe="")
     return Response(

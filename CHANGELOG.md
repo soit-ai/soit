@@ -84,6 +84,13 @@ record for operators.
 - **Access** on each document of a knowledge base in the console restricts
   the document or lifts the restriction, marks restricted documents in the
   list, and grants and revokes read on a restricted one for a member.
+- Knowledge content kept in runs, responses and threads is read back by the
+  reader's access now. Citations, `knowledge_query` results, source events,
+  thread message citations and tool results, tool result downloads and a
+  repeated tool call answered from its stored result leave out documents
+  the reader may not read: restricted from them, in someone else's private
+  knowledge base, or in a base not shared with their workspace. Stored
+  records are not changed.
 
 ### Fixed
 
