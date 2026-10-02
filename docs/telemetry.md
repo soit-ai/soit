@@ -32,7 +32,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:9200/api/v1/diagnostics/
 {
   "schema": 1,
   "installation_id": "3f2c7e0a-5b8d-4c1e-9a2f-6d4b8e1c0a9f",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "edition": "community",
   "day": "2026-09-28",
   "deployment": {
