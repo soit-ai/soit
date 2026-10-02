@@ -12,6 +12,19 @@ record for operators.
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-02
+
+### Security
+
+- Granting or revoking access to a resource (`POST` and `DELETE
+  /api/v1/resource-grants`) takes a workspace Owner or Admin. Workspace write
+  permission was enough, so any developer could grant themselves every
+  action on a private knowledge base, agent or workflow.
+- A knowledge document's `file_id` must name a file uploaded to the same
+  knowledge base. Any other storage key was taken as given, so a member who
+  could update one knowledge base could point a document at another base's
+  file, a private one included, and download it.
+
 ## [1.5.1] - 2026-10-01
 
 ### Changed
@@ -1726,7 +1739,8 @@ compatibility and known limitations: [docs/releases/v1.0.0.md](./docs/releases/v
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
   differ from the development value.
 
-[Unreleased]: https://github.com/soit-ai/soit/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/soit-ai/soit/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/soit-ai/soit/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/soit-ai/soit/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/soit-ai/soit/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/soit-ai/soit/compare/v1.3.0...v1.4.0
