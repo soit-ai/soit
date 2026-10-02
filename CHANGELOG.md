@@ -56,6 +56,16 @@ record for operators.
   A refused model call gives back the budget hold its budget check took,
   instead of keeping it until the hold expired.
 
+- A gateway pilot kit in `examples/pilot`: `pilot_acceptance.py setup`
+  creates a pilot's provider, priced, failing and unpriced models, a failover
+  virtual model, a limited API key and a small daily budget over the HTTP API;
+  `check` verifies an allowed and a streamed call, refusals for an invalid
+  key, a model outside the key's list, an exhausted budget and an unpriced
+  call, failover, an idempotent tool call, the cost reconciliation and an
+  evidence bundle's SHA-256, and writes a report; `teardown` removes it all.
+  A standard-library mock provider rehearses it without credentials, and a
+  pilot record template keeps onboarding time, failures and effort.
+
 ### Fixed
 
 - Costs in different currencies are no longer added together. The Overview

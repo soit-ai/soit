@@ -30,6 +30,9 @@ export SOIT_MODEL=model:openai-main:gpt-5.5
 | [`claude_code.md`](claude_code.md) | Claude Code | the `claude` CLI |
 | [`tools.sh`](tools.sh) | curl, SOIT tools API | curl, jq |
 
+To stand up and accept a whole pilot (provider, failover, key, budget and the
+checks that show they govern the calls), see the [pilot kit](../pilot/README.md).
+
 ## Served endpoints
 
 - `POST /v1/chat/completions`: whole or streamed, with tools, images in

@@ -17,3 +17,7 @@ docs/superpowers/
 .env.production
 .env.test
 artifacts/
+
+# Python bytecode anywhere in the tree
+__pycache__/
+*.py[cod]

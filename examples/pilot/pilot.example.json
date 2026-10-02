@@ -1,0 +1,27 @@
+{
+  "soit_url": "http://localhost:9200",
+  "provider": {
+    "name": "Pilot mock provider",
+    "slug": "pilot-mock",
+    "kind": "openai_compatible",
+    "base_url": "http://127.0.0.1:9311/v1",
+    "api_key_env": null
+  },
+  "models": {
+    "primary": "pilot-ok",
+    "failing": "pilot-fail",
+    "unpriced": "pilot-unpriced"
+  },
+  "pricing": {
+    "currency": "USD",
+    "input": 10,
+    "input_unit": "mtok",
+    "output": 30,
+    "output_unit": "mtok"
+  },
+  "budget": {
+    "amount": "0.02",
+    "currency": "USD"
+  },
+  "key_days": 7
+}
