@@ -23,10 +23,18 @@ import json
 from typing import Any, Protocol
 
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.runs.content_capture import withheld_object
+from app.kernel.runtime.runs.content_capture import (
+    is_withheld,
+    withheld,
+    withheld_object,
+)
 
 DocumentRef = tuple[str, str]
 """(knowledge_id, doc_key)."""
+
+KNOWLEDGE_QUERY_TOOL = "tool:function:knowledge_query"
+SOURCES_METRIC = "knowledge_documents"
+"""Step metric listing the documents a step's output came from, as [knowledge_id, doc_key]."""
 
 
 class KnowledgeReadFilter(Protocol):
@@ -41,6 +49,13 @@ class KnowledgeReadFilter(Protocol):
 
         A document id that names no document is readable: there is nothing
         left to enforce on it.
+        """
+        ...
+
+    async def restricts(self, db: Any, ctx: RequestContext, knowledge_id: str | None) -> bool:
+        """Whether ``ctx`` may not read some document of a knowledge base, or of any if None.
+
+        For text whose documents are not known: withheld when this is true.
         """
         ...
 
@@ -90,6 +105,25 @@ def _maybe_json(value: str) -> Any:
         return None
 
 
+def _collect(value: Any, refs: set[DocumentRef], ids: set[str]) -> None:
+    """Every document ``value`` names, into ``refs`` or, by document_id only, ``ids``."""
+    if isinstance(value, dict):
+        ref, document_id = _identity(value)
+        if ref:
+            refs.add(ref)
+        elif document_id:
+            ids.add(document_id)
+        for child in value.values():
+            _collect(child, refs, ids)
+    elif isinstance(value, list):
+        for child in value:
+            _collect(child, refs, ids)
+    elif isinstance(value, str):
+        parsed = _maybe_json(value)
+        if parsed is not None:
+            _collect(parsed, refs, ids)
+
+
 class KnowledgeRedactor:
     """Filters payloads for one reader; asks the knowledge module once per new document."""
 
@@ -102,28 +136,11 @@ class KnowledgeRedactor:
         self._known_refs: set[DocumentRef] = set()
         self._known_ids: set[str] = set()
 
-    def _collect(self, value: Any, refs: set[DocumentRef], ids: set[str]) -> None:
-        if isinstance(value, dict):
-            ref, document_id = _identity(value)
-            if ref:
-                refs.add(ref)
-            elif document_id:
-                ids.add(document_id)
-            for child in value.values():
-                self._collect(child, refs, ids)
-        elif isinstance(value, list):
-            for child in value:
-                self._collect(child, refs, ids)
-        elif isinstance(value, str):
-            parsed = _maybe_json(value)
-            if parsed is not None:
-                self._collect(parsed, refs, ids)
-
     async def _learn(self, value: Any) -> bool:
         """Ask about documents not asked about yet; whether any named document is denied."""
         refs: set[DocumentRef] = set()
         ids: set[str] = set()
-        self._collect(value, refs, ids)
+        _collect(value, refs, ids)
         if not refs and not ids:
             return False
         new_refs = refs - self._known_refs
@@ -187,6 +204,119 @@ class KnowledgeRedactor:
         if self._read_filter is None or value is None:
             return False
         return await self._learn(value)
+
+
+def knowledge_sources(value: Any) -> list[list[str]]:
+    """The documents ``value`` names, as sorted [knowledge_id, doc_key] pairs, for a step's metrics."""
+    refs: set[DocumentRef] = set()
+    _collect(value, refs, set())
+    return [list(ref) for ref in sorted(refs)]
+
+
+async def redact_step_text(
+    redactor: KnowledgeRedactor,
+    output_summary: str | None,
+    metrics: dict[str, Any] | None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """A step's output summary and metrics as their reader may read them now.
+
+    Structured copies in the metrics are filtered item by item. The summary is
+    text: kept, filtered when it is JSON, or withheld whole when it came from a
+    document the reader may not read. Where a knowledge step recorded no
+    sources (steps written before sources were kept), it is withheld when the
+    reader may not read some document of the knowledge base, or of any.
+    """
+    if redactor._read_filter is None:
+        return output_summary, metrics
+    metrics_out = await redactor.redact(metrics) if metrics else metrics
+    values = metrics if isinstance(metrics, dict) else {}
+    tool_call = values.get("tool_call") if isinstance(values.get("tool_call"), dict) else {}
+    knowledge_tool = tool_call.get("tool_ref") == KNOWLEDGE_QUERY_TOOL
+    sources = values.get(SOURCES_METRIC)
+    structured = tool_call.get("result") if isinstance(tool_call.get("result"), dict | list) else None
+    if isinstance(structured, dict) and set(structured) <= {"truncated", "size_bytes", "payload_hash"}:
+        # Too large to keep: a stub holding no content, and no sources either.
+        structured = None
+
+    deny = False
+    known = False
+    if isinstance(sources, list):
+        known = True
+        named = [
+            {"knowledge_id": pair[0], "doc_key": pair[1]}
+            for pair in sources
+            if isinstance(pair, list | tuple) and len(pair) == 2
+        ]
+        deny = await redactor.denies_any(named)
+    if not deny and structured is not None:
+        known = known or knowledge_tool
+        deny = await redactor.denies_any(structured)
+    if not deny and not known and (knowledge_tool or values.get("node_type") == "retrieve"):
+        arguments = tool_call.get("arguments") if isinstance(tool_call.get("arguments"), dict) else {}
+        knowledge_id = arguments.get("knowledge_id") if knowledge_tool else None
+        restricts = getattr(redactor._read_filter, "restricts", None)
+        if restricts is not None:
+            deny = await restricts(redactor.db, redactor.ctx, knowledge_id if isinstance(knowledge_id, str) else None)
+
+    summary = output_summary
+    if isinstance(summary, str) and summary and not is_withheld(summary):
+        parsed = _maybe_json(summary)
+        if parsed is not None:
+            summary = await redactor.redact(summary)
+        elif deny:
+            summary = withheld(summary)
+    return summary, metrics_out
+
+
+async def redacted_step_rows(redactor: KnowledgeRedactor, steps: list[Any]) -> list[Any]:
+    """Stored step rows as their reader may read them now, as detached copies.
+
+    A row that changes is copied, never edited, so nothing written back to the
+    session alters what was recorded.
+    """
+    out: list[Any] = []
+    for step in steps:
+        summary, metrics = await redact_step_text(redactor, step.output_summary, step.metrics_json)
+        if summary is step.output_summary and metrics is step.metrics_json:
+            out.append(step)
+        else:
+            out.append(type(step).model_validate({**step.model_dump(), "output_summary": summary, "metrics_json": metrics}))
+    return out
+
+
+async def redact_task_payload(redactor: KnowledgeRedactor, value: Any) -> Any:
+    """A task's input, output, progress or event payload as its reader may read it now.
+
+    Citations are filtered item by item. An agent's approval checkpoint also
+    keeps the retrieved context and the conversation as text: those are
+    withheld whole when its citations name a document the reader may not read.
+    """
+    if not isinstance(value, dict):
+        return await redactor.redact(value)
+    redacted = await redactor.redact(value)
+    for holder_key in (None, "progress"):
+        source = value if holder_key is None else value.get(holder_key)
+        target = redacted if holder_key is None else (redacted.get(holder_key) if isinstance(redacted, dict) else None)
+        if not isinstance(source, dict) or not isinstance(target, dict):
+            continue
+        checkpoint = source.get("checkpoint")
+        out_checkpoint = target.get("checkpoint")
+        if not isinstance(checkpoint, dict) or not isinstance(out_checkpoint, dict):
+            continue
+        if not await redactor.denies_any(checkpoint.get("citations")):
+            continue
+        out_checkpoint = dict(out_checkpoint)
+        if isinstance(checkpoint.get("rag_context"), str) and checkpoint["rag_context"]:
+            out_checkpoint["rag_context"] = withheld(checkpoint["rag_context"])
+        if checkpoint.get("messages"):
+            out_checkpoint["messages"] = withheld_object(checkpoint["messages"])
+        target = dict(target)
+        target["checkpoint"] = out_checkpoint
+        if holder_key is None:
+            redacted = target
+        else:
+            redacted = {**redacted, holder_key: target}
+    return redacted
 
 
 async def redact_knowledge(db: Any, ctx: RequestContext, value: Any) -> Any:

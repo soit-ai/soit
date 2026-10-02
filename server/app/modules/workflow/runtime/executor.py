@@ -19,6 +19,10 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.execution_plan import ExecutionPlan
 from app.kernel.runtime.db.models.runs import Run, RunStep
 from app.kernel.runtime.runs.content_capture import writer_capture
+from app.kernel.runtime.runs.knowledge_redaction import (
+    SOURCES_METRIC,
+    knowledge_sources,
+)
 from app.modules.workflow.application.variable_resolver import VariableResolver
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
@@ -523,6 +527,11 @@ class WorkflowExecutor:
                 }
                 if timeout_ms is not None:
                     metrics["timeout_ms"] = int(timeout_ms)
+                # Where the output came from, so a reader who may not read one of
+                # those documents later is not shown the output's text.
+                sources = knowledge_sources(output)
+                if sources:
+                    metrics[SOURCES_METRIC] = sources
                 run_step = await node_ctx.trace_writer.update_step_status(
                     run_step.id,
                     status="succeeded",

@@ -13,6 +13,10 @@ from app.kernel.commons.errors import KernelError, public_error_message
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.common import lease
+from app.kernel.runtime.runs.knowledge_redaction import (
+    KnowledgeRedactor,
+    redacted_step_rows,
+)
 from app.middleware.error_handler import ERROR_CODE_TO_STATUS
 from app.modules.workflow.application.service import WorkflowService
 from app.modules.workflow.domain.models import WorkflowRun
@@ -556,6 +560,7 @@ class SSEHandlers:
                 )
             ).order_by(RunStep.created_at)
             steps = [_unwrap_model(item) for item in (await db.exec(steps_query)).all()]
+            steps = await redacted_step_rows(KnowledgeRedactor(db, ctx), steps)
             for step in steps:
                 if step.id in known_step_ids:
                     continue

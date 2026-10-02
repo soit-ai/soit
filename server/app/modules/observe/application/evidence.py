@@ -41,6 +41,10 @@ from app.kernel.runtime.runs.content_capture import (
     url_origin,
     withheld,
 )
+from app.kernel.runtime.runs.knowledge_redaction import (
+    KnowledgeRedactor,
+    redacted_step_rows,
+)
 from app.kernel.runtime.runs.service import RunService
 from app.modules.observe.domain.models import ApprovalRequest
 
@@ -172,7 +176,9 @@ class RunEvidenceService:
         keeps_content = await self._capture_mode() == CAPTURE_FULL
         capture = ContentCapture(CAPTURE_FULL if keeps_content else CAPTURE_METADATA_ONLY)
 
-        steps = await self._rows(RunStep, run_id, RunStep.started_at)
+        steps = await redacted_step_rows(
+            KnowledgeRedactor(self.db, self.ctx), await self._rows(RunStep, run_id, RunStep.started_at)
+        )
         costs = await self._rows(RunCostEntry, run_id, RunCostEntry.created_at)
         audits = await self._rows(AuditEvent, run_id, AuditEvent.created_at)
         approvals = await self._rows(ApprovalRequest, run_id, ApprovalRequest.created_at)

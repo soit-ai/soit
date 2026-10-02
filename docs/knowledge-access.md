@@ -83,9 +83,27 @@ lifting a restriction shows them again.
 A copy that names a document no longer present, a deleted document or
 knowledge base, is shown as it was: there is nothing left to enforce.
 
+Some copies are text that cannot be filtered item by item, so they are
+withheld whole (replaced by a marker giving their length and hash) when they
+came from a document the reader may not read:
+
+- A step's output summary, in the step list, run detail, Observe replay, the
+  evidence bundle and a workflow's event stream. A `knowledge_query` step is
+  judged by the result it kept, and a workflow step by the documents its
+  output named, which the step records in its `knowledge_documents` metric.
+  A summary that is JSON is filtered like any other copy instead.
+- An agent's retrieved context and conversation in a task's approval
+  checkpoint, judged by the checkpoint's citations, in task detail, the task
+  list and the task handling drawer.
+
+Steps recorded before their sources were kept are judged conservatively: a
+`knowledge_query` step's summary is withheld when the reader may not read
+some document of the knowledge base it queried, and a workflow retrieve
+step's when the reader may not read some document anywhere in the workspace.
+
 ## Not covered yet
 
-- Text kept as a whole: a step's output summary, a workflow's retrieve node
-  output, an agent's retrieved context in an approval checkpoint, and answers
-  a model wrote from retrieved text. These are not filtered item by item.
+- Answers a model wrote from retrieved text: the response text, assistant
+  messages and a workflow's later nodes that used it. Their citations are
+  filtered; the text itself is shown as written.
 - Groups: a grant names one member or service principal.

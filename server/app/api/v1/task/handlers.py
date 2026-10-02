@@ -6,6 +6,10 @@ from datetime import datetime
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.runs.knowledge_redaction import (
+    KnowledgeRedactor,
+    redact_task_payload,
+)
 from app.kernel.runtime.tasks.query_service import TaskQueryService
 from app.kernel.runtime.tasks.schemas import (
     TaskCheckpointResponse,
@@ -18,6 +22,8 @@ from app.kernel.runtime.tasks.schemas import (
     TaskWorkbenchResponse,
 )
 from app.kernel.runtime.tasks.service import TaskService
+
+_TASK_FIELDS = ("input_json", "output_json", "progress_json")
 
 
 class TaskHandlers:
@@ -57,7 +63,8 @@ class TaskHandlers:
             since=since,
             until=until,
         )
-        items = [TaskResponse.model_validate(task) for task in tasks]
+        redactor = self._redactor(ctx)
+        items = [await self._readable(redactor, TaskResponse.model_validate(task), _TASK_FIELDS) for task in tasks]
         has_next = len(tasks) == limit
         next_offset = offset + len(tasks) if has_next else None
         total = (
@@ -115,19 +122,50 @@ class TaskHandlers:
             date_to=date_to,
         )
 
+    def _redactor(self, ctx: RequestContext) -> KnowledgeRedactor:
+        return KnowledgeRedactor(getattr(self.service, "db", None), ctx)
+
+    @staticmethod
+    async def _readable(redactor: KnowledgeRedactor, model, fields: tuple[str, ...]):
+        """A task read model with knowledge its reader may not read left out."""
+        update = {}
+        for field in fields:
+            value = getattr(model, field, None)
+            redacted = await redact_task_payload(redactor, value)
+            if redacted is not value:
+                update[field] = redacted
+        return model.model_copy(update=update) if update else model
+
     async def get_task(self, ctx: RequestContext, task_id: str) -> TaskDetailResponse:
         task = await self.service.get_task(task_id)
         checkpoints = await self.service.list_task_checkpoints(task_id)
         events = await self.service.list_task_events(task_id)
+        redactor = self._redactor(ctx)
         return TaskDetailResponse(
-            task=TaskResponse.model_validate(task),
-            checkpoints=[TaskCheckpointResponse.model_validate(item) for item in checkpoints],
-            events=[TaskEventResponse.model_validate(item) for item in events],
+            task=await self._readable(redactor, TaskResponse.model_validate(task), _TASK_FIELDS),
+            checkpoints=[
+                await self._readable(redactor, TaskCheckpointResponse.model_validate(item), ("payload_json",))
+                for item in checkpoints
+            ],
+            events=[
+                await self._readable(redactor, TaskEventResponse.model_validate(item), ("payload_json",))
+                for item in events
+            ],
             available_actions=self.service.available_actions(task),
         )
 
     async def get_task_handling(self, ctx: RequestContext, task_id: str) -> TaskHandlingResponse:
-        return await self.service.get_task_handling(task_id)
+        handling = await self.service.get_task_handling(task_id)
+        redactor = self._redactor(ctx)
+        return handling.model_copy(
+            update={
+                "task": await self._readable(redactor, handling.task, _TASK_FIELDS),
+                "events": [await self._readable(redactor, item, ("payload_json",)) for item in handling.events],
+                "checkpoints": [
+                    await self._readable(redactor, item, ("payload_json",)) for item in handling.checkpoints
+                ],
+            }
+        )
 
     async def cancel_task(self, ctx: RequestContext, task_id: str) -> TaskControlResponse:
         if not self.runtime_service:

@@ -15,6 +15,7 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 from app.kernel.runtime.db.models.runs import Run, RunStep, RunStepToolCall
+from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.runs.knowledge_redaction import (
     register_knowledge_read_filter,
     reset_knowledge_read_filter,
@@ -148,3 +149,113 @@ async def test_an_admin_still_reads_everything(async_client, async_db, ctx) -> N
     assert seen["run"]["tool_calls"][0]["result_json"]["result"]["total"] == 2
     events = seen["events"]["items"] if isinstance(seen["events"], dict) else seen["events"]
     assert events[0]["payload_json"]["value"]["doc_key"] == "payroll"
+
+
+async def _seed_text(async_db, ctx: RequestContext) -> None:
+    """Steps and a waiting task holding knowledge as text, written before payroll was restricted."""
+    scope = {"tenant_id": ctx.tenant_id, "workspace_id": ctx.workspace_id}
+    async_db.add(
+        RunStep(
+            id="step_query",
+            run_id="run_rag",
+            step_type="tool",
+            status="succeeded",
+            output_summary="secret text of payroll",
+            metrics_json={
+                "tool_call": {
+                    "tool_ref": "tool:function:knowledge_query",
+                    "arguments": {"knowledge_id": "kb_hr"},
+                    "result": {"citations": [_citation("travel"), _citation("payroll")]},
+                }
+            },
+            started_at=utc_now(),
+            **scope,
+        )
+    )
+    async_db.add(
+        RunStep(
+            id="step_retrieve_old",
+            run_id="run_rag",
+            step_type="node",
+            status="succeeded",
+            output_summary="secret text from before sources were kept",
+            metrics_json={"node_type": "retrieve"},
+            started_at=utc_now(),
+            **scope,
+        )
+    )
+    async_db.add(
+        RunStep(
+            id="step_llm",
+            run_id="run_rag",
+            step_type="llm",
+            status="succeeded",
+            output_summary="a plain answer",
+            started_at=utc_now(),
+            **scope,
+        )
+    )
+    async_db.add(
+        Task(
+            id="task_rag",
+            run_id="run_rag",
+            task_type="agent_run",
+            status="waiting_approval",
+            progress_json={
+                "checkpoint": {
+                    "messages": [{"role": "system", "content": "secret text of payroll"}],
+                    "rag_context": "secret text of payroll",
+                    "citations": [_citation("travel"), _citation("payroll")],
+                }
+            },
+            **scope,
+        )
+    )
+    await async_db.commit()
+
+
+async def _read_text(async_client) -> dict:
+    steps = (await async_client.get("/api/v1/runs/steps", params={"run_id": "run_rag", "page_size": 50})).json()["data"]
+    replay = (await async_client.get("/api/v1/observe/runs/run_rag/replay")).json()["data"]
+    task = (await async_client.get("/api/v1/tasks/task_rag")).json()["data"]
+    return {
+        "steps": {item["id"]: item for item in steps["items"]},
+        "replay": {item["id"]: item for item in replay["steps"]},
+        "checkpoint": task["task"]["progress_json"]["checkpoint"],
+    }
+
+
+async def test_a_member_reads_no_knowledge_text_of_the_restricted_document(async_client, async_db, ctx) -> None:
+    await _seed(async_db, ctx)
+    await _seed_text(async_db, ctx)
+    _as(ctx, "u_dev", "Dev")
+    try:
+        seen = await _read_text(async_client)
+    finally:
+        app.dependency_overrides[get_current_context] = lambda: ctx
+
+    for steps in (seen["steps"], seen["replay"]):
+        assert steps["step_query"]["output_summary"].startswith("[withheld")
+        assert steps["step_retrieve_old"]["output_summary"].startswith("[withheld")
+        assert steps["step_llm"]["output_summary"] == "a plain answer"
+        citations = steps["step_query"]["metrics_json"]["tool_call"]["result"]["citations"]
+        assert [c["doc_key"] for c in citations] == ["travel"]
+    checkpoint = seen["checkpoint"]
+    assert checkpoint["rag_context"].startswith("[withheld")
+    assert [c["doc_key"] for c in checkpoint["citations"]] == ["travel"]
+    assert "secret text of payroll" not in str(seen)
+    assert "from before sources were kept" not in str(seen)
+
+
+async def test_an_admin_still_reads_the_knowledge_text(async_client, async_db, ctx) -> None:
+    await _seed(async_db, ctx)
+    await _seed_text(async_db, ctx)
+    _as(ctx, "u_admin", "Admin")
+    try:
+        seen = await _read_text(async_client)
+    finally:
+        app.dependency_overrides[get_current_context] = lambda: ctx
+
+    assert seen["steps"]["step_query"]["output_summary"] == "secret text of payroll"
+    assert seen["replay"]["step_retrieve_old"]["output_summary"] == "secret text from before sources were kept"
+    assert seen["checkpoint"]["rag_context"] == "secret text of payroll"

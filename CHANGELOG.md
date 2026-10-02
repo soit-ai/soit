@@ -91,6 +91,14 @@ record for operators.
   the reader may not read: restricted from them, in someone else's private
   knowledge base, or in a base not shared with their workspace. Stored
   records are not changed.
+- Knowledge text kept whole is withheld from a reader who may not read the
+  document it came from: a step's output summary (step list, run detail,
+  Observe replay, evidence bundle, workflow event stream) and an agent's
+  retrieved context and conversation in a task's approval checkpoint (task
+  detail, task list, handling drawer). Workflow steps now record the
+  documents their output named in a `knowledge_documents` metric; older
+  steps are judged by the knowledge base they queried. See
+  [Knowledge access](docs/knowledge-access.md#copies-kept-in-runs-responses-and-threads).
 
 ### Fixed
 

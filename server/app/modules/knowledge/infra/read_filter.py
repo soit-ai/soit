@@ -21,7 +21,11 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.permissions import get_resource_grant_provider
 from app.kernel.runtime.runs.knowledge_redaction import DocumentRef
 from app.modules.knowledge.application.document_access import DocumentAccess
-from app.modules.knowledge.domain.models import Knowledge, KnowledgeDocument
+from app.modules.knowledge.domain.models import (
+    Knowledge,
+    KnowledgeDocument,
+    KnowledgeDocumentRestriction,
+)
 
 
 def _home_context(ctx: RequestContext, knowledge: Knowledge) -> RequestContext:
@@ -47,6 +51,43 @@ async def _sees_private_base(ctx: RequestContext, knowledge: Knowledge) -> bool:
 
 
 class KnowledgeDocumentReadFilter:
+    async def restricts(self, db: Any, ctx: RequestContext, knowledge_id: str | None) -> bool:
+        session = db if db is not None else get_async_session_local()()
+        try:
+            if knowledge_id is None:
+                rows = (
+                    await session.exec(
+                        select(KnowledgeDocumentRestriction.knowledge_id)
+                        .where(
+                            and_(
+                                KnowledgeDocumentRestriction.tenant_id == ctx.tenant_id,
+                                KnowledgeDocumentRestriction.workspace_id == ctx.workspace_id,
+                            )
+                        )
+                        .distinct()
+                    )
+                ).scalars().all()
+                candidates = [str(row) for row in rows]
+            else:
+                candidates = [knowledge_id]
+            for candidate in candidates:
+                knowledge = (
+                    await session.exec(
+                        select(Knowledge).where(and_(Knowledge.tenant_id == ctx.tenant_id, Knowledge.id == candidate))
+                    )
+                ).scalars().first()
+                if knowledge is None:
+                    continue
+                home = _home_context(ctx, knowledge)
+                if knowledge.visibility == "private" and not await _sees_private_base(home, knowledge):
+                    return True
+                if await DocumentAccess(session, home).denied_doc_keys(knowledge):
+                    return True
+            return False
+        finally:
+            if db is None:
+                await session.close()
+
     async def unreadable(
         self,
         db: Any,

@@ -11,7 +11,10 @@ from app.kernel.runtime.db.models.responses import Response, ResponseEvent
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.responses.schemas import ResponseEventRead, ToolCallRead
 from app.kernel.runtime.runs.cost_queries import CostEntryFilter, CostLedgerQueries
-from app.kernel.runtime.runs.knowledge_redaction import KnowledgeRedactor
+from app.kernel.runtime.runs.knowledge_redaction import (
+    KnowledgeRedactor,
+    redact_step_text,
+)
 from app.kernel.runtime.runs.protocols import RunQueryRepositoryProtocol
 from app.kernel.runtime.runs.schemas import (
     CostGroupBy,
@@ -1169,7 +1172,19 @@ class RunService:
                     steps.append(item[0])
                 except Exception:
                     continue
-        return [RunStepResponse.model_validate(step) for step in steps]
+        return await self._redacted_steps([RunStepResponse.model_validate(step) for step in steps])
+
+    async def _redacted_steps(self, steps: list[RunStepResponse]) -> list[RunStepResponse]:
+        """Steps as their reader may read them now; stored rows are never changed."""
+        redactor = KnowledgeRedactor(self.db, self.ctx)
+        out: list[RunStepResponse] = []
+        for step in steps:
+            summary, metrics = await redact_step_text(redactor, step.output_summary, step.metrics_json)
+            if summary is step.output_summary and metrics is step.metrics_json:
+                out.append(step)
+            else:
+                out.append(step.model_copy(update={"output_summary": summary, "metrics_json": metrics}))
+        return out
 
     async def count_steps(
         self,
@@ -1331,10 +1346,9 @@ class RunService:
                 )
             ).order_by(RunStep.created_at)
             raw_steps = list((await self.db.exec(steps_query)).all())
-            steps = [
-                RunStepResponse.model_validate(item if hasattr(item, "id") else item[0])
-                for item in raw_steps
-            ]
+            steps = await self._redacted_steps(
+                [RunStepResponse.model_validate(item if hasattr(item, "id") else item[0]) for item in raw_steps]
+            )
 
         if include_artifacts:
             artifacts_query = select(RunArtifact).where(

@@ -13,8 +13,16 @@ from typing import Any
 import pytest
 
 from app.kernel.contracts.context import RequestContext
+from app.kernel.runtime.db.models.runs import RunStep
+from app.kernel.runtime.runs.content_capture import is_withheld
 from app.kernel.runtime.runs.knowledge_redaction import (
+    KNOWLEDGE_QUERY_TOOL,
+    SOURCES_METRIC,
     KnowledgeRedactor,
+    knowledge_sources,
+    redact_step_text,
+    redact_task_payload,
+    redacted_step_rows,
     register_knowledge_read_filter,
     reset_knowledge_read_filter,
 )
@@ -152,3 +160,142 @@ async def test_without_a_filter_nothing_is_touched() -> None:
     stored = [_citation("payroll")]
 
     assert await KnowledgeRedactor(None, CTX).redact(stored) is stored
+
+
+class _RestrictingFilter(_Filter):
+    """As ``_Filter``; ``kb_hr`` holds a document the reader may not read, ``kb_open`` none."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.restricts_asked: list[str | None] = []
+
+    async def restricts(self, db: Any, ctx: RequestContext, knowledge_id: str | None) -> bool:
+        del db, ctx
+        self.restricts_asked.append(knowledge_id)
+        return knowledge_id in {None, "kb_hr"}
+
+
+@pytest.fixture
+def restricting_filter():
+    read_filter = _RestrictingFilter()
+    register_knowledge_read_filter(read_filter)
+    yield read_filter
+    reset_knowledge_read_filter()
+
+
+def _knowledge_tool_metrics(*doc_keys: str, knowledge_id: str = "kb_hr") -> dict[str, Any]:
+    return {
+        "tool_call": {
+            "tool_ref": KNOWLEDGE_QUERY_TOOL,
+            "arguments": {"knowledge_id": knowledge_id, "query": "pay"},
+            "result": {"results": [_result(key) for key in doc_keys], "total": len(doc_keys)},
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_knowledge_tool_summary_is_withheld_when_its_result_names_an_unreadable_document(read_filter) -> None:
+    del read_filter
+    metrics = _knowledge_tool_metrics("travel", "payroll")
+
+    summary, out = await redact_step_text(KnowledgeRedactor(None, CTX), "Salaries are 10k a month", metrics)
+
+    assert is_withheld(summary)
+    assert out["tool_call"]["result"]["total"] == 1
+    assert metrics["tool_call"]["result"]["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_step_summary_from_readable_documents_is_kept(read_filter) -> None:
+    del read_filter
+    summary, _ = await redact_step_text(KnowledgeRedactor(None, CTX), "Trips are booked", _knowledge_tool_metrics("travel"))
+
+    assert summary == "Trips are booked"
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_step_is_judged_by_its_recorded_sources(read_filter) -> None:
+    del read_filter
+    redactor = KnowledgeRedactor(None, CTX)
+    output = {"context": "text of payroll", "documents": [_result("payroll")], "count": 1}
+    sources = knowledge_sources(output)
+
+    denied, _ = await redact_step_text(redactor, str(output), {"node_type": "retrieve", SOURCES_METRIC: sources})
+    kept, _ = await redact_step_text(redactor, "text of travel", {SOURCES_METRIC: [["kb_hr", "travel"]]})
+
+    assert sources == [["kb_hr", "payroll"]]
+    assert is_withheld(denied)
+    assert kept == "text of travel"
+
+
+@pytest.mark.asyncio
+async def test_a_json_summary_is_filtered_rather_than_withheld(read_filter) -> None:
+    del read_filter
+    summary = json.dumps({"citations": [_citation("travel"), _citation("payroll")]})
+
+    out, _ = await redact_step_text(KnowledgeRedactor(None, CTX), summary, {SOURCES_METRIC: [list(SECRET)]})
+
+    assert [item["doc_key"] for item in json.loads(out)["citations"]] == ["travel"]
+
+
+@pytest.mark.asyncio
+async def test_a_step_recorded_before_sources_falls_back_to_its_knowledge_base(restricting_filter) -> None:
+    redactor = KnowledgeRedactor(None, CTX)
+    truncated = {"truncated": True, "size_bytes": 99999, "payload_hash": "h"}
+
+    restricted_tool, _ = await redact_step_text(
+        redactor, "some text", {"tool_call": {"tool_ref": KNOWLEDGE_QUERY_TOOL, "arguments": {"knowledge_id": "kb_hr"}, "result": truncated}}
+    )
+    open_tool, _ = await redact_step_text(
+        redactor, "some text", {"tool_call": {"tool_ref": KNOWLEDGE_QUERY_TOOL, "arguments": {"knowledge_id": "kb_open"}}}
+    )
+    old_retrieve, _ = await redact_step_text(redactor, "some text", {"node_type": "retrieve"})
+    llm, _ = await redact_step_text(redactor, "some text", {"node_type": "llm"})
+
+    assert is_withheld(restricted_tool)
+    assert open_tool == "some text"
+    assert is_withheld(old_retrieve)
+    assert llm == "some text"
+    assert restricting_filter.restricts_asked == ["kb_hr", "kb_open", None]
+
+
+@pytest.mark.asyncio
+async def test_step_rows_are_copied_never_changed(read_filter) -> None:
+    del read_filter
+    rows = [
+        RunStep(id="s1", tenant_id="t", workspace_id="w", run_id="r", step_type="tool", status="succeeded",
+                output_summary="Salaries", metrics_json=_knowledge_tool_metrics("payroll")),
+        RunStep(id="s2", tenant_id="t", workspace_id="w", run_id="r", step_type="llm", status="succeeded", output_summary="Hello"),
+    ]
+
+    out = await redacted_step_rows(KnowledgeRedactor(None, CTX), rows)
+
+    assert is_withheld(out[0].output_summary)
+    assert out[0] is not rows[0] and rows[0].output_summary == "Salaries"
+    assert out[1] is rows[1]
+
+
+@pytest.mark.asyncio
+async def test_an_approval_checkpoint_withholds_its_retrieved_context(read_filter) -> None:
+    del read_filter
+    progress = {
+        "phase": "waiting_approval",
+        "checkpoint": {
+            "messages": [{"role": "user", "content": "what are salaries"}],
+            "rag_context": "text of payroll",
+            "citations": [_citation("travel"), _citation("payroll")],
+            "iterations": 1,
+        },
+    }
+    readable = {"checkpoint": {"rag_context": "text of travel", "citations": [_citation("travel")]}}
+    redactor = KnowledgeRedactor(None, CTX)
+
+    out = await redact_task_payload(redactor, progress)
+
+    checkpoint = out["checkpoint"]
+    assert is_withheld(checkpoint["rag_context"])
+    assert set(checkpoint["messages"]) == {"withheld"}
+    assert [item["doc_key"] for item in checkpoint["citations"]] == ["travel"]
+    assert checkpoint["iterations"] == 1
+    assert progress["checkpoint"]["rag_context"] == "text of payroll"
+    assert await redact_task_payload(redactor, readable) is readable

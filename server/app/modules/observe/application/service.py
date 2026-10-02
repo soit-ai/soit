@@ -13,6 +13,10 @@ from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, Ru
 from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.db.models.threads import Thread
 from app.kernel.runtime.runs.exporter import to_runtrace_spec
+from app.kernel.runtime.runs.knowledge_redaction import (
+    KnowledgeRedactor,
+    redacted_step_rows,
+)
 from app.kernel.runtime.status import ApprovalStatus
 from app.modules.observe.application.dashboard_service import ObserveDashboardService
 from app.modules.observe.application.schemas import (
@@ -252,6 +256,8 @@ class ObserveService:
         )
         approvals = await self.approval_repo.list(limit=200, offset=0, run_id=run.id)
         feedback = await self.feedback_repo.list(limit=200, offset=0, run_id=run.id)
+        # Knowledge text the reader may no longer read is withheld from the replay.
+        steps = await redacted_step_rows(KnowledgeRedactor(self.db, self.ctx), steps)
         return {
             "run": run,
             "steps": steps,
