@@ -5,7 +5,9 @@ base's creator and holders of a ``knowledge_document`` read grant. Everyone
 else meets it nowhere: not in the document listing, not as a document, its
 content, download, chunks or versions, and not in retrieval, by any strategy
 or the keyword fallback. A restriction holds for every version of the
-document and takes effect, or lifts, at once.
+document, including those a connector sync brings, and takes effect, or
+lifts, at once. A base shared with the tenant keeps its restrictions for
+readers from other workspaces, whatever role they hold there.
 """
 
 from __future__ import annotations
@@ -24,12 +26,22 @@ from app.kernel.identity.permissions import (
 )
 from app.kernel.runtime.db.models.runs import RunStep
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.knowledge.application.connector_sync import (
+    KnowledgeSyncEngine,
+    connector_doc_key,
+    create_sync_run,
+)
 from app.modules.knowledge.application.runtime_schemas import (
     DocumentUpload,
     KnowledgeCreate,
     QueryRequest,
 )
 from app.modules.knowledge.application.runtime_service import KnowledgeRuntimeService
+from app.modules.knowledge.domain.models import KnowledgeSource
+from app.modules.knowledge.domain.visibility import (
+    shared_knowledge_home,
+    shared_reader_context,
+)
 from app.modules.knowledge.infra.repository import (
     ChunkRepository,
     DocumentRepository,
@@ -39,14 +51,17 @@ from app.modules.knowledge.infra.repository import (
 )
 from app.modules.knowledge.runtime.embedding import EmbeddingService
 from app.modules.knowledge.runtime.index_builder import IndexBuilder
+from app.modules.knowledge.runtime.ingest_worker import KnowledgeIngestWorker
 from app.modules.knowledge.runtime.pipeline import DocumentPipeline
 from app.modules.knowledge.runtime.retrieval import RetrievalService
+from tests.unit.knowledge_connector_support import FakeRemote, build_registry
 from tests.unit.test_knowledge_runtime_service import (
     EmptyRetrievalService,
     FailingRetrievalService,
     StubLLMPort,
     StubStoragePort,
     StubVectorPort,
+    build_knowledge_test_service,
 )
 
 OWNER = RequestContext(
@@ -283,3 +298,98 @@ async def test_a_new_version_stays_restricted(async_db, grants) -> None:
 
     assert await _cited(dev, knowledge_id) == {"travel"}
     assert {doc.doc_key for doc in await dev.list_documents(knowledge_id)} == {"travel"}
+
+
+@pytest.mark.asyncio
+async def test_a_reader_from_another_workspace_meets_it_nowhere_even_as_an_admin_there(async_db, grants) -> None:
+    stubs = _Stubs()
+    owner = _service(async_db, OWNER, stubs)
+    knowledge = await owner.create_knowledge(
+        KnowledgeCreate(
+            name="shared handbook",
+            type="document",
+            visibility="tenant",
+            default_embedding_model_ref="model:test:embedding",
+        )
+    )
+    docs = {}
+    for doc_key, text in (
+        ("travel", b"Refund policy for travel: claim within thirty days."),
+        ("payroll", b"Refund policy for payroll: salary corrections are confidential."),
+    ):
+        docs[doc_key] = await owner.upload_document(
+            knowledge.id, DocumentUpload(doc_key=doc_key, source_kind="upload", title=doc_key), file_content=text
+        )
+    await owner.set_document_restriction(knowledge.id, "payroll", True)
+
+    # An Admin of another workspace of the tenant reads the share the way the
+    # knowledge routes do: in the base's own workspace, as no more than a Dev.
+    elsewhere = replace(OWNER, workspace_id="w_other", user_id="u_carol", tenant_role="Member", workspace_role="Admin")
+    assert await shared_knowledge_home(async_db, elsewhere, knowledge.id) == OWNER.workspace_id
+    reader = _service(async_db, shared_reader_context(elsewhere, OWNER.workspace_id), stubs)
+
+    assert await _cited(reader, knowledge.id) == {"travel"}
+    assert {doc.doc_key for doc in await reader.list_documents(knowledge.id)} == {"travel"}
+    with pytest.raises(KernelError) as missing:
+        await reader.get_document(docs["payroll"].id)
+    assert missing.value.code == "NOT_FOUND"
+    with pytest.raises(ForbiddenError):
+        await reader.set_document_restriction(knowledge.id, "payroll", False)
+
+    # A grant made in the base's workspace opens it to that reader alone.
+    grants.granted.add(("u_carol", f"{knowledge.id}:payroll"))
+    assert await _cited(reader, knowledge.id) == {"travel", "payroll"}
+    other_admin = replace(elsewhere, user_id="u_dave")
+    assert await _cited(_service(async_db, shared_reader_context(other_admin, OWNER.workspace_id), stubs), knowledge.id) == {"travel"}
+
+
+@pytest.mark.asyncio
+async def test_a_connector_sync_of_a_changed_item_keeps_it_restricted(async_db, grants) -> None:
+    del grants
+    owner, storage, vector = build_knowledge_test_service(async_db, OWNER)
+    stubs = _Stubs()
+    stubs.storage, stubs.vector = storage, vector
+    knowledge = await owner.create_knowledge(
+        KnowledgeCreate(name="synced handbook", type="document", default_embedding_model_ref="model:test:embedding")
+    )
+    source = KnowledgeSource(
+        tenant_id=OWNER.tenant_id,
+        workspace_id=OWNER.workspace_id,
+        knowledge_id=knowledge.id,
+        name="bucket docs",
+        connector_kind="fake",
+        config_json={"bucket": "docs"},
+        created_by=OWNER.user_id,
+    )
+    async_db.add(source)
+    await async_db.commit()
+    remote = FakeRemote()
+    engine = KnowledgeSyncEngine(db=async_db, ctx=OWNER, runtime=owner, registry=build_registry(remote))
+
+    async def sync() -> None:
+        run = await engine.execute(await create_sync_run(async_db, source, trigger="manual", requested_by="u_owner"))
+        assert run.status == "succeeded", run.error_message
+        worker = KnowledgeIngestWorker(owner)
+        while await worker.run_once() is not None:
+            pass
+
+    remote.put("travel.txt", b"Refund policy for travel: claim within thirty days.", etag="t1")
+    remote.put("payroll.txt", b"Refund policy for payroll: salary corrections are confidential.", etag="p1")
+    await sync()
+    travel, payroll = (connector_doc_key(source.id, key) for key in ("travel.txt", "payroll.txt"))
+    await owner.set_document_restriction(knowledge.id, payroll, True)
+    dev = _service(async_db, DEV, stubs)
+    assert await _cited(dev, knowledge.id) == {travel}
+
+    remote.put("payroll.txt", b"Refund policy for payroll: the revised salary bands.", etag="p2")
+    await sync()
+
+    versions = await owner.list_document_versions(knowledge.id, payroll)
+    assert sorted(doc.version for doc in versions) == [1, 2]
+    assert [row.doc_key for row in await owner.list_document_restrictions(knowledge.id)] == [payroll]
+    assert await _cited(dev, knowledge.id) == {travel}
+    assert {doc.doc_key for doc in await dev.list_documents(knowledge.id)} == {travel}
+    with pytest.raises(KernelError) as missing:
+        await dev.list_document_versions(knowledge.id, payroll)
+    assert missing.value.code == "NOT_FOUND"
+    assert await _cited(owner, knowledge.id) == {travel, payroll}
