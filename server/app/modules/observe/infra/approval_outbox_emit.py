@@ -82,11 +82,33 @@ def enqueue_approval_rejected_outbox(
     *,
     approval: ApprovalRequest,
 ) -> None:
-    event_id = f"evt_approval_rejected_{approval.id}"
+    _enqueue_closed(db, ctx, approval=approval, event_type=ApprovalEventType.REJECTED, label="rejected")
+
+
+def enqueue_approval_canceled_outbox(
+    db: AsyncSession,
+    ctx: RequestContext,
+    *,
+    approval: ApprovalRequest,
+) -> None:
+    """A request closed without a decision: canceled by a member, or its run ended."""
+
+    _enqueue_closed(db, ctx, approval=approval, event_type=ApprovalEventType.CANCELED, label="canceled")
+
+
+def _enqueue_closed(
+    db: AsyncSession,
+    ctx: RequestContext,
+    *,
+    approval: ApprovalRequest,
+    event_type: str,
+    label: str,
+) -> None:
+    event_id = f"evt_approval_{label}_{approval.id}"
     correlation = approval.run_id or approval.id
     envelope = DomainEventEnvelope(
         event_id=event_id,
-        event_type=ApprovalEventType.REJECTED,
+        event_type=event_type,
         tenant_id=ctx.tenant_id,
         workspace_id=ctx.workspace_id,
         subject_type="approval",

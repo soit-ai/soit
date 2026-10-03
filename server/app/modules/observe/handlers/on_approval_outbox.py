@@ -236,7 +236,13 @@ async def _queue_agent_resume(
     )
 
 
-async def _on_decision(db: AsyncSession, row: EventOutbox, *, approved: bool) -> None:
+async def _on_decision(
+    db: AsyncSession,
+    row: EventOutbox,
+    *,
+    approved: bool,
+    error_code: str = "approval_rejected",
+) -> None:
     resolved = await _waiting_task_service(db, row)
     if resolved is None:
         return
@@ -254,11 +260,12 @@ async def _on_decision(db: AsyncSession, row: EventOutbox, *, approved: bool) ->
     if approved:
         await core.resume_task(task_id=approval.task_id)
         return
-    note = (approval.resolution_note or "approval rejected").strip() or "approval rejected"
+    fallback = error_code.replace("_", " ")
+    note = (approval.resolution_note or fallback).strip() or fallback
     await core.transition_task(
         task_id=approval.task_id,
         status=TaskStatus.FAILED.value,
-        error_code="approval_rejected",
+        error_code=error_code,
         error_message=note[:4096],
     )
 
@@ -269,3 +276,9 @@ async def handle_approval_approved_outbox(db: AsyncSession, row: EventOutbox) ->
 
 async def handle_approval_rejected_outbox(db: AsyncSession, row: EventOutbox) -> None:
     await _on_decision(db, row, approved=False)
+
+
+async def handle_approval_canceled_outbox(db: AsyncSession, row: EventOutbox) -> None:
+    """A canceled request is no approval: the run continues as on a rejection."""
+
+    await _on_decision(db, row, approved=False, error_code="approval_canceled")

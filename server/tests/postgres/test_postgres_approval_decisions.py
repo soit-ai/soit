@@ -21,6 +21,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.kernel.commons.errors import ConflictError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.events import EventOutbox
+from app.kernel.runtime.db.models.runs import Run
+from app.modules.observe.application.approval_sweeper import (
+    close_approvals_of_ended_runs,
+)
 from app.modules.observe.application.schemas import ApprovalResolve
 from app.modules.observe.application.service import ObserveService
 from app.modules.observe.domain.models import ApprovalRequest
@@ -125,3 +129,42 @@ async def test_approve_twice_together_is_one_decision(postgres_engine: AsyncEngi
 
     assert outcomes == ["approved", "approved"]
     assert await _stored(postgres_engine, approval_id) == ("approved", ["approval.approved"])
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_and_a_decision_together_leave_one_terminal_state(postgres_engine: AsyncEngine, ctx) -> None:
+    run_id = f"run-{uuid4().hex}"
+    async with AsyncSession(postgres_engine, expire_on_commit=False) as db:
+        db.add(Run(id=run_id, tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, user_id="u_owner",
+                   mode="agent", kind="agent", status="canceled"))
+        approval = ApprovalRequest(tenant_id=ctx.tenant_id, workspace_id=ctx.workspace_id, run_id=run_id, title="t")
+        db.add(approval)
+        await db.commit()
+        approval_id = approval.id
+    barrier = asyncio.Barrier(2)
+
+    async def sweep():
+        async with AsyncSession(postgres_engine, expire_on_commit=False) as db:
+            await barrier.wait()
+            return await close_approvals_of_ended_runs(db)
+
+    async def decide():
+        async with AsyncSession(postgres_engine, expire_on_commit=False) as db:
+            await barrier.wait()
+            try:
+                return (await ObserveService(db, ctx).resolve_approval(approval_id, ApprovalResolve(status="approved"))).status
+            except ConflictError as exc:
+                return exc
+
+    async with asyncio.timeout(RACE_TIMEOUT_SECONDS):
+        swept, decided = await asyncio.gather(sweep(), decide())
+
+    stored, events = await _stored(postgres_engine, approval_id)
+    if decided == "approved":
+        assert (stored, events) == ("approved", ["approval.approved"])
+    else:
+        assert isinstance(decided, ConflictError) and swept == 1
+        assert (stored, events) == ("canceled", ["approval.canceled"])
+    async with AsyncSession(postgres_engine) as db:
+        await db.exec(delete(Run).where(Run.id == run_id))
+        await db.commit()

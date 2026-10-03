@@ -420,6 +420,17 @@ class Settings(BaseSettings):
     workflow_orphan_reaper_interval: float = 30.0
     """Seconds between orphaned workflow run sweeps."""
 
+    # Approvals
+    approval_sweeper_enabled: bool = False
+    """Close approval requests whose run ended before anyone decided.
+
+    Disabled by default like the other background loops; deployments enable it
+    on the API service.
+    """
+
+    approval_sweeper_interval: float = 30.0
+    """Seconds between approval sweeps."""
+
     # Image jobs
     image_job_heartbeat_seconds: float = 30.0
     """Seconds between the beats an image call in progress marks its run alive with."""
