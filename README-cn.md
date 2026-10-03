@@ -154,7 +154,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
-用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.6.0`）。镜像可用 `gh attestation verify` 校验。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如果覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
+用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.6.1`）。镜像可用 `gh attestation verify` 校验。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如果覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
 
 不是每个演示都需要全部服务。[docs/minimal-topology.md](./docs/minimal-topology.md) 列出每个容器的用途、哪些场景可以省掉哪些容器，以及省掉之后哪些功能会停止工作。
 
