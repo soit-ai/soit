@@ -9,3 +9,4 @@ class ApprovalEventType:
     REJECTED = "approval.rejected"
     CANCELED = "approval.canceled"
     EXPIRED = "approval.expired"
+    DELEGATED = "approval.delegated"

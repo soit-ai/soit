@@ -234,6 +234,57 @@ async def notify_members(
     return created
 
 
+async def notify_users(
+    db: AsyncSession,
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    user_ids: Sequence[str],
+    category: str,
+    title: str,
+    content: str | None,
+    severity: str,
+    source_module: str,
+    action: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> list[Notification]:
+    """Notify the named members who keep ``category`` on.
+
+    Ids that are not members of the workspace, such as service principals,
+    are skipped.
+    """
+    wanted = list(dict.fromkeys(str(user_id) for user_id in user_ids if user_id))
+    if not wanted:
+        return []
+    query = select(WorkspaceMembership.user_id).where(
+        and_(
+            WorkspaceMembership.tenant_id == tenant_id,
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id.in_(wanted),
+        )
+    )
+    members = {str(user_id) for user_id in (await db.exec(query)).scalars()}
+    created: list[Notification] = []
+    for user_id in wanted:
+        if user_id not in members or not await wants_category(db, tenant_id, workspace_id, user_id, category):
+            continue
+        notification = _notification(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            title=title,
+            content=content,
+            severity=severity,
+            source_module=source_module,
+            action=action,
+            meta={**(meta or {}), "category": category},
+        )
+        db.add(notification)
+        await stage_member_deliveries(db, notification, category)
+        created.append(notification)
+    return created
+
+
 async def notify_workspace_endpoints(
     db: AsyncSession,
     *,

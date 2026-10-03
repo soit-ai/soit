@@ -48,6 +48,13 @@ record for operators.
   loser of the claim gets `409`. A run whose starter left the workspace keeps
   waiting for a resume by hand. Workflow runs now record the context of the
   member who started them.
+- Approval requests notify the people who have to act on them: an opened
+  request notifies its assigned members and the holders of its assigned roles
+  (with nobody assigned, the Owners and Admins other than whoever opened it)
+  and the workspace's channels; a delegated request notifies the member it was
+  handed to; an expired one notifies whoever opened it. They use the `task`
+  notification category. Approval events now carry the request's assignees,
+  deadline and requester, and delegation sends `approval.delegated`.
 
 ## [1.6.1] - 2026-10-03
 

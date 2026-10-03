@@ -21,7 +21,40 @@ def _approval_payload(approval: ApprovalRequest) -> dict:
         "run_id": approval.run_id,
         "task_id": approval.task_id,
         "thread_id": approval.thread_id,
+        "requested_by": approval.requested_by,
+        # Who may decide, so consumers outside observe can address them.
+        "assignee_user_ids": list(approval.assignee_user_ids or []),
+        "assignee_roles": list(approval.assignee_roles or []),
+        "expires_at": approval.expires_at.isoformat() if approval.expires_at else None,
     }
+
+
+def enqueue_approval_delegated_outbox(
+    db: AsyncSession,
+    ctx: RequestContext,
+    *,
+    approval: ApprovalRequest,
+    decision_id: str,
+    note: str | None,
+) -> None:
+    """A request handed to another approver; one event per delegation."""
+
+    envelope = DomainEventEnvelope(
+        event_id=f"evt_approval_delegated_{decision_id}",
+        event_type=ApprovalEventType.DELEGATED,
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        subject_type="approval",
+        subject_id=approval.id,
+        run_id=approval.run_id,
+        task_id=approval.task_id,
+        thread_id=approval.thread_id,
+        correlation_id=approval.run_id or approval.id,
+        producer="modules.observe.approval_repository",
+        occurred_at=utc_now(),
+        payload={**_approval_payload(approval), "delegated_by": ctx.user_id, "note": note},
+    )
+    OutboxPublisher(OutboxRepository(db)).publish(envelope)
 
 
 def enqueue_approval_requested_outbox(

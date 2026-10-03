@@ -48,6 +48,9 @@ from app.modules.observe.domain.models import (
     ApprovalRequest,
     RunFeedback,
 )
+from app.modules.observe.infra.approval_outbox_emit import (
+    enqueue_approval_delegated_outbox,
+)
 from app.modules.observe.infra.repository import ApprovalRepository, FeedbackRepository
 
 DELEGATED = "delegated"
@@ -224,7 +227,7 @@ class ObserveService:
         before = assignees(approval)
         approval.assignee_user_ids = [target]
         approval.assignee_roles = []
-        self.approval_repo.add_decision(
+        entry = self.approval_repo.add_decision(
             approval,
             action=DELEGATED,
             actor_id=self.ctx.user_id,
@@ -233,6 +236,7 @@ class ObserveService:
             assignees_before=before,
             assignees_after=assignees(approval),
         )
+        enqueue_approval_delegated_outbox(self.db, self.ctx, approval=approval, decision_id=entry.id, note=data.note)
         return await self.approval_repo.update(approval)
 
     async def _can_be_approver(self, user_id: str) -> bool:

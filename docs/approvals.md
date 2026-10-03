@@ -98,6 +98,19 @@ continues once: the resume claims it first, and a second claim answers `409`.
 A task waiting on such a request without a paused agent turn fails with
 `approval_rejected`, `approval_canceled` or `approval_expired`.
 
+## Notifications
+
+- An opened request notifies the members who may decide it: its assigned
+  members and the current holders of its assigned roles, or, with nobody
+  assigned, the workspace's Owners and Admins other than whoever opened it.
+  The workspace's notification channels hear about it too.
+- A delegated request notifies the member it was handed to, with the note.
+- A request that expired undecided notifies whoever opened it.
+
+Notifications use the `task` category, so members who switched it off in their
+notification preferences are not notified, and those who chose a channel get
+it there as well. Each event notifies once, even when it is delivered again.
+
 ## History
 
 `GET /api/v1/observe/approvals/{id}/decisions` returns every decision,
@@ -107,8 +120,6 @@ before and after. Entries are only ever added.
 
 ## Not covered yet
 
-- Approval requests do not notify anyone; reviewers find them under
-  **Govern › Approvals**.
 - Escalation to other approvers when a deadline passes, approval policies that
   assign requests by rule, and multi-step or quorum approvals are outside
   Community.
