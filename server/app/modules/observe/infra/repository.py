@@ -8,7 +8,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.status import ApprovalStatus
-from app.modules.observe.domain.models import ApprovalRequest, RunFeedback
+from app.modules.observe.domain.models import (
+    ApprovalDecision,
+    ApprovalRequest,
+    RunFeedback,
+)
 from app.modules.observe.infra.approval_outbox_emit import (
     enqueue_approval_approved_outbox,
     enqueue_approval_canceled_outbox,
@@ -49,6 +53,47 @@ class ApprovalRepository:
             enqueue_approval_canceled_outbox(self.db, self.ctx, approval=approval)
         await self.db.commit()
         return approval
+
+    def add_decision(
+        self,
+        approval: ApprovalRequest,
+        *,
+        action: str,
+        actor_id: str | None,
+        actor_role: str | None,
+        note: str | None = None,
+        assignees_before: dict | None = None,
+        assignees_after: dict | None = None,
+    ) -> ApprovalDecision:
+        """Add one entry to the request's history; written with the caller's commit."""
+
+        entry = ApprovalDecision(
+            tenant_id=approval.tenant_id,
+            workspace_id=approval.workspace_id,
+            approval_id=approval.id,
+            action=action,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            note=note,
+            assignees_before_json=dict(assignees_before or {}),
+            assignees_after_json=dict(assignees_after or {}),
+        )
+        self.db.add(entry)
+        return entry
+
+    async def list_decisions(self, approval_id: str) -> list[ApprovalDecision]:
+        query = (
+            select(ApprovalDecision)
+            .where(
+                and_(
+                    ApprovalDecision.tenant_id == self.ctx.tenant_id,
+                    ApprovalDecision.workspace_id == self.ctx.workspace_id,
+                    ApprovalDecision.approval_id == approval_id,
+                )
+            )
+            .order_by(ApprovalDecision.created_at, ApprovalDecision.id)
+        )
+        return list((await self.db.execute(query)).scalars().all())
 
     async def lock_by_ids(self, approval_ids: list[str]) -> list[ApprovalRequest]:
         """Lock scoped approvals so a resume decision can be applied atomically."""

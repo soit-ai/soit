@@ -20,6 +20,10 @@ def generate_feedback_id() -> str:
     return f"fbk_{generate_ulid()}"
 
 
+def generate_approval_decision_id() -> str:
+    return f"apd_{generate_ulid()}"
+
+
 class ApprovalRequest(SQLModel, table=True):
     """Approval request emitted by runtime governance hooks."""
 
@@ -40,12 +44,43 @@ class ApprovalRequest(SQLModel, table=True):
     policy_ref: str | None = Field(default=None, nullable=True)
     status: str = Field(default="pending", index=True)
     details_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    assignee_user_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    """Members or service principals who may decide. Empty with no roles: any writer."""
+    assignee_roles: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    """Workspace roles whose holders may decide, read at decision time."""
+    expires_at: datetime | None = Field(default=None, nullable=True, index=True)
+    """When a request nobody decided closes as ``expired``, which counts as a rejection."""
     requested_by: str | None = Field(default=None, nullable=True)
     resolved_by: str | None = Field(default=None, nullable=True)
     resolution_note: str | None = Field(default=None, nullable=True)
     resolved_at: datetime | None = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ApprovalDecision(SQLModel, table=True):
+    """One entry of an approval request's history: a decision, a closing or a delegation.
+
+    Entries are only ever added. Together they say who could decide when, who
+    did, and through which delegations the request reached them.
+    """
+
+    __tablename__ = "approval_decisions"
+    __table_args__ = (Index("ix_approval_decisions_approval", "approval_id", "created_at"),)
+
+    id: str = Field(primary_key=True, default_factory=generate_approval_decision_id)
+    tenant_id: str = Field(index=True)
+    workspace_id: str = Field(index=True)
+    approval_id: str = Field()
+    action: str = Field()
+    """``approved``, ``rejected``, ``canceled``, ``expired`` or ``delegated``."""
+    actor_id: str | None = Field(default=None, nullable=True)
+    actor_role: str | None = Field(default=None, nullable=True)
+    """The actor's workspace role when they acted; ``system`` for closings nobody took."""
+    note: str | None = Field(default=None, nullable=True)
+    assignees_before_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    assignees_after_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class RunFeedback(SQLModel, table=True):

@@ -7,6 +7,8 @@ from app.kernel.contracts.context import RequestContext
 from app.modules.observe.application.dashboard_schemas import WorkspaceObserveDashboard
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
+    ApprovalDecisionResponse,
+    ApprovalDelegate,
     ApprovalResolve,
     ApprovalResponse,
     FeedbackCreate,
@@ -57,6 +59,20 @@ class ObserveHandlers:
         payload: ApprovalResolve,
     ) -> ApprovalResponse:
         return ApprovalResponse.model_validate(await self.service.resolve_approval(approval_id, payload))
+
+    async def delegate_approval(
+        self,
+        ctx: RequestContext,
+        approval_id: str,
+        payload: ApprovalDelegate,
+    ) -> ApprovalResponse:
+        return ApprovalResponse.model_validate(await self.service.delegate_approval(approval_id, payload))
+
+    async def list_approval_decisions(self, ctx: RequestContext, approval_id: str) -> list[ApprovalDecisionResponse]:
+        return [
+            ApprovalDecisionResponse.model_validate(item)
+            for item in await self.service.list_approval_decisions(approval_id)
+        ]
 
     async def create_feedback(self, ctx: RequestContext, payload: FeedbackCreate) -> FeedbackResponse:
         return FeedbackResponse.model_validate(await self.service.create_feedback(payload))

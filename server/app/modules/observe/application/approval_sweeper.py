@@ -21,10 +21,12 @@ from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.status import ApprovalStatus
+from app.modules.observe.domain.approval_policy import assignees
 from app.modules.observe.domain.models import ApprovalRequest
 from app.modules.observe.infra.approval_outbox_emit import (
     enqueue_approval_canceled_outbox,
 )
+from app.modules.observe.infra.repository import ApprovalRepository
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,14 @@ async def close_approvals_of_ended_runs(db: AsyncSession, *, limit: int = 100) -
         return 0
     now = utc_now()
     for approval, run_status in rows:
+        ApprovalRepository(db, RequestContext(tenant_id=approval.tenant_id, workspace_id=approval.workspace_id, user_id=SYSTEM_ACTOR)).add_decision(
+            approval,
+            action=ApprovalStatus.CANCELED.value,
+            actor_id=SYSTEM_ACTOR,
+            actor_role=SYSTEM_ACTOR,
+            note=f"Run {run_status} before a decision",
+            assignees_before=assignees(approval),
+        )
         approval.status = ApprovalStatus.CANCELED.value
         approval.resolved_by = SYSTEM_ACTOR
         approval.resolution_note = f"Run {run_status} before a decision"

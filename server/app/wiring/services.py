@@ -446,7 +446,11 @@ def build_plugin_service(*, db: AsyncSession, ctx: RequestContext) -> PluginServ
 def build_observe_service(*, db: AsyncSession, ctx: RequestContext) -> ObserveService:
     """Observe service factory."""
 
-    return ObserveService(db=db, ctx=ctx)
+    from app.modules.identity.infra.workspace_access import (
+        DatabaseWorkspaceAccessResolver,
+    )
+
+    return ObserveService(db=db, ctx=ctx, member_access=DatabaseWorkspaceAccessResolver())
 
 
 def build_evaluation_service(*, db: AsyncSession, ctx: RequestContext) -> RegressionEvaluationService:

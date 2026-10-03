@@ -19,6 +19,8 @@ from app.kernel.runtime.deadletter.service import DeadLetterService
 from app.modules.observe.application.dashboard_schemas import WorkspaceObserveDashboard
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
+    ApprovalDecisionResponse,
+    ApprovalDelegate,
     ApprovalResolve,
     ApprovalResponse,
     FeedbackCreate,
@@ -100,6 +102,25 @@ async def resolve_approval(
     service: ObserveService = Depends(get_observe_service),
 ):
     return await ObserveHandlers(service).resolve_approval(ctx, approval_id, payload)
+
+
+@router.post("/approvals/{approval_id}/delegate", response_model=ApprovalResponse)
+async def delegate_approval(
+    approval_id: str,
+    payload: ApprovalDelegate,
+    ctx: RequestContext = Depends(require_workspace_write_ctx),
+    service: ObserveService = Depends(get_observe_service),
+):
+    return await ObserveHandlers(service).delegate_approval(ctx, approval_id, payload)
+
+
+@router.get("/approvals/{approval_id}/decisions", response_model=list[ApprovalDecisionResponse])
+async def list_approval_decisions(
+    approval_id: str,
+    ctx: RequestContext = Depends(require_workspace_read_ctx),
+    service: ObserveService = Depends(get_observe_service),
+):
+    return await ObserveHandlers(service).list_approval_decisions(ctx, approval_id)
 
 
 @router.post("/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)

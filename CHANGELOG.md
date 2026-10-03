@@ -12,6 +12,24 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- Approval requests can name who decides them. `assignee_user_ids` and
+  `assignee_roles` (Owner, Admin or Dev) on `POST /api/v1/observe/approvals`
+  limit the decision to those members or the current holders of those roles;
+  a request with neither keeps the rule so far, any member who can write.
+  Roles are read when the decision is taken, so a member who lost the role or
+  left the workspace can no longer decide, and the chat client's resume obeys
+  the same rule. Anyone else is answered `403`; the requester and the
+  workspace's Owners and Admins may still cancel. An approver can hand a
+  request to another member who can decide with `POST
+  /api/v1/observe/approvals/{id}/delegate`, and `GET
+  /api/v1/observe/approvals/{id}/decisions` returns its history: every
+  decision, closing and delegation with who took it, their role, the note,
+  and the approvers before and after. Requests also take an `expires_at`.
+  Migration `20261003100000` adds the columns and the `approval_decisions`
+  table; existing requests stay unassigned.
+
 ## [1.6.1] - 2026-10-03
 
 ### Fixed

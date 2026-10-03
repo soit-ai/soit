@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
+from app.kernel.commons.errors import (
+    ConflictError,
+    ForbiddenError,
+    KernelError,
+    NotFoundError,
+    ValidationError,
+)
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
+from app.kernel.identity.workspace_access import WorkspaceAccessResolver
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.db.models.tasks import Task
 from app.kernel.runtime.db.models.threads import Thread
@@ -21,19 +30,45 @@ from app.kernel.runtime.status import ApprovalStatus
 from app.modules.observe.application.dashboard_service import ObserveDashboardService
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
+    ApprovalDelegate,
     ApprovalResolve,
     FeedbackCreate,
 )
-from app.modules.observe.domain.models import ApprovalRequest, RunFeedback
+from app.modules.observe.domain.approval_policy import (
+    APPROVER_ROLES,
+    assignees,
+    may_cancel,
+    may_decide,
+    normalize_roles,
+    normalize_users,
+)
+from app.modules.observe.domain.models import (
+    ApprovalDecision,
+    ApprovalRequest,
+    RunFeedback,
+)
 from app.modules.observe.infra.repository import ApprovalRepository, FeedbackRepository
+
+DELEGATED = "delegated"
+
+
+def aware_utc(value: datetime) -> datetime:
+    """A time given without a zone is read as UTC."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class ObserveService:
     """Approval and feedback management."""
 
-    def __init__(self, db: AsyncSession, ctx: RequestContext) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        ctx: RequestContext,
+        member_access: WorkspaceAccessResolver | None = None,
+    ) -> None:
         self.db = db
         self.ctx = ctx
+        self.member_access = member_access
         self.approval_repo = ApprovalRepository(db, ctx)
         self.feedback_repo = FeedbackRepository(db, ctx)
 
@@ -58,6 +93,13 @@ class ObserveService:
 
     @workspace_guard("write")
     async def create_approval(self, data: ApprovalCreate) -> ApprovalRequest:
+        try:
+            roles = normalize_roles(data.assignee_roles)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        expires_at = aware_utc(data.expires_at) if data.expires_at else None
+        if expires_at is not None and expires_at <= utc_now():
+            raise ValidationError("expires_at must be in the future")
         return await self.approval_repo.create(
             ApprovalRequest(
                 run_id=data.run_id,
@@ -67,7 +109,27 @@ class ObserveService:
                 title=data.title,
                 policy_ref=data.policy_ref,
                 details_json=data.details_json,
+                assignee_user_ids=normalize_users(data.assignee_user_ids),
+                assignee_roles=roles,
+                expires_at=expires_at,
             )
+        )
+
+    def _require_may_resolve(self, approval: ApprovalRequest, status: str) -> None:
+        allowed = may_cancel(approval, self.ctx) if status == ApprovalStatus.CANCELED.value else may_decide(
+            approval, self.ctx
+        )
+        if not allowed:
+            raise ForbiddenError(f"You are not an approver of request {approval.id}")
+
+    def _record(self, approval: ApprovalRequest, action: str, note: str | None) -> None:
+        self.approval_repo.add_decision(
+            approval,
+            action=action,
+            actor_id=self.ctx.user_id,
+            actor_role=self.ctx.workspace_role,
+            note=note,
+            assignees_before=assignees(approval),
         )
 
     @workspace_guard("read")
@@ -100,6 +162,11 @@ class ObserveService:
         if not locked:
             raise NotFoundError(f"Approval not found: {approval_id}")
         approval = locked[0]
+        try:
+            self._require_may_resolve(approval, data.status)
+        except ForbiddenError:
+            await self.db.rollback()
+            raise
         if approval.status == data.status:
             await self.db.commit()
             return approval
@@ -107,11 +174,66 @@ class ObserveService:
             message = f"Approval {approval.id} is already {approval.status}"
             await self.db.rollback()
             raise ConflictError(message)
+        self._record(approval, data.status, data.resolution_note)
         approval.status = data.status
         approval.resolution_note = data.resolution_note
         approval.resolved_by = self.ctx.user_id
         approval.resolved_at = utc_now()
         return await self.approval_repo.update(approval, emit_resolution_event=data.status)
+
+    @workspace_guard("write")
+    async def delegate_approval(self, approval_id: str, data: ApprovalDelegate) -> ApprovalRequest:
+        """Hand a pending request to one member, who becomes its only approver.
+
+        Only someone who may decide the request delegates it, to a current
+        member who can decide (an Owner, Admin or Dev). The delegation is
+        recorded with the approvers before and after it.
+        """
+
+        locked = await self.approval_repo.lock_by_ids([approval_id])
+        if not locked:
+            raise NotFoundError(f"Approval not found: {approval_id}")
+        approval = locked[0]
+        failure: Exception | None = None
+        target = data.user_id.strip()
+        if not may_decide(approval, self.ctx):
+            failure = ForbiddenError(f"You are not an approver of request {approval.id}")
+        elif approval.status != ApprovalStatus.PENDING.value:
+            failure = ConflictError(f"Approval {approval.id} is already {approval.status}")
+        elif target == self.ctx.user_id:
+            failure = ValidationError("A request cannot be delegated to yourself")
+        elif not await self._can_be_approver(target):
+            failure = ValidationError(f"{target} is not a member of this workspace who can decide requests")
+        if failure is not None:
+            await self.db.rollback()
+            raise failure
+        before = assignees(approval)
+        approval.assignee_user_ids = [target]
+        approval.assignee_roles = []
+        self.approval_repo.add_decision(
+            approval,
+            action=DELEGATED,
+            actor_id=self.ctx.user_id,
+            actor_role=self.ctx.workspace_role,
+            note=data.note,
+            assignees_before=before,
+            assignees_after=assignees(approval),
+        )
+        return await self.approval_repo.update(approval)
+
+    async def _can_be_approver(self, user_id: str) -> bool:
+        if self.member_access is None:
+            return False
+        try:
+            access = await self.member_access.resolve(self.ctx.tenant_id, self.ctx.workspace_id, user_id)
+        except KernelError:
+            return False
+        return access is not None and access.workspace_role in APPROVER_ROLES
+
+    @workspace_guard("read")
+    async def list_approval_decisions(self, approval_id: str) -> list[ApprovalDecision]:
+        await self._get_approval(approval_id)
+        return await self.approval_repo.list_decisions(approval_id)
 
     @workspace_guard("write")
     async def resolve_approvals(
@@ -133,6 +255,7 @@ class ObserveService:
         pending_updates: list[ApprovalRequest] = []
         for approval_id, data in resolutions:
             approval = approvals_by_id[approval_id]
+            self._require_may_resolve(approval, data.status)
             if approval.status == data.status:
                 continue
             if approval.status != ApprovalStatus.PENDING.value:
@@ -145,6 +268,7 @@ class ObserveService:
         data_by_id = dict(resolutions)
         for approval in pending_updates:
             data = data_by_id[approval.id]
+            self._record(approval, data.status, data.resolution_note)
             approval.status = data.status
             approval.resolution_note = data.resolution_note
             approval.resolved_by = self.ctx.user_id
