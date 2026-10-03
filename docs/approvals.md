@@ -2,7 +2,7 @@
 
 A tool whose policy requires approval does not run until someone decides. The
 call stops, an approval request records what it would do, and the run waits:
-an agent run until its turn resumes, a workflow run until it is resumed, a
+an agent run or a workflow run until the request is decided, a
 [direct call or MCP call](gateway.md#calling-tools) until the caller sends it
 again. Requests are listed under **Govern › Approvals** and served by
 `/api/v1/observe/approvals`.
@@ -85,13 +85,18 @@ default).
 
 | Decision | Agent run | Workflow run | Direct or MCP call |
 | --- | --- | --- | --- |
-| `approved` | The turn resumes and the call runs once. | Resuming the run runs the call once. | Sending the call again runs it once. |
-| `rejected`, `canceled`, `expired` | The turn resumes and records the call as refused. | Resuming the run fails the node as `APPROVAL_REJECTED` without calling the tool. | Sending the call again reports it rejected. |
-| still `pending` | The run keeps waiting. | Resuming answers `409`. | Sending the call again answers `202`. |
+| `approved` | The turn resumes and the call runs once. | The run continues on the server and the call runs once. | Sending the call again runs it once. |
+| `rejected`, `canceled`, `expired` | The turn resumes and records the call as refused. | The run continues on the server and fails the node as `APPROVAL_REJECTED` without calling the tool. | Sending the call again reports it rejected. |
+| still `pending` | The run keeps waiting. | The run keeps waiting; resuming it by hand answers `409`. | Sending the call again answers `202`. |
 
-A task waiting on such a request without a paused agent turn, a workflow's
-for example, fails with `approval_rejected`, `approval_canceled` or
-`approval_expired`.
+A workflow run continues as the member who started it, with their current
+role; if they are no longer a member, the run keeps waiting until someone
+resumes it with `POST /api/v1/workflows/{id}/runs/{run_id}/resume`. However
+the decision arrives and whoever resumes by hand at the same moment, the run
+continues once: the resume claims it first, and a second claim answers `409`.
+
+A task waiting on such a request without a paused agent turn fails with
+`approval_rejected`, `approval_canceled` or `approval_expired`.
 
 ## History
 
@@ -104,8 +109,6 @@ before and after. Entries are only ever added.
 
 - Approval requests do not notify anyone; reviewers find them under
   **Govern › Approvals**.
-- A decision on a workflow request does not resume the run on its own; resume
-  it through `POST /api/v1/workflows/{id}/runs/{run_id}/resume` or the console.
 - Escalation to other approvers when a deadline passes, approval policies that
   assign requests by rule, and multi-step or quorum approvals are outside
   Community.

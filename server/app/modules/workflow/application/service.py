@@ -81,6 +81,19 @@ class PreparedRedrive:
     checkpoint: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class PreparedApprovalResume:
+    """An approval-waiting run claimed for its one resume: plan, checkpoint and decision."""
+
+    workflow_run_id: str
+    run_id: str
+    workflow_id: str
+    plan: ExecutionPlan
+    checkpoint: dict[str, Any]
+    approval_status: str
+    lease_owner: str
+
+
 class WorkflowService:
     """Workflow aggregate service."""
 
@@ -687,6 +700,58 @@ class WorkflowService:
             raise ValidationError(
                 "Only paused or approval-waiting runs can be resumed"
             )
+        prepared = await self.prepare_approval_resume(run.id, workflow_id=workflow_id)
+        result = await self.engine.resume_workflow(
+            prepared.plan,
+            workflow_run_id=prepared.workflow_run_id,
+            checkpoint=prepared.checkpoint,
+            approval_status=prepared.approval_status,
+            resume_statuses=("queued",),
+        )
+        refreshed = await self._get_run_record(workflow_id, run_id)
+        return {
+            "run_id": run.id,
+            "status": refreshed.status,
+            "output": result,
+        }
+
+    async def prepare_approval_resume(
+        self,
+        run_id: str,
+        *,
+        workflow_id: str | None = None,
+        leased: bool = False,
+        commit: bool = True,
+    ) -> PreparedApprovalResume:
+        """Claim a run stopped for approval for its one resume.
+
+        The request it waits on must be decided. The claim is a
+        compare-and-set of the workflow run from ``waiting_approval`` to
+        ``queued``, so of a member resuming it, the server resuming it on the
+        decision, and a redelivered decision event, exactly one continues the
+        run and the others are told it is already resuming. ``leased`` gives
+        the claim an expiring lease, for a resume that runs detached and
+        renews it. With ``commit`` off the claim joins the caller's
+        transaction, and nothing may run on it before that commits.
+        """
+
+        run = (
+            await self.db.execute(
+                select(Run).where(
+                    and_(
+                        Run.id == run_id,
+                        Run.tenant_id == self.ctx.tenant_id,
+                        Run.workspace_id == self.ctx.workspace_id,
+                        Run.mode == "workflow",
+                    )
+                )
+            )
+        ).scalars().first()
+        if run is None or (workflow_id is not None and run.subject_id != workflow_id):
+            raise NotFoundError(f"Run not found: {run_id}")
+        if run.status != "waiting_approval":
+            raise ConflictError(f"Workflow run is {run.status}, not waiting for approval")
+        workflow_id = str(run.subject_id)
         workflow_run = (await self.db.execute(
             select(WorkflowRun).where(
                 and_(
@@ -713,18 +778,43 @@ class WorkflowService:
         plan.subject_kind = "workflow"
         plan.subject_id = workflow_id
         plan.subject_version_id = version.id
-        result = await self.engine.resume_workflow(
-            plan,
+
+        now = utc_now()
+        lease_seconds = runtime_lease.normalize_lease_seconds(settings.workflow_execution_lease_seconds)
+        lease_owner = f"workflow-approval-{uuid4()}"
+        staged = await self.db.execute(
+            update(WorkflowRun)
+            .where(
+                WorkflowRun.id == workflow_run.id,
+                WorkflowRun.status == "waiting_approval",
+            )
+            .values(
+                status="queued",
+                lease_owner=lease_owner,
+                # An inline resume renews nothing; without an expiry the
+                # orphan reaper leaves it alone, as it did before claims.
+                lease_expires_at=now + timedelta(seconds=lease_seconds) if leased else None,
+                attempt_count=WorkflowRun.attempt_count + 1,
+                updated_at=now,
+            )
+        )
+        if staged.rowcount != 1:
+            if commit:
+                await self.db.rollback()
+            raise ConflictError("This workflow run is already being resumed")
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
+        return PreparedApprovalResume(
             workflow_run_id=workflow_run.id,
+            run_id=run.id,
+            workflow_id=workflow_id,
+            plan=plan,
             checkpoint=checkpoint,
             approval_status=approval_status,
+            lease_owner=lease_owner,
         )
-        refreshed = await self._get_run_record(workflow_id, run_id)
-        return {
-            "run_id": run.id,
-            "status": refreshed.status,
-            "output": result,
-        }
 
     async def _approval_decision(self, run_id: str, checkpoint: dict[str, Any]) -> str:
         """The decision on the call a run stopped for; a resume waits for one.

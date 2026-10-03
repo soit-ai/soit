@@ -239,6 +239,7 @@ class ExecutionEngine:
         workflow_run_id: str,
         checkpoint: dict[str, Any],
         approval_status: str,
+        resume_statuses: tuple[str, ...] = ("waiting_approval",),
     ) -> dict[str, Any]:
         """Resume one workflow from a durable approval checkpoint.
 
@@ -262,6 +263,7 @@ class ExecutionEngine:
                 plan,
                 workflow_run_id=workflow_run_id,
                 checkpoint={**checkpoint, "approval_status": approval_status},
+                resume_statuses=resume_statuses,
             )
             if result.get("status") == "waiting_approval":
                 self.state_machine.transition_run(
@@ -566,6 +568,9 @@ class ExecutionEngine:
                     failed_nodes=0,
                     waiting_nodes=total_nodes,
                     status="running",
+                    # Who started it: a run that stops for approval is
+                    # continued on the server as this member.
+                    request_context_json=self.ctx.to_json(),
                 )
                 self.db.add(workflow_run_row)
                 await self.db.flush()

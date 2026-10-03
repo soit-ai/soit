@@ -192,6 +192,17 @@ def register_outbox_handlers() -> None:
     reg.register(ApprovalEventType.CANCELED, "observe.approval.canceled", handle_approval_canceled_outbox)
     reg.register(ApprovalEventType.EXPIRED, "observe.approval.expired", handle_approval_expired_outbox)
 
+    # A workflow run waiting on the decided request continues on the server.
+    from app.wiring.workflow_approval_resume import handle_workflow_approval_decision
+
+    for event_type in (
+        ApprovalEventType.APPROVED,
+        ApprovalEventType.REJECTED,
+        ApprovalEventType.CANCELED,
+        ApprovalEventType.EXPIRED,
+    ):
+        reg.register(event_type, "workflow.approval.resume", handle_workflow_approval_decision)
+
     from app.modules.workflow.domain.workflow_events import WorkflowEventType
     from app.modules.workflow.handlers.on_workflow_node_outbox import (
         handle_workflow_node_completed_outbox,

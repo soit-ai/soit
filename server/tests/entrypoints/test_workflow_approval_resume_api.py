@@ -101,8 +101,8 @@ def resumed(monkeypatch) -> list[dict[str, Any]]:
 
     calls: list[dict[str, Any]] = []
 
-    async def _resume(self, plan, *, workflow_run_id, checkpoint, approval_status):
-        del self, plan, checkpoint
+    async def _resume(self, plan, *, workflow_run_id, checkpoint, approval_status, **kwargs):
+        del self, plan, checkpoint, kwargs
         calls.append({"approval_status": approval_status, "workflow_run_id": workflow_run_id})
         return {"status": "succeeded"}
 

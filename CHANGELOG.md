@@ -40,6 +40,14 @@ record for operators.
   `approval_expired`. Deciding or delegating a request past its deadline
   answers `409` and closes it as expired. Nothing approves a request on its
   own. See [Approvals](docs/approvals.md).
+- A workflow run that stopped for approval continues on the server once the
+  request is decided, as the member who started it: an approved call runs, a
+  rejected, canceled or expired one ends its node as `APPROVAL_REJECTED`.
+  Resuming is a claim, so the decision event delivered twice, or a member
+  resuming the run by hand at the same moment, still continues it once; the
+  loser of the claim gets `409`. A run whose starter left the workspace keeps
+  waiting for a resume by hand. Workflow runs now record the context of the
+  member who started them.
 
 ## [1.6.1] - 2026-10-03
 
