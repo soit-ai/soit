@@ -93,7 +93,8 @@ result is an error that says so, with the approval id (`ai.soit/approval_id`)
 and run id, and the request appears in **Govern › Approvals**. Once a reviewer
 decides, the same call with the same arguments runs the tool, or reports the
 rejection. Calling again before the decision returns the same pending
-approval; arguments that differ make a new call, with a new approval.
+approval; arguments that differ make a new call, with a new approval. See
+[Approvals](approvals.md) for who decides, deadlines and delegation.
 
 ## Authorization
 

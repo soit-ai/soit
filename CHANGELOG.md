@@ -39,7 +39,7 @@ record for operators.
   the call it asked about never runs, and a task waiting on it fails with
   `approval_expired`. Deciding or delegating a request past its deadline
   answers `409` and closes it as expired. Nothing approves a request on its
-  own.
+  own. See [Approvals](docs/approvals.md).
 
 ## [1.6.1] - 2026-10-03
 

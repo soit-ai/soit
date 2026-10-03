@@ -256,7 +256,8 @@ same way.
 **Govern › Approvals**. Once someone decides, send the same call with the same
 key: an approved call runs and returns its result, a rejected one returns
 `status: rejected` and never runs. Only the arguments that were put up for
-approval can run.
+approval can run. Who may decide, deadlines and delegation are described in
+[Approvals](approvals.md).
 
 ```bash
 curl -s "http://localhost:9200/api/v1/tools/tool:function:time_now/invoke" \
