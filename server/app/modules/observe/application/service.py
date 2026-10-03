@@ -27,6 +27,7 @@ from app.kernel.runtime.runs.knowledge_redaction import (
     redacted_step_rows,
 )
 from app.kernel.runtime.status import ApprovalStatus
+from app.modules.observe.application.approval_sweeper import close_as_expired
 from app.modules.observe.application.dashboard_service import ObserveDashboardService
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
@@ -55,6 +56,10 @@ DELEGATED = "delegated"
 def aware_utc(value: datetime) -> datetime:
     """A time given without a zone is read as UTC."""
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _overdue(approval: ApprovalRequest) -> bool:
+    return approval.expires_at is not None and aware_utc(approval.expires_at) <= utc_now()
 
 
 class ObserveService:
@@ -174,6 +179,13 @@ class ObserveService:
             message = f"Approval {approval.id} is already {approval.status}"
             await self.db.rollback()
             raise ConflictError(message)
+        if _overdue(approval):
+            # Past its deadline it was never approvable; close it the way the
+            # sweeper would and tell the caller.
+            message = f"Approval {approval.id} expired at {approval.expires_at}"
+            close_as_expired(self.db, approval, now=utc_now())
+            await self.db.commit()
+            raise ConflictError(message)
         self._record(approval, data.status, data.resolution_note)
         approval.status = data.status
         approval.resolution_note = data.resolution_note
@@ -200,6 +212,8 @@ class ObserveService:
             failure = ForbiddenError(f"You are not an approver of request {approval.id}")
         elif approval.status != ApprovalStatus.PENDING.value:
             failure = ConflictError(f"Approval {approval.id} is already {approval.status}")
+        elif _overdue(approval):
+            failure = ConflictError(f"Approval {approval.id} expired at {approval.expires_at}")
         elif target == self.ctx.user_id:
             failure = ValidationError("A request cannot be delegated to yourself")
         elif not await self._can_be_approver(target):
@@ -262,6 +276,8 @@ class ObserveService:
                 raise ValidationError(
                     f"Approval {approval.id} is already resolved as {approval.status}"
                 )
+            if _overdue(approval):
+                raise ConflictError(f"Approval {approval.id} expired at {approval.expires_at}")
             pending_updates.append(approval)
 
         resolved_at = utc_now()

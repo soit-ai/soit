@@ -194,3 +194,26 @@ async def test_a_client_resume_obeys_the_assignment_too(async_db, ctx) -> None:
     alice = ObserveService(async_db, replace(ctx, user_id="u_alice", workspace_role="Dev", tenant_role="Member"))
     [decided] = await alice.resolve_approvals([(approval_id, ApprovalResolve(status="approved"))])
     assert decided.status == "approved"
+
+
+async def test_deciding_a_request_past_its_deadline_closes_it_as_expired(async_client, async_db, ctx) -> None:
+    from app.modules.observe.domain.models import ApprovalRequest
+
+    approval = ApprovalRequest(
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        title="t",
+        expires_at=utc_now() - timedelta(minutes=1),
+    )
+    async_db.add(approval)
+    await async_db.commit()
+    approval_id = approval.id
+
+    approved = await _resolve(async_client, approval_id, "approved")
+    delegated = await async_client.post(f"/api/v1/observe/approvals/{approval_id}/delegate", json={"user_id": "u_alice"})
+    stored = (await async_client.get(f"/api/v1/observe/approvals/{approval_id}")).json()["data"]
+
+    assert approved.status_code == status.HTTP_409_CONFLICT, approved.text
+    assert delegated.status_code == status.HTTP_409_CONFLICT
+    assert stored["status"] == "expired"
+    assert await _history(async_client, approval_id) == [("expired", "system")]

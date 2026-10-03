@@ -278,6 +278,12 @@ async def handle_approval_rejected_outbox(db: AsyncSession, row: EventOutbox) ->
     await _on_decision(db, row, approved=False)
 
 
+async def handle_approval_expired_outbox(db: AsyncSession, row: EventOutbox) -> None:
+    """Nobody decided in time: never an approval, so the run continues as on a rejection."""
+
+    await _on_decision(db, row, approved=False, error_code="approval_expired")
+
+
 async def handle_approval_canceled_outbox(db: AsyncSession, row: EventOutbox) -> None:
     """A canceled request is no approval: the run continues as on a rejection."""
 

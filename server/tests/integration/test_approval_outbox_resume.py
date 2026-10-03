@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from sqlmodel import select
 
@@ -13,8 +15,9 @@ from app.kernel.runtime.status import ApprovalStatus, TaskStatus
 from app.kernel.runtime.tasks.service import TaskService
 from app.modules.observe.application.approval_sweeper import (
     close_approvals_of_ended_runs,
+    expire_overdue_approvals,
 )
-from app.modules.observe.domain.models import ApprovalRequest
+from app.modules.observe.domain.models import ApprovalDecision, ApprovalRequest
 from app.modules.observe.infra.repository import ApprovalRepository
 from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
 
@@ -193,3 +196,35 @@ async def test_the_sweeper_closes_only_requests_of_ended_runs(async_db, ctx) -> 
     events = (await async_db.exec(select(EventOutbox).where(EventOutbox.subject_id == ended_id))).all()
     types = {(row if isinstance(row, EventOutbox) else row[0]).event_type for row in events}
     assert "approval.canceled" in types
+
+
+@pytest.mark.asyncio
+async def test_an_undecided_request_expires_at_its_deadline_and_counts_as_a_rejection(async_db, ctx) -> None:
+    register_outbox_handlers()
+    dispatcher = OutboxDispatcher(async_db, get_outbox_registry())
+    core, task, overdue = await _waiting_task(async_db, ctx, run_id="run_apr_expire")
+    _, _, later = await _waiting_task(async_db, ctx, run_id="run_apr_expire_later")
+    overdue.expires_at = utc_now() - timedelta(seconds=1)
+    later.expires_at = utc_now() + timedelta(hours=1)
+    async_db.add(overdue)
+    async_db.add(later)
+    await async_db.commit()
+    overdue_id, later_id, task_id = overdue.id, later.id, task.id
+    await dispatcher.run_once(batch_limit=50)
+    await async_db.commit()
+
+    assert await expire_overdue_approvals(async_db) == 1
+    assert await expire_overdue_approvals(async_db) == 0
+    assert await dispatcher.run_once(batch_limit=50) >= 1
+    await async_db.commit()
+
+    expired = await async_db.get(ApprovalRequest, overdue_id)
+    await async_db.refresh(expired)
+    untouched = await async_db.get(ApprovalRequest, later_id)
+    await async_db.refresh(untouched)
+    assert (expired.status, expired.resolved_by) == ("expired", "system")
+    assert untouched.status == "pending"
+    released = await core.get_task(task_id)
+    assert (released.status, released.error_code) == (TaskStatus.FAILED.value, "approval_expired")
+    history = (await async_db.exec(select(ApprovalDecision).where(ApprovalDecision.approval_id == overdue_id))).all()
+    assert [(row if isinstance(row, ApprovalDecision) else row[0]).action for row in history] == ["expired"]

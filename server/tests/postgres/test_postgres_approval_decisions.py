@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -19,11 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import ConflictError
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.db.models.events import EventOutbox
 from app.kernel.runtime.db.models.runs import Run
 from app.modules.observe.application.approval_sweeper import (
     close_approvals_of_ended_runs,
+    expire_overdue_approvals,
 )
 from app.modules.observe.application.schemas import ApprovalResolve
 from app.modules.observe.application.service import ObserveService
@@ -168,3 +171,37 @@ async def test_a_sweep_and_a_decision_together_leave_one_terminal_state(postgres
     async with AsyncSession(postgres_engine) as db:
         await db.exec(delete(Run).where(Run.id == run_id))
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_and_an_approval_together_never_approve(postgres_engine: AsyncEngine, ctx) -> None:
+    async with AsyncSession(postgres_engine, expire_on_commit=False) as db:
+        approval = ApprovalRequest(
+            tenant_id=ctx.tenant_id,
+            workspace_id=ctx.workspace_id,
+            title="t",
+            expires_at=utc_now() - timedelta(seconds=1),
+        )
+        db.add(approval)
+        await db.commit()
+        approval_id = approval.id
+    barrier = asyncio.Barrier(2)
+
+    async def expire():
+        async with AsyncSession(postgres_engine, expire_on_commit=False) as db:
+            await barrier.wait()
+            return await expire_overdue_approvals(db)
+
+    async def decide():
+        async with AsyncSession(postgres_engine, expire_on_commit=False) as db:
+            await barrier.wait()
+            try:
+                return (await ObserveService(db, ctx).resolve_approval(approval_id, ApprovalResolve(status="approved"))).status
+            except ConflictError as exc:
+                return exc
+
+    async with asyncio.timeout(RACE_TIMEOUT_SECONDS):
+        _, decided = await asyncio.gather(expire(), decide())
+
+    assert isinstance(decided, ConflictError)
+    assert await _stored(postgres_engine, approval_id) == ("expired", ["approval.expired"])

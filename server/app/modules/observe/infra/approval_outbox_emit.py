@@ -96,6 +96,17 @@ def enqueue_approval_canceled_outbox(
     _enqueue_closed(db, ctx, approval=approval, event_type=ApprovalEventType.CANCELED, label="canceled")
 
 
+def enqueue_approval_expired_outbox(
+    db: AsyncSession,
+    ctx: RequestContext,
+    *,
+    approval: ApprovalRequest,
+) -> None:
+    """A request nobody decided before its deadline; it counts as a rejection."""
+
+    _enqueue_closed(db, ctx, approval=approval, event_type=ApprovalEventType.EXPIRED, label="expired")
+
+
 def _enqueue_closed(
     db: AsyncSession,
     ctx: RequestContext,

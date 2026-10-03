@@ -181,6 +181,7 @@ def register_outbox_handlers() -> None:
     from app.modules.observe.handlers.on_approval_outbox import (
         handle_approval_approved_outbox,
         handle_approval_canceled_outbox,
+        handle_approval_expired_outbox,
         handle_approval_rejected_outbox,
         handle_approval_requested_outbox,
     )
@@ -189,6 +190,7 @@ def register_outbox_handlers() -> None:
     reg.register(ApprovalEventType.APPROVED, "observe.approval.approved", handle_approval_approved_outbox)
     reg.register(ApprovalEventType.REJECTED, "observe.approval.rejected", handle_approval_rejected_outbox)
     reg.register(ApprovalEventType.CANCELED, "observe.approval.canceled", handle_approval_canceled_outbox)
+    reg.register(ApprovalEventType.EXPIRED, "observe.approval.expired", handle_approval_expired_outbox)
 
     from app.modules.workflow.domain.workflow_events import WorkflowEventType
     from app.modules.workflow.handlers.on_workflow_node_outbox import (

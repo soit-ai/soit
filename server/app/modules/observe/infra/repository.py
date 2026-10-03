@@ -16,6 +16,7 @@ from app.modules.observe.domain.models import (
 from app.modules.observe.infra.approval_outbox_emit import (
     enqueue_approval_approved_outbox,
     enqueue_approval_canceled_outbox,
+    enqueue_approval_expired_outbox,
     enqueue_approval_rejected_outbox,
     enqueue_approval_requested_outbox,
 )
@@ -51,6 +52,8 @@ class ApprovalRepository:
             enqueue_approval_rejected_outbox(self.db, self.ctx, approval=approval)
         elif emit_resolution_event == ApprovalStatus.CANCELED.value:
             enqueue_approval_canceled_outbox(self.db, self.ctx, approval=approval)
+        elif emit_resolution_event == ApprovalStatus.EXPIRED.value:
+            enqueue_approval_expired_outbox(self.db, self.ctx, approval=approval)
         await self.db.commit()
         return approval
 

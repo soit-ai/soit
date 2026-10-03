@@ -33,6 +33,13 @@ record for operators.
   `timeout_seconds` (60 seconds to 30 days). Every request the tool opens, from
   an agent, a workflow node, a direct call or MCP, is assigned to those
   approvers and carries `expires_at` that many seconds after it was opened.
+- Approval requests expire. The approval sweeper closes a pending request
+  whose `expires_at` passed as `expired`, recorded against `system`, and sends
+  `approval.expired`; an expired request counts as a rejection everywhere, so
+  the call it asked about never runs, and a task waiting on it fails with
+  `approval_expired`. Deciding or delegating a request past its deadline
+  answers `409` and closes it as expired. Nothing approves a request on its
+  own.
 
 ## [1.6.1] - 2026-10-03
 
