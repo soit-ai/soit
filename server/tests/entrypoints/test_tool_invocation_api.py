@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from sqlmodel import select
 
+from app.kernel.commons.time import utc_now
 from app.kernel.registry.deps import get_registry
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.kernel.runtime.db.models.runs import Run, RunCostEntry, RunStepToolCall
@@ -28,7 +30,7 @@ def _kernel_lookups() -> None:
     get_container()
 
 
-def _register_gated_tool(ctx) -> None:
+def _register_gated_tool(ctx, approval: dict | None = None) -> None:
     get_registry().register(
         kind="tool",
         tenant_id=ctx.tenant_id,
@@ -46,7 +48,7 @@ def _register_gated_tool(ctx) -> None:
                     "required": ["min", "max"],
                 },
                 "output_schema": {"type": "object"},
-                "policy": {"approval": {"mode": "required", "risk_level": "high"}},
+                "policy": {"approval": approval or {"mode": "required", "risk_level": "high"}},
                 "function": {"entrypoint": "app.utils.builtin_tools:random_int"},
             }
         },
@@ -850,3 +852,33 @@ async def test_a_resume_the_members_rate_refuses_leaves_a_running_call_alone(
     assert (first.status, first.result) == ("succeeded", {"value": 5})
     assert ran == [{"min": 5, "max": 5}]
     assert (await _run(async_db, waiting["run_id"])).status == "succeeded"
+
+
+async def test_a_tools_approvers_and_timeout_open_an_assigned_request_with_a_deadline(async_client, ctx) -> None:
+    _register_gated_tool(
+        ctx,
+        {
+            "mode": "required",
+            "risk_level": "high",
+            "approvers": {"users": ["u_alice"], "roles": ["Admin"]},
+            "timeout_seconds": 3600,
+        },
+    )
+    call = {"arguments": {"min": 5, "max": 5}}
+    opened = utc_now()
+
+    waiting = (await async_client.post(f"/api/v1/tools/{GATED}/invoke", json=call)).json()["data"]
+    approval = (await async_client.get(f"/api/v1/observe/approvals/{waiting['approval_id']}")).json()["data"]
+    resolve = f"/api/v1/observe/approvals/{waiting['approval_id']}/resolve"
+    by_the_owner = await async_client.post(resolve, json={"status": "approved"})
+    _as(dataclasses.replace(ctx, user_id="u_alice", workspace_role="Dev", tenant_role="Member"))
+    try:
+        by_alice = await async_client.post(resolve, json={"status": "approved"})
+    finally:
+        _as(ctx)
+
+    assert (approval["assignee_user_ids"], approval["assignee_roles"]) == (["u_alice"], ["Admin"])
+    expires_at = datetime.fromisoformat(approval["expires_at"]).replace(tzinfo=UTC)
+    assert timedelta(minutes=59) < expires_at - opened < timedelta(minutes=61)
+    assert by_the_owner.status_code == 403, "an Owner is not an approver the tool named"
+    assert by_alice.status_code == 200, by_alice.text

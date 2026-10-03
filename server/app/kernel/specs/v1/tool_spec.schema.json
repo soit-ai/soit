@@ -319,6 +319,39 @@
                 "high",
                 "critical"
               ]
+            },
+            "approvers": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Who may decide a request this tool opens. Without it, any member who can write decides.",
+              "properties": {
+                "users": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "maxItems": 50
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "Owner",
+                      "Admin",
+                      "Dev"
+                    ]
+                  },
+                  "maxItems": 3
+                }
+              }
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 2592000,
+              "description": "Seconds a request stays open; when nobody decided by then it expires, which counts as a rejection."
             }
           }
         },

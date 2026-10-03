@@ -64,6 +64,7 @@ from app.kernel.commons.errors import (
     ValidationError,
 )
 from app.kernel.commons.ids import generate_ulid
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.approvals.interface import ApprovalRecord, ToolApprovalPort
 from app.kernel.ports.common.api_key_admission import ApiKeyAdmission
@@ -81,7 +82,7 @@ from app.kernel.runtime.runs.tool_calls import (
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.kernel.runtime.status import ApprovalStatus
-from app.kernel.runtime.tools.approval import tool_approval_rule
+from app.kernel.runtime.tools.approval import ToolApprovalRule, tool_approval_rule
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ class _ApprovalGate:
     reason: str
     policy_ref: str | None
     risk_level: str
+    rule: ToolApprovalRule
 
 
 def _summary(value: Any) -> str | None:
@@ -305,11 +307,13 @@ class ToolInvocationService:
                 reason=str(getattr(decision, "reason", "approval_required")),
                 policy_ref=getattr(decision, "policy_ref", None),
                 risk_level=rule.risk_level,
+                rule=rule,
             )
         return _ApprovalGate(
             reason="tool_spec_approval_required",
             policy_ref=f"tool_spec:{tool.ref}",
             risk_level=rule.risk_level,
+            rule=rule,
         )
 
     async def _start(
@@ -403,6 +407,7 @@ class ToolInvocationService:
                         "risk_level": gate.risk_level,
                         "source": "tool_invocation",
                     },
+                    **gate.rule.assignment(utc_now()),
                 ),
             )
         except Exception:

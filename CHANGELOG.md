@@ -29,6 +29,10 @@ record for operators.
   and the approvers before and after. Requests also take an `expires_at`.
   Migration `20261003100000` adds the columns and the `approval_decisions`
   table; existing requests stay unassigned.
+- A ToolSpec's `policy.approval` takes `approvers` (`users` and `roles`) and
+  `timeout_seconds` (60 seconds to 30 days). Every request the tool opens, from
+  an agent, a workflow node, a direct call or MCP, is assigned to those
+  approvers and carries `expires_at` that many seconds after it was opened.
 
 ## [1.6.1] - 2026-10-03
 

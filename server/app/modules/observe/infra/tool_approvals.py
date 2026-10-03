@@ -35,6 +35,9 @@ class SessionToolApprovals(ToolApprovalPort):
                 title=record.title,
                 policy_ref=record.policy_ref,
                 details_json={**record.details, "tool_call_id": record.tool_call_id},
+                assignee_user_ids=list(record.assignee_user_ids),
+                assignee_roles=list(record.assignee_roles),
+                expires_at=record.expires_at,
             )
         )
         return approval.id

@@ -20,6 +20,7 @@ from app.kernel.commons.errors import (
     ValidationError,
 )
 from app.kernel.commons.ids import generate_run_id
+from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
 from app.kernel.ports.approvals import ApprovalLedgerPort, ApprovalRecord
@@ -311,6 +312,7 @@ class AgentService:
                         "reason": reason,
                         "risk_level": approval_rule.risk_level,
                     },
+                    **approval_rule.assignment(utc_now()),
                 ),
             )
 

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.kernel.contracts.context import RequestContext
@@ -15,19 +16,36 @@ class ToolApprovalRule:
 
     mode: str = "none"
     risk_level: str = "normal"
+    approver_user_ids: tuple[str, ...] = field(default_factory=tuple)
+    approver_roles: tuple[str, ...] = field(default_factory=tuple)
+    timeout_seconds: int | None = None
 
     @property
     def required(self) -> bool:
         return self.mode == "required"
+
+    def assignment(self, now: datetime) -> dict[str, Any]:
+        """Who decides a request this rule opens at ``now``, and when it expires."""
+
+        return {
+            "assignee_user_ids": self.approver_user_ids,
+            "assignee_roles": self.approver_roles,
+            "expires_at": now + timedelta(seconds=self.timeout_seconds) if self.timeout_seconds else None,
+        }
 
 
 def tool_approval_rule(policy: dict[str, Any] | None) -> ToolApprovalRule:
     """Normalize an optional ToolSpec policy into an execution rule."""
 
     approval = (policy or {}).get("approval") or {}
+    approvers = approval.get("approvers") if isinstance(approval.get("approvers"), dict) else {}
+    timeout = approval.get("timeout_seconds")
     return ToolApprovalRule(
         mode=str(approval.get("mode") or "none"),
         risk_level=str(approval.get("risk_level") or "normal"),
+        approver_user_ids=tuple(str(item) for item in approvers.get("users") or [] if str(item).strip()),
+        approver_roles=tuple(str(item) for item in approvers.get("roles") or [] if str(item).strip()),
+        timeout_seconds=int(timeout) if isinstance(timeout, int | float) and timeout > 0 else None,
     )
 
 

@@ -6,6 +6,7 @@ Tool node executor.
 from typing import Any
 
 from app.kernel.commons.errors import ConflictError, ValidationError
+from app.kernel.commons.time import utc_now
 from app.kernel.ports.approvals import ApprovalRecord
 from app.kernel.runtime.db.models.runs import RunStep
 from app.kernel.runtime.runs.tool_calls import (
@@ -349,6 +350,7 @@ class ToolNodeExecutor(NodeExecutor):
                                 "reason": reason,
                                 "risk_level": risk_level,
                             },
+                            **approval_rule.assignment(utc_now()),
                         ),
                     )
 

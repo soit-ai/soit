@@ -14,7 +14,8 @@ run that is waiting into a run that failed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
 
 from app.kernel.contracts.context import RequestContext
@@ -32,6 +33,11 @@ class ApprovalRecord:
     policy_ref: str | None
     tool_call_id: str | None
     details: dict[str, Any]
+    assignee_user_ids: tuple[str, ...] = field(default_factory=tuple)
+    """Who may decide; with no roles either, any member who can write."""
+    assignee_roles: tuple[str, ...] = field(default_factory=tuple)
+    expires_at: datetime | None = None
+    """When the request expires if nobody decided it; that counts as a rejection."""
 
 
 class ApprovalLedgerPort(Protocol):
