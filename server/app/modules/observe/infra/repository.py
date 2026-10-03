@@ -62,6 +62,8 @@ class ApprovalRepository:
                 )
             )
             .with_for_update()
+            # A row this session already holds is read again under the lock.
+            .execution_options(populate_existing=True)
         )
         return list((await self.db.execute(query)).scalars().all())
 

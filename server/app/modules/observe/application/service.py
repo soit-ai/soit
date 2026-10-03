@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import and_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.kernel.commons.errors import NotFoundError, ValidationError
+from app.kernel.commons.errors import ConflictError, NotFoundError, ValidationError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.identity.guard import workspace_guard
@@ -88,14 +88,28 @@ class ObserveService:
 
     @workspace_guard("write")
     async def resolve_approval(self, approval_id: str, data: ApprovalResolve) -> ApprovalRequest:
-        approval = await self._get_approval(approval_id)
+        """Decide one request; of two concurrent decisions exactly one is taken.
+
+        The row is locked before it is read, so the decision is checked and
+        written in one step. The same decision again is answered with the
+        request as it stands and changes nothing; a different one, once the
+        request is closed, is a conflict.
+        """
+
+        locked = await self.approval_repo.lock_by_ids([approval_id])
+        if not locked:
+            raise NotFoundError(f"Approval not found: {approval_id}")
+        approval = locked[0]
+        if approval.status == data.status:
+            await self.db.commit()
+            return approval
         if approval.status != ApprovalStatus.PENDING.value:
-            raise ValidationError("Only pending approvals can be resolved")
+            message = f"Approval {approval.id} is already {approval.status}"
+            await self.db.rollback()
+            raise ConflictError(message)
         approval.status = data.status
         approval.resolution_note = data.resolution_note
         approval.resolved_by = self.ctx.user_id
-        from app.kernel.commons.time import utc_now
-
         approval.resolved_at = utc_now()
         return await self.approval_repo.update(approval, emit_resolution_event=data.status)
 
