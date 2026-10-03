@@ -78,14 +78,14 @@ local-embedding = [
     "langchain-huggingface>=0.0.6",
     "transformers>=5.10.0",
     "huggingface-hub>=0.36.2",
-    "torchvision==0.28.0",
-    "torch==2.13.0",
+    "torchvision==0.29.0",
+    "torch==2.14.0",
 ]
 operations = [
     "flower>=2.0.1",
 ]
 knowledge-worker = [
-    "docling[rapidocr]==2.123.1",
+    "docling[rapidocr]==2.130.0",
 ]
 
 [build-system]
