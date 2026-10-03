@@ -30,6 +30,13 @@ record for operators.
   decision is taken, the same decision again returns the request unchanged
   and sends no second event, and a different decision on a closed request
   answers `409` (it was `400`).
+- A canceled approval request left its task waiting for ever, and canceling a
+  task, a workflow run or a response left its requests pending. Canceling a
+  request now sends `approval.canceled`, which releases a waiting task as a
+  rejection does (error code `approval_canceled`). A new approval sweeper
+  (`APPROVAL_SWEEPER_ENABLED`, `APPROVAL_SWEEPER_INTERVAL`, on in the compose
+  files and `.env.example`) closes pending requests whose run has ended as
+  `canceled`, recorded against `system`.
 
 ## [1.6.0] - 2026-10-02
 

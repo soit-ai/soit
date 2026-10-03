@@ -143,6 +143,21 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _handle_startup_failure("workflow orphan reaper", exc)
 
+    approval_sweeper_coro = None
+    if runs_background and getattr(app_settings, "approval_sweeper_enabled", False):
+        try:
+            from app.infra.db.session import get_async_session_local
+            from app.modules.observe.application.approval_sweeper import (
+                run_approval_sweeper_loop,
+            )
+
+            approval_sweeper_coro = run_approval_sweeper_loop(
+                get_async_session_local(),
+                interval_seconds=app_settings.approval_sweeper_interval,
+            )
+        except Exception as exc:
+            _handle_startup_failure("approval sweeper", exc)
+
     image_reaper_coro = None
     if runs_background and getattr(app_settings, "image_job_reaper_enabled", False):
         try:
@@ -284,6 +299,8 @@ async def lifespan(app: FastAPI):
             )
         if workflow_reaper_coro is not None:
             background_tasks.append(asyncio.create_task(workflow_reaper_coro))
+        if approval_sweeper_coro is not None:
+            background_tasks.append(asyncio.create_task(approval_sweeper_coro))
         if image_reaper_coro is not None:
             background_tasks.append(asyncio.create_task(image_reaper_coro))
         if deletion_sweeper_coro is not None:

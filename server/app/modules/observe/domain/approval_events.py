@@ -7,3 +7,4 @@ class ApprovalEventType:
     REQUESTED = "approval.requested"
     APPROVED = "approval.approved"
     REJECTED = "approval.rejected"
+    CANCELED = "approval.canceled"
