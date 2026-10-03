@@ -1,6 +1,6 @@
 [project]
 name = "soit-cli"
-version = "1.6.1"
+version = "1.7.0"
 description = "Command-line client for SOIT: sign in, run agents, replay regressions, export evidence"
 readme = "README.md"
 license = "Apache-2.0"

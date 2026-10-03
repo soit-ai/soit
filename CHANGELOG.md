@@ -12,6 +12,8 @@ record for operators.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-03
+
 ### Added
 
 - Approval requests can name who decides them. `assignee_user_ids` and
@@ -1921,7 +1923,8 @@ compatibility and known limitations: [docs/releases/v1.0.0.md](./docs/releases/v
   production compose file required `STORAGE_OPTIONS_JSON` to be set but not to
   differ from the development value.
 
-[Unreleased]: https://github.com/soit-ai/soit/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/soit-ai/soit/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/soit-ai/soit/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/soit-ai/soit/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/soit-ai/soit/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/soit-ai/soit/compare/v1.5.1...v1.5.2

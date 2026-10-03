@@ -164,7 +164,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
-Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.6.1`). Images can be
+Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.7.0`). Images can be
 verified with `gh attestation verify`. The released `web` image serves the
 API at the default `http://localhost:9200/api/v1`; if you override the API
 host port, build the web image from source with `VITE_BASE_URL` instead.
@@ -283,6 +283,7 @@ We ship in tight, themed iterations. The current focus areas:
 - [x] Anthropic Messages API on the gateway, for Claude Code and the Anthropic SDKs
 - [x] Evaluation datasets with revisions, and knowledge bases synced from S3 buckets and websites
 - [x] Cost reconciliation against provider bills, and document-level knowledge permissions
+- [x] Approval assignment, deadlines, delegation and server-side workflow resume
 - [ ] Cost-aware multi-model routing policies
 - [x] Agent specifications as YAML files, exported and imported
 
