@@ -13,6 +13,7 @@ Admins may also cancel an assigned request.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.kernel.contracts.context import RequestContext
@@ -76,6 +77,38 @@ def assigned_to(approval: Any, ctx: RequestContext) -> bool:
         return False
     current = assignees(approval)
     return (ctx.user_id or "") in current["user_ids"] or (ctx.workspace_role or "") in current["roles"]
+
+
+def is_own_request(approval: Any, ctx: RequestContext) -> bool:
+    """Whether ``ctx`` opened ``approval``."""
+
+    requester = getattr(approval, "requested_by", None)
+    return bool(requester) and requester == ctx.user_id
+
+
+def may_approve(approval: Any, ctx: RequestContext, *, forbid_self_approval: bool) -> bool:
+    """Whether ``ctx`` may approve ``approval`` now; rejecting needs only ``may_decide``."""
+
+    if forbid_self_approval and is_own_request(approval, ctx):
+        return False
+    return may_decide(approval, ctx)
+
+
+def reminder_time(created_at: datetime, expires_at: datetime, lead_seconds: float) -> datetime | None:
+    """When the approvers of a request are reminded of its deadline.
+
+    ``lead_seconds`` before it, or half-way through a request too short for
+    that, so a request is never reminded about the moment it is opened.
+    """
+
+    if lead_seconds <= 0:
+        return None
+    created = created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)
+    expires = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=UTC)
+    life = expires - created
+    if life <= timedelta(0):
+        return None
+    return expires - min(timedelta(seconds=lead_seconds), life / 2)
 
 
 def may_cancel(approval: Any, ctx: RequestContext) -> bool:

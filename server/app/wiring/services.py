@@ -446,11 +446,24 @@ def build_plugin_service(*, db: AsyncSession, ctx: RequestContext) -> PluginServ
 def build_observe_service(*, db: AsyncSession, ctx: RequestContext) -> ObserveService:
     """Observe service factory."""
 
+    from app.modules.identity.infra.safety_overrides import (
+        workspace_forbids_self_approval,
+    )
     from app.modules.identity.infra.workspace_access import (
         DatabaseWorkspaceAccessResolver,
     )
 
-    return ObserveService(db=db, ctx=ctx, member_access=DatabaseWorkspaceAccessResolver())
+    async def self_approval_forbidden() -> bool:
+        if not ctx.workspace_id:
+            return False
+        return await workspace_forbids_self_approval(db, ctx.tenant_id, ctx.workspace_id)
+
+    return ObserveService(
+        db=db,
+        ctx=ctx,
+        member_access=DatabaseWorkspaceAccessResolver(),
+        self_approval_forbidden=self_approval_forbidden,
+    )
 
 
 def build_evaluation_service(*, db: AsyncSession, ctx: RequestContext) -> RegressionEvaluationService:

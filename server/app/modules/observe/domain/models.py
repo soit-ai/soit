@@ -50,6 +50,8 @@ class ApprovalRequest(SQLModel, table=True):
     """Workspace roles whose holders may decide, read at decision time."""
     expires_at: datetime | None = Field(default=None, nullable=True, index=True)
     """When a request nobody decided closes as ``expired``, which counts as a rejection."""
+    remind_at: datetime | None = Field(default=None, nullable=True, index=True)
+    """When its approvers are reminded of the deadline; cleared once they are."""
     requested_by: str | None = Field(default=None, nullable=True)
     resolved_by: str | None = Field(default=None, nullable=True)
     resolution_note: str | None = Field(default=None, nullable=True)

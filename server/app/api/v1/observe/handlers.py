@@ -5,9 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.infra.db.pagination import PaginatedResponse, parse_page_params
-from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.status import ApprovalStatus
 from app.modules.observe.application.dashboard_schemas import WorkspaceObserveDashboard
 from app.modules.observe.application.schemas import (
     ApprovalCreate,
@@ -19,26 +17,13 @@ from app.modules.observe.application.schemas import (
     FeedbackResponse,
     RunReplayResponse,
 )
-from app.modules.observe.application.service import ObserveService, aware_utc
-from app.modules.observe.domain.approval_policy import (
-    assigned_to,
-    may_cancel,
-    may_decide,
-)
+from app.modules.observe.application.service import ObserveService
 
 
-def _view(ctx: RequestContext, approval: Any) -> ApprovalResponse:
+async def _view(service: ObserveService, approval: Any) -> ApprovalResponse:
     """A request as the caller sees it, with what the caller may do with it."""
 
-    pending = approval.status == ApprovalStatus.PENDING.value
-    overdue = approval.expires_at is not None and aware_utc(approval.expires_at) <= utc_now()
-    return ApprovalResponse.model_validate(approval).model_copy(
-        update={
-            "can_decide": pending and not overdue and may_decide(approval, ctx),
-            "can_cancel": pending and may_cancel(approval, ctx),
-            "assigned_to_me": assigned_to(approval, ctx),
-        }
-    )
+    return ApprovalResponse.model_validate(approval).model_copy(update=await service.caller_rights(approval))
 
 
 class ObserveHandlers:
@@ -46,7 +31,7 @@ class ObserveHandlers:
         self.service = service
 
     async def create_approval(self, ctx: RequestContext, payload: ApprovalCreate) -> ApprovalResponse:
-        return _view(ctx, await self.service.create_approval(payload))
+        return await _view(self.service, await self.service.create_approval(payload))
 
     async def list_approvals(
         self,
@@ -67,13 +52,13 @@ class ObserveHandlers:
             run_id=run_id,
             task_id=task_id,
         )
-        payload = [_view(ctx, item) for item in items]
+        payload = [await _view(self.service, item) for item in items]
         has_next = len(items) == limit
         next_offset = offset + len(items) if has_next else None
         return PaginatedResponse.create(items=payload, page_size=len(payload), has_next=has_next, next_offset=next_offset)
 
     async def get_approval(self, ctx: RequestContext, approval_id: str) -> ApprovalResponse:
-        return _view(ctx, await self.service.get_approval(approval_id))
+        return await _view(self.service, await self.service.get_approval(approval_id))
 
     async def resolve_approval(
         self,
@@ -81,7 +66,7 @@ class ObserveHandlers:
         approval_id: str,
         payload: ApprovalResolve,
     ) -> ApprovalResponse:
-        return _view(ctx, await self.service.resolve_approval(approval_id, payload))
+        return await _view(self.service, await self.service.resolve_approval(approval_id, payload))
 
     async def delegate_approval(
         self,
@@ -89,7 +74,7 @@ class ObserveHandlers:
         approval_id: str,
         payload: ApprovalDelegate,
     ) -> ApprovalResponse:
-        return _view(ctx, await self.service.delegate_approval(approval_id, payload))
+        return await _view(self.service, await self.service.delegate_approval(approval_id, payload))
 
     async def list_approval_decisions(self, ctx: RequestContext, approval_id: str) -> list[ApprovalDecisionResponse]:
         return [

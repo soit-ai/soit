@@ -126,3 +126,29 @@ async def test_an_expired_request_notifies_its_requester(async_db, members) -> N
 
     inbox = await _inbox(async_db)
     assert inbox["u_alice"] == ["Approval expired: Send the refund"]
+
+
+async def test_an_undecided_request_reminds_its_approvers_once_before_its_deadline(async_db, members) -> None:
+    from app.modules.observe.application.approval_sweeper import remind_due_approvals
+    from app.modules.observe.domain.models import ApprovalRequest
+
+    approval = await _service(async_db, members, "u_owner").create_approval(
+        ApprovalCreate(title="Send the refund", assignee_user_ids=["u_alice"], expires_at=utc_now() + timedelta(hours=2))
+    )
+    approval_id = approval.id
+    stored = await async_db.get(ApprovalRequest, approval_id)
+    remind_at = stored.remind_at.replace(tzinfo=None)
+    expected = (stored.expires_at - timedelta(hours=1)).replace(tzinfo=None)
+    assert abs((remind_at - expected).total_seconds()) < 1
+    await _deliver(async_db)
+    assert await remind_due_approvals(async_db) == 0, "not due yet"
+
+    stored.remind_at = utc_now() - timedelta(seconds=1)
+    async_db.add(stored)
+    await async_db.commit()
+    assert await remind_due_approvals(async_db) == 1
+    assert await remind_due_approvals(async_db) == 0
+    await _deliver(async_db)
+
+    inbox = await _inbox(async_db)
+    assert inbox["u_alice"] == ["Approval needed: Send the refund", "Approval due soon: Send the refund"]

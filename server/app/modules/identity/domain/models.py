@@ -210,6 +210,10 @@ class Workspace(SQLModel, table=True):
     (None), ``refuse_when_budgeted`` while a hard-stop budget applies, or
     ``refuse``. An unpriced call counts against no budget."""
 
+    forbid_self_approval: bool | None = Field(default=None, nullable=True)
+    """When true, whoever opened an approval request cannot approve it; they
+    may still reject or cancel it. None or false allows it."""
+
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""
 

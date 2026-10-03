@@ -85,7 +85,9 @@ class ApprovalResponse(BaseModel):
     updated_at: datetime
 
     can_decide: bool = False
-    """Whether the caller may approve or reject the request now."""
+    """Whether the caller may reject the request now, and approve it unless ``can_approve`` says not."""
+    can_approve: bool = False
+    """Whether the caller may approve the request now: a requester may not when the workspace forbids it."""
     can_cancel: bool = False
     """Whether the caller may close the request without a decision now."""
     assigned_to_me: bool = False

@@ -431,6 +431,13 @@ class Settings(BaseSettings):
     approval_sweeper_interval: float = 30.0
     """Seconds between approval sweeps."""
 
+    approval_reminder_lead_seconds: float = 3600.0
+    """How long before its deadline an undecided request's approvers are reminded.
+
+    A request open for less than twice this is reminded half-way through
+    instead; 0 sends no reminders.
+    """
+
     # Image jobs
     image_job_heartbeat_seconds: float = 30.0
     """Seconds between the beats an image call in progress marks its run alive with."""

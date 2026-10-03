@@ -196,6 +196,9 @@ def register_outbox_handlers() -> None:
         DELEGATED_CONSUMER as APPROVAL_DELEGATED_NOTIFICATION,
     )
     from app.modules.notification.handlers.on_approval import (
+        DUE_SOON_CONSUMER as APPROVAL_DUE_SOON_NOTIFICATION,
+    )
+    from app.modules.notification.handlers.on_approval import (
         EXPIRED_CONSUMER as APPROVAL_EXPIRED_NOTIFICATION,
     )
     from app.modules.notification.handlers.on_approval import (
@@ -203,6 +206,7 @@ def register_outbox_handlers() -> None:
     )
     from app.modules.notification.handlers.on_approval import (
         handle_approval_delegated_notification,
+        handle_approval_due_soon_notification,
         handle_approval_expired_notification,
         handle_approval_requested_notification,
     )
@@ -210,6 +214,7 @@ def register_outbox_handlers() -> None:
     reg.register(ApprovalEventType.REQUESTED, APPROVAL_REQUESTED_NOTIFICATION, handle_approval_requested_notification)
     reg.register(ApprovalEventType.DELEGATED, APPROVAL_DELEGATED_NOTIFICATION, handle_approval_delegated_notification)
     reg.register(ApprovalEventType.EXPIRED, APPROVAL_EXPIRED_NOTIFICATION, handle_approval_expired_notification)
+    reg.register(ApprovalEventType.DUE_SOON, APPROVAL_DUE_SOON_NOTIFICATION, handle_approval_due_soon_notification)
 
     # A workflow run waiting on the decided request continues on the server.
     from app.wiring.workflow_approval_resume import handle_workflow_approval_decision

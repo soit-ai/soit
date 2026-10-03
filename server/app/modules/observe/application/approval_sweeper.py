@@ -31,6 +31,7 @@ from app.modules.observe.domain.approval_policy import assignees
 from app.modules.observe.domain.models import ApprovalRequest
 from app.modules.observe.infra.approval_outbox_emit import (
     enqueue_approval_canceled_outbox,
+    enqueue_approval_due_soon_outbox,
     enqueue_approval_expired_outbox,
 )
 from app.modules.observe.infra.repository import ApprovalRepository
@@ -149,6 +150,40 @@ def close_as_expired(db: AsyncSession, approval: ApprovalRequest, *, now) -> Non
     enqueue_approval_expired_outbox(db, ctx, approval=approval)
 
 
+async def remind_due_approvals(db: AsyncSession, *, limit: int = 100) -> int:
+    """Remind the approvers of undecided requests nearing their deadline. Returns how many.
+
+    Each request is reminded once: its ``remind_at`` is cleared as its
+    ``approval.due_soon`` event is queued, in one transaction.
+    """
+
+    now = utc_now()
+    rows = (
+        await db.execute(
+            select(ApprovalRequest)
+            .where(
+                ApprovalRequest.status == ApprovalStatus.PENDING.value,
+                ApprovalRequest.remind_at.is_not(None),
+                ApprovalRequest.remind_at <= now,
+                ApprovalRequest.expires_at > now,
+            )
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+    ).scalars().all()
+    if not rows:
+        await db.rollback()
+        return 0
+    for approval in rows:
+        approval.remind_at = None
+        approval.updated_at = now
+        db.add(approval)
+        ctx = RequestContext(tenant_id=approval.tenant_id, workspace_id=approval.workspace_id, user_id=SYSTEM_ACTOR)
+        enqueue_approval_due_soon_outbox(db, ctx, approval=approval)
+    await db.commit()
+    return len(rows)
+
+
 async def run_approval_sweeper_loop(
     db_factory: Callable[[], AsyncSession],
     *,
@@ -162,6 +197,7 @@ async def run_approval_sweeper_loop(
         db = db_factory()
         try:
             await expire_overdue_approvals(db)
+            await remind_due_approvals(db)
             await close_approvals_of_ended_runs(db)
         finally:
             await db.close()

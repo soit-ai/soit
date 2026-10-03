@@ -10,3 +10,4 @@ class ApprovalEventType:
     CANCELED = "approval.canceled"
     EXPIRED = "approval.expired"
     DELEGATED = "approval.delegated"
+    DUE_SOON = "approval.due_soon"

@@ -6,6 +6,8 @@ look. Now:
 - an opened request notifies the members who may decide it: its assigned
   members and the current holders of its assigned roles, or, with no
   assignees, the workspace's Owners and Admins other than whoever opened it;
+- a request nearing its deadline undecided reminds the members who may
+  decide it, once;
 - a delegated request notifies the member it was handed to;
 - a request that expired undecided notifies whoever opened it.
 
@@ -32,6 +34,7 @@ from app.modules.notification.application.fanout import (
 REQUESTED_CONSUMER = "notification.approval.requested"
 DELEGATED_CONSUMER = "notification.approval.delegated"
 EXPIRED_CONSUMER = "notification.approval.expired"
+DUE_SOON_CONSUMER = "notification.approval.due_soon"
 
 _CATEGORY = "task"
 _UNASSIGNED_ROLES = ("Owner", "Admin")
@@ -58,22 +61,27 @@ async def _claim(db: AsyncSession, consumer: str, row: EventOutbox) -> bool:
     return await try_claim_consumer_slot(db, consumer_name=consumer, event_id=row.event_id, result=consumer)
 
 
+async def _approvers(db: AsyncSession, tenant_id: str, workspace_id: str, payload: dict[str, Any]) -> list[str]:
+    """Who may decide the request: its assignees, or the Owners and Admins but its requester."""
+
+    users = [str(item) for item in payload.get("assignee_user_ids") or []]
+    roles = [str(item) for item in payload.get("assignee_roles") or []]
+    if users or roles:
+        return list(dict.fromkeys([*users, *await members_with_roles(db, tenant_id, workspace_id, roles)]))
+    requester = payload.get("requested_by")
+    return [
+        user_id
+        for user_id in await members_with_roles(db, tenant_id, workspace_id, _UNASSIGNED_ROLES)
+        if user_id != requester
+    ]
+
+
 async def handle_approval_requested_notification(db: AsyncSession, row: EventOutbox) -> None:
     payload = row.payload_json or {}
     tenant_id, workspace_id = _scope(row, payload)
     if not tenant_id or not workspace_id or not await _claim(db, REQUESTED_CONSUMER, row):
         return
-    users = [str(item) for item in payload.get("assignee_user_ids") or []]
-    roles = [str(item) for item in payload.get("assignee_roles") or []]
-    requester = payload.get("requested_by")
-    if users or roles:
-        recipients = list(dict.fromkeys([*users, *await members_with_roles(db, tenant_id, workspace_id, roles)]))
-    else:
-        recipients = [
-            user_id
-            for user_id in await members_with_roles(db, tenant_id, workspace_id, _UNASSIGNED_ROLES)
-            if user_id != requester
-        ]
+    recipients = await _approvers(db, tenant_id, workspace_id, payload)
     title = f"Approval needed: {payload.get('title') or 'a request'}"
     content = "A tool call is waiting for your decision."
     if payload.get("expires_at"):
@@ -100,6 +108,30 @@ async def handle_approval_requested_notification(db: AsyncSession, row: EventOut
         content=content,
         severity="warning",
         source_module="observe",
+        meta=_meta(payload),
+    )
+    await db.flush()
+
+
+async def handle_approval_due_soon_notification(db: AsyncSession, row: EventOutbox) -> None:
+    payload = row.payload_json or {}
+    tenant_id, workspace_id = _scope(row, payload)
+    if not tenant_id or not workspace_id or not await _claim(db, DUE_SOON_CONSUMER, row):
+        return
+    content = "A tool call is still waiting for your decision."
+    if payload.get("expires_at"):
+        content = f"{content} It expires at {payload['expires_at']} and is then refused."
+    await notify_users(
+        db,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        user_ids=await _approvers(db, tenant_id, workspace_id, payload),
+        category=_CATEGORY,
+        title=f"Approval due soon: {payload.get('title') or 'a request'}",
+        content=content,
+        severity="warning",
+        source_module="observe",
+        action={"type": "open", "target": _TARGET},
         meta=_meta(payload),
     )
     await db.flush()

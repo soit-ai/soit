@@ -29,6 +29,32 @@ def _approval_payload(approval: ApprovalRequest) -> dict:
     }
 
 
+def enqueue_approval_due_soon_outbox(
+    db: AsyncSession,
+    ctx: RequestContext,
+    *,
+    approval: ApprovalRequest,
+) -> None:
+    """An undecided request nearing its deadline; one event per request."""
+
+    envelope = DomainEventEnvelope(
+        event_id=f"evt_approval_due_soon_{approval.id}",
+        event_type=ApprovalEventType.DUE_SOON,
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        subject_type="approval",
+        subject_id=approval.id,
+        run_id=approval.run_id,
+        task_id=approval.task_id,
+        thread_id=approval.thread_id,
+        correlation_id=approval.run_id or approval.id,
+        producer="modules.observe.approval_sweeper",
+        occurred_at=utc_now(),
+        payload=_approval_payload(approval),
+    )
+    OutboxPublisher(OutboxRepository(db)).publish(envelope)
+
+
 def enqueue_approval_delegated_outbox(
     db: AsyncSession,
     ctx: RequestContext,

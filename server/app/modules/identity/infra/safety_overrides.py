@@ -39,6 +39,29 @@ async def workspace_pii_actions(
     return {"inbound": inbound, "outbound": outbound}
 
 
+async def workspace_forbids_self_approval(
+    db: AsyncSession | None,
+    tenant_id: str,
+    workspace_id: str,
+) -> bool:
+    """Whether whoever opened an approval request in the workspace is refused approving it."""
+
+    session = db if db is not None else get_async_session_local()()
+    try:
+        forbidden = (
+            await session.exec(
+                select(Workspace.forbid_self_approval).where(
+                    Workspace.id == workspace_id,
+                    Workspace.tenant_id == tenant_id,
+                )
+            )
+        ).first()
+    finally:
+        if db is None:
+            await session.close()
+    return bool(forbidden)
+
+
 async def workspace_unpriced_call_policy(
     db: AsyncSession | None,
     tenant_id: str,

@@ -61,3 +61,16 @@ def test_the_toolspec_schema_takes_approvers_and_a_timeout() -> None:
     assert issues(good) == []
     assert issues(viewer)
     assert issues(too_short)
+
+
+def test_a_reminder_comes_an_hour_before_the_deadline_or_half_way_through() -> None:
+    from app.modules.observe.domain.approval_policy import reminder_time
+
+    day = NOW + timedelta(days=1)
+    ten_minutes = NOW + timedelta(minutes=10)
+
+    assert reminder_time(NOW, day, 3600) == day - timedelta(hours=1)
+    assert reminder_time(NOW, ten_minutes, 3600) == NOW + timedelta(minutes=5)
+    assert reminder_time(NOW.replace(tzinfo=None), day.replace(tzinfo=None), 3600) == day - timedelta(hours=1)
+    assert reminder_time(NOW, day, 0) is None
+    assert reminder_time(NOW, NOW, 3600) is None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from sqlalchemy import and_, select
@@ -37,7 +38,9 @@ from app.modules.observe.application.schemas import (
 )
 from app.modules.observe.domain.approval_policy import (
     APPROVER_ROLES,
+    assigned_to,
     assignees,
+    may_approve,
     may_cancel,
     may_decide,
     normalize_roles,
@@ -73,10 +76,13 @@ class ObserveService:
         db: AsyncSession,
         ctx: RequestContext,
         member_access: WorkspaceAccessResolver | None = None,
+        self_approval_forbidden: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         self.db = db
         self.ctx = ctx
         self.member_access = member_access
+        self._self_approval_forbidden = self_approval_forbidden
+        self._forbid_self_approval: bool | None = None
         self.approval_repo = ApprovalRepository(db, ctx)
         self.feedback_repo = FeedbackRepository(db, ctx)
 
@@ -123,12 +129,44 @@ class ObserveService:
             )
         )
 
-    def _require_may_resolve(self, approval: ApprovalRequest, status: str) -> None:
-        allowed = may_cancel(approval, self.ctx) if status == ApprovalStatus.CANCELED.value else may_decide(
-            approval, self.ctx
-        )
+    async def forbids_self_approval(self) -> bool:
+        """Whether the workspace refuses requesters approving their own requests; read once."""
+
+        if self._forbid_self_approval is None:
+            self._forbid_self_approval = (
+                bool(await self._self_approval_forbidden()) if self._self_approval_forbidden else False
+            )
+        return self._forbid_self_approval
+
+    async def _require_may_resolve(self, approval: ApprovalRequest, status: str) -> None:
+        if status == ApprovalStatus.CANCELED.value:
+            allowed = may_cancel(approval, self.ctx)
+        elif not may_decide(approval, self.ctx):
+            allowed = False
+        elif status == ApprovalStatus.APPROVED.value and not may_approve(
+            approval, self.ctx, forbid_self_approval=await self.forbids_self_approval()
+        ):
+            raise ForbiddenError(
+                f"Request {approval.id} was opened by you, and this workspace does not let requesters approve their own"
+            )
+        else:
+            allowed = True
         if not allowed:
             raise ForbiddenError(f"You are not an approver of request {approval.id}")
+
+    async def caller_rights(self, approval: ApprovalRequest) -> dict[str, bool]:
+        """What the caller may do with ``approval`` now, by the rules the server enforces."""
+
+        pending = approval.status == ApprovalStatus.PENDING.value
+        overdue = _overdue(approval)
+        decide = pending and not overdue and may_decide(approval, self.ctx)
+        return {
+            "can_decide": decide,
+            "can_approve": decide
+            and may_approve(approval, self.ctx, forbid_self_approval=await self.forbids_self_approval()),
+            "can_cancel": pending and may_cancel(approval, self.ctx),
+            "assigned_to_me": assigned_to(approval, self.ctx),
+        }
 
     def _record(self, approval: ApprovalRequest, action: str, note: str | None) -> None:
         self.approval_repo.add_decision(
@@ -171,7 +209,7 @@ class ObserveService:
             raise NotFoundError(f"Approval not found: {approval_id}")
         approval = locked[0]
         try:
-            self._require_may_resolve(approval, data.status)
+            await self._require_may_resolve(approval, data.status)
         except ForbiddenError:
             await self.db.rollback()
             raise
@@ -273,7 +311,7 @@ class ObserveService:
         pending_updates: list[ApprovalRequest] = []
         for approval_id, data in resolutions:
             approval = approvals_by_id[approval_id]
-            self._require_may_resolve(approval, data.status)
+            await self._require_may_resolve(approval, data.status)
             if approval.status == data.status:
                 continue
             if approval.status != ApprovalStatus.PENDING.value:

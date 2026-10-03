@@ -116,6 +116,10 @@ class WorkspaceUpdate(BaseModel):
             "count against no budget. null allows it"
         ),
     )
+    forbid_self_approval: bool | None = Field(
+        None,
+        description="Whether whoever opened an approval request is refused approving it",
+    )
 
 
 # Response schemas
@@ -166,6 +170,7 @@ class WorkspaceResponse(BaseModel):
     pii_action_default: str | None = None
     """The deployment's PII action, which a null override follows."""
     unpriced_call_policy: str = "allow"
+    forbid_self_approval: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

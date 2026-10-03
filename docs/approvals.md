@@ -45,6 +45,12 @@ in the future.
   else is answered `403`.
 - The requester and the workspace's Owners and Admins may cancel a request
   they cannot decide.
+- A workspace can stop requesters approving their own requests: **Settings ›
+  Security › Self-approval**, or `forbid_self_approval` on `PATCH
+  /api/v1/workspaces/{id}`, set by an Owner or Admin. Whoever opened a request
+  is then answered `403` when approving it; they may still reject or cancel
+  it, and another approver approves it. An agent run's requester is the member
+  who ran it, so their own chat cannot approve its tool calls either.
 - The same rule holds wherever a decision is taken: the approvals page, a
   task's page, the API, or the chat client resuming an agent run.
 
@@ -75,6 +81,12 @@ rejection everywhere, so the call it asked about never runs. Deciding or
 delegating a request past its deadline answers `409` and closes it as expired.
 Nothing ever approves a request on its own.
 
+Before the deadline, the sweeper reminds the request's approvers once:
+`APPROVAL_REMINDER_LEAD_SECONDS` (an hour by default) before it, or half-way
+through a request open for less than twice that; `0` sends no reminders. The
+time is fixed when the request is opened, so requests opened before an upgrade
+that added reminders are not reminded.
+
 The sweeper also closes, as `canceled`, the pending requests of runs that
 ended before anyone decided, for example because their task was canceled. It
 runs on the API service when `APPROVAL_SWEEPER_ENABLED=true` (on in the
@@ -104,6 +116,8 @@ A task waiting on such a request without a paused agent turn fails with
   members and the current holders of its assigned roles, or, with nobody
   assigned, the workspace's Owners and Admins other than whoever opened it.
   The workspace's notification channels hear about it too.
+- A request nearing its deadline undecided reminds the members who may
+  decide it, once.
 - A delegated request notifies the member it was handed to, with the note.
 - A request that expired undecided notifies whoever opened it.
 

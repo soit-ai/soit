@@ -12,6 +12,21 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- A workspace can stop requesters approving their own approval requests.
+  `forbid_self_approval` on `PATCH /api/v1/workspaces/{id}` (and **Settings ›
+  Security**), set by a workspace Owner or Admin, refuses whoever opened a
+  request with `403` when they approve it, on every path including the chat
+  client's resume; they may still reject or cancel it. Approval responses
+  carry `can_approve` for the caller.
+- Undecided approval requests remind their approvers once before the
+  deadline: `APPROVAL_REMINDER_LEAD_SECONDS` (an hour) before it, or half-way
+  through a shorter request, through the approval sweeper and a new
+  `approval.due_soon` event and notification. Migration `20261003110000` adds
+  `workspaces.forbid_self_approval` and `approval_requests.remind_at`;
+  requests opened before it are not reminded.
+
 ## [1.7.0] - 2026-10-03
 
 ### Added

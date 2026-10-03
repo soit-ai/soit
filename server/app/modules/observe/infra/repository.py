@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
 from app.kernel.runtime.status import ApprovalStatus
+from app.modules.observe.domain.approval_policy import reminder_time
 from app.modules.observe.domain.models import (
     ApprovalDecision,
     ApprovalRequest,
@@ -20,6 +21,7 @@ from app.modules.observe.infra.approval_outbox_emit import (
     enqueue_approval_rejected_outbox,
     enqueue_approval_requested_outbox,
 )
+from app.settings.settings import settings
 
 
 class ApprovalRepository:
@@ -31,6 +33,10 @@ class ApprovalRepository:
         approval.tenant_id = self.ctx.tenant_id
         approval.workspace_id = self.ctx.workspace_id
         approval.requested_by = approval.requested_by or self.ctx.user_id
+        if approval.expires_at is not None and approval.remind_at is None:
+            approval.remind_at = reminder_time(
+                approval.created_at, approval.expires_at, settings.approval_reminder_lead_seconds
+            )
         self.db.add(approval)
         await self.db.flush()
         enqueue_approval_requested_outbox(self.db, self.ctx, approval=approval)

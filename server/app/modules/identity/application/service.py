@@ -1588,6 +1588,7 @@ class IdentityService:
             workspace.content_capture = data.content_capture
         self._apply_pii_actions(workspace, data, ctx)
         self._apply_unpriced_call_policy(workspace, data, ctx)
+        self._apply_self_approval(workspace, data, ctx)
         workspace.updated_at = utc_now()
         return await repo.update(workspace)
 
@@ -1604,6 +1605,18 @@ class IdentityService:
             raise ValidationError("Workspace admin role required to change how unpriced calls are handled")
         policy = data.unpriced_call_policy
         workspace.unpriced_call_policy = None if policy in (None, "allow") else policy
+
+    @staticmethod
+    def _apply_self_approval(workspace: Workspace, data: WorkspaceUpdate, ctx: RequestContext) -> None:
+        """Set whether requesters may approve their own approval requests.
+
+        Who may wave their own call through is a governance decision.
+        """
+        if "forbid_self_approval" not in data.model_fields_set:
+            return
+        if not (ctx.can_govern() or ctx.is_tenant_admin()):
+            raise ValidationError("Workspace admin role required to change who may approve their own requests")
+        workspace.forbid_self_approval = True if data.forbid_self_approval else None
 
     @staticmethod
     def _apply_pii_actions(workspace: Workspace, data: WorkspaceUpdate, ctx: RequestContext) -> None:
