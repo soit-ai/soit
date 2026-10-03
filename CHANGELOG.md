@@ -26,6 +26,9 @@ record for operators.
   `approval.due_soon` event and notification. Migration `20261003110000` adds
   `workspaces.forbid_self_approval` and `approval_requests.remind_at`;
   requests opened before it are not reminded.
+- **Settings › Security** has the self-approval setting, Govern › Approvals
+  and a task's page offer Approve only where the caller may approve, and a
+  request's details say when another approver is needed.
 
 ## [1.7.0] - 2026-10-03
 

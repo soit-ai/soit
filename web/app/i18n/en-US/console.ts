@@ -343,6 +343,12 @@ const translation = {
       unpricedRefuseWhenBudgeted: 'refuse them while a hard-stop budget applies',
       unpricedRefuse: 'always refuse them',
       unpricedSaved: 'Unpriced call handling saved',
+      selfApproval: 'Self-approval',
+      selfApprovalHint:
+        'Whether whoever opened an approval request, including the member who ran an agent, may approve it. They can always reject or cancel it.',
+      selfApprovalAllow: 'requesters may approve their own',
+      selfApprovalForbid: 'another approver must approve',
+      selfApprovalSaved: 'Self-approval setting saved',
       sso: 'Single sign-on',
       ssoHint: 'SAML 2.0 / OIDC, provided and configured by an Enterprise extension.',
       ssoEnterprise: 'ENTERPRISE',
@@ -721,6 +727,7 @@ const translation = {
       cancelFailed: 'Could not cancel the request',
       noteDecider: 'delegating makes that member the only approver',
       noteReadOnly: 'only its approvers can decide or delegate this request',
+      noSelfApproval: 'You opened this request; this workspace needs another approver to approve it.',
     },
   },
   policies: {

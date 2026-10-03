@@ -256,6 +256,7 @@ export default function ConsoleApprovals() {
                   const waiting = elapsed(row.created_at)
                   const due = row.expires_at ? deadlineLabel(row.expires_at) : null
                   const canDecide = row.can_decide !== false
+                  const canApprove = canDecide && row.can_approve !== false
                   return (
                     <TableRow key={row.id}>
                       <TableCell>
@@ -306,16 +307,18 @@ export default function ConsoleApprovals() {
                         <span className="inline-flex flex-wrap justify-end" style={{ gap: 6 }}>
                           {canDecide && (
                             <>
-                              <ConsoleButton
-                                variant="primary"
-                                size="sm"
-                                disabled={resolveMutation.isPending}
-                                onClick={() =>
-                                  resolveMutation.mutate({ id: row.id, status: 'approved' })
-                                }
-                              >
-                                {t('console.approvals.approve')}
-                              </ConsoleButton>
+                              {canApprove && (
+                                <ConsoleButton
+                                  variant="primary"
+                                  size="sm"
+                                  disabled={resolveMutation.isPending}
+                                  onClick={() =>
+                                    resolveMutation.mutate({ id: row.id, status: 'approved' })
+                                  }
+                                >
+                                  {t('console.approvals.approve')}
+                                </ConsoleButton>
+                              )}
                               <ConsoleButton
                                 size="sm"
                                 disabled={resolveMutation.isPending}

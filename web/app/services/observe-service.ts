@@ -242,6 +242,8 @@ export interface ApprovalResponse {
   expires_at?: string | null
   /** What the caller may do now; an older server sends none of these. */
   can_decide?: boolean
+  /** False when the caller opened the request and the workspace forbids approving one's own. */
+  can_approve?: boolean
   can_cancel?: boolean
   assigned_to_me?: boolean
   requested_by?: string | null

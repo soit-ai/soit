@@ -569,6 +569,17 @@ export default function ConsoleSettings() {
     onError: onWriteError('Failed to change how unpriced calls are handled'),
   })
 
+  const selfApprovalMutation = useMutation<unknown, unknown, boolean>({
+    mutationKey: ['console', 'settings', 'self-approval'],
+    mutationFn: (forbid) =>
+      updateWorkspace(workspaceId, { forbid_self_approval: forbid }, { suppressErrorToast: true }),
+    onSuccess: () => {
+      void workspaceQuery.refetch()
+      toast.success(t('console.settings.securityPane.selfApprovalSaved'))
+    },
+    onError: onWriteError('Failed to change who may approve their own requests'),
+  })
+
   // Closing an account is a request with a pause, not a button that deletes.
   const [closureOpen, setClosureOpen] = useState(false)
   const [closureReason, setClosureReason] = useState('')
@@ -1611,6 +1622,23 @@ export default function ConsoleSettings() {
                   {t('console.settings.securityPane.unpricedRefuseWhenBudgeted')}
                 </option>
                 <option value="refuse">{t('console.settings.securityPane.unpricedRefuse')}</option>
+              </select>
+            </div>
+            <div className="frow">
+              <label>
+                {t('console.settings.securityPane.selfApproval')}
+                <small>{t('console.settings.securityPane.selfApprovalHint')}</small>
+              </label>
+              <select
+                className="input"
+                style={{ maxWidth: 280 }}
+                aria-label={t('console.settings.securityPane.selfApproval')}
+                value={workspaceQuery.data?.forbid_self_approval ? 'forbid' : 'allow'}
+                disabled={!workspaceQuery.data || selfApprovalMutation.isPending}
+                onChange={(event) => selfApprovalMutation.mutate(event.target.value === 'forbid')}
+              >
+                <option value="allow">{t('console.settings.securityPane.selfApprovalAllow')}</option>
+                <option value="forbid">{t('console.settings.securityPane.selfApprovalForbid')}</option>
               </select>
             </div>
             <div className="frow">

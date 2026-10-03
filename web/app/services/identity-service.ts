@@ -66,6 +66,8 @@ export interface WorkspaceInfo {
   pii_action_default?: PiiAction | null
   /** What a model or tool call with no price does here; it counts against no budget. */
   unpriced_call_policy?: UnpricedCallPolicy
+  /** Whoever opened an approval request may not approve it. */
+  forbid_self_approval?: boolean
   created_at: string
 }
 
@@ -234,6 +236,8 @@ export const updateWorkspace = (
     pii_action_outbound?: PiiAction | null
     /** Workspace admins only. */
     unpriced_call_policy?: UnpricedCallPolicy
+    /** Workspace admins only. */
+    forbid_self_approval?: boolean
   },
   config?: RequestConfigWithToast,
 ): Promise<WorkspaceInfo> => {

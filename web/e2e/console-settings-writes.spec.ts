@@ -996,3 +996,36 @@ test('calls with no price can be refused while a hard-stop budget applies, or al
   await expect.poll(() => patches.length).toBe(2)
   expect(patches[1]).toEqual({ unpriced_call_policy: 'allow' })
 })
+
+test('a workspace admin can require another approver for a request one opened', async ({ page }) => {
+  const patches: unknown[] = []
+  let workspace: Record<string, unknown> = {
+    id: 'workspace-1',
+    tenant_id: 'tenant-1',
+    name: 'acme-robotics',
+    require_mfa: false,
+    content_capture: 'full',
+    pii_action_inbound: null,
+    pii_action_outbound: null,
+    pii_action_default: 'observe',
+    unpriced_call_policy: 'allow',
+    forbid_self_approval: false,
+    created_at: NOW,
+  }
+  await page.route('**/api/v1/workspaces/workspace-1', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      const body = JSON.parse(route.request().postData() || '{}')
+      patches.push(body)
+      workspace = { ...workspace, ...body }
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(workspace) })
+  })
+
+  await page.goto('/settings/security', { waitUntil: 'domcontentloaded' })
+  const selfApproval = page.getByLabel('Self-approval')
+  await expect(selfApproval).toHaveValue('allow')
+
+  await selfApproval.selectOption('forbid')
+  await expect.poll(() => patches).toEqual([{ forbid_self_approval: true }])
+  await expect(selfApproval).toHaveValue('forbid')
+})

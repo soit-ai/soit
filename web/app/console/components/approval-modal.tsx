@@ -245,6 +245,12 @@ export function ApprovalModal({
           )}
         </div>
       </div>
+      {canDecide && approval.can_approve === false && (
+        <div className="mrow">
+          <label />
+          <span className="dimmer">{t('console.approvals.modal.noSelfApproval')}</span>
+        </div>
+      )}
       {canDecide && (
         <div className="mrow">
           <label htmlFor="approval-delegate-member">{t('console.approvals.modal.delegateTo')}</label>

@@ -164,3 +164,24 @@ test('an expired request is shown as expired among the decided', async ({ page }
   await expect(row).toContainText('EXPIRED')
   await expect(row).toContainText('No decision before the deadline')
 })
+
+test('a requester who may not approve their own request can still reject it', async ({ page }) => {
+  const own = { ...mine, id: 'apr_own', title: 'My own refund', can_approve: false }
+  await page.route('**/api/v1/observe/approvals?**', (route) => {
+    const status = new URL(route.request().url()).searchParams.get('status')
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({ items: status === 'pending' ? [own] : [], next_page_token: null, page_size: 50 }),
+    })
+  })
+  await json(page, '**/api/v1/observe/approvals/apr_own/decisions', [])
+
+  await page.goto('/govern/approvals', { waitUntil: 'domcontentloaded' })
+  const row = page.locator('tbody tr').filter({ hasText: 'My own refund' })
+  await expect(row.getByRole('button', { name: 'Reject' })).toBeVisible()
+  await expect(row.getByRole('button', { name: 'Approve' })).toHaveCount(0)
+
+  await row.getByRole('button', { name: 'Details' }).click()
+  await expect(page.getByRole('dialog')).toContainText('needs another approver to approve it')
+})

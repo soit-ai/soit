@@ -444,6 +444,7 @@ export default function ConsoleTaskDetail() {
                     )}
                     {approval.can_decide !== false && (
                     <span style={{ display: 'inline-flex', gap: 6 }}>
+                      {approval.can_approve !== false && (
                       <ConsoleButton
                         variant="primary"
                         style={{ height: 22, fontSize: 10.5 }}
@@ -457,6 +458,7 @@ export default function ConsoleTaskDetail() {
                       >
                         {t('console.taskDetail.approve')}
                       </ConsoleButton>
+                      )}
                       <ConsoleButton
                         variant="ghost"
                         style={{
