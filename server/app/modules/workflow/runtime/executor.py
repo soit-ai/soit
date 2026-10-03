@@ -27,7 +27,11 @@ from app.modules.workflow.application.variable_resolver import VariableResolver
 from app.modules.workflow.domain.models import WorkflowRun
 from app.modules.workflow.runtime.engine import ExecutionEngine
 from app.modules.workflow.runtime.executors import get_executor
-from app.modules.workflow.runtime.executors.base import ExecutionContext
+from app.modules.workflow.runtime.executors.base import (
+    APPROVAL_REJECTED,
+    ExecutionContext,
+    WorkflowApprovalDeclined,
+)
 from app.modules.workflow.runtime.limits import (
     WorkflowLimitExceeded,
     WorkflowLimitGuard,
@@ -444,6 +448,7 @@ class WorkflowExecutor:
                 resume_tool_call_id=checkpoint.get("tool_call_id"),
                 resume_tool_run_step_id=checkpoint.get("tool_run_step_id"),
                 resume_response_id=checkpoint.get("response_id"),
+                resume_approval_status=checkpoint.get("approval_status"),
             )
             final_error_recorded = False
             try:
@@ -477,6 +482,22 @@ class WorkflowExecutor:
                             )
                         break
                     except WorkflowApprovalRequired:
+                        raise
+                    except WorkflowApprovalDeclined as exc:
+                        # A decision, not a fault: recorded and never retried.
+                        await node_ctx.trace_writer.update_step_status(
+                            run_step.id,
+                            status="failed",
+                            output_summary=str(exc),
+                            error_code=APPROVAL_REJECTED,
+                            error_message=str(exc),
+                            error_details={
+                                "node_id": node_id,
+                                "node_type": node_type,
+                                "approval_status": exc.status,
+                            },
+                        )
+                        final_error_recorded = True
                         raise
                     except asyncio.CancelledError:
                         raise

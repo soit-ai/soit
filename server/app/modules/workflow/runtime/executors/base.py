@@ -19,6 +19,12 @@ from app.kernel.ports.vector.interface import VectorPort
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.modules.workflow.application.variable_resolver import VariableResolver
+from app.modules.workflow.runtime.approval import (
+    APPROVAL_REJECTED,
+    WorkflowApprovalDeclined,
+)
+
+__all__ = ["APPROVAL_REJECTED", "ExecutionContext", "NodeExecutor", "WorkflowApprovalDeclined"]
 
 if TYPE_CHECKING:
     from app.modules.workflow.application.contracts import WorkflowKnowledgeQueryPort
@@ -51,6 +57,7 @@ class ExecutionContext:
         resume_tool_call_id: str | None = None,
         resume_tool_run_step_id: str | None = None,
         resume_response_id: str | None = None,
+        resume_approval_status: str | None = None,
         workflow_inputs: dict[str, Any] | None = None,
         node_context_factory: Callable[[], Awaitable[ExecutionContext]] | None = None,
         owned_session: AsyncSession | None = None,
@@ -104,6 +111,7 @@ class ExecutionContext:
         self.resume_tool_call_id = resume_tool_call_id
         self.resume_tool_run_step_id = resume_tool_run_step_id
         self.resume_response_id = resume_response_id
+        self.resume_approval_status = resume_approval_status
         self.node_context_factory = node_context_factory
         self.owned_session = owned_session
 

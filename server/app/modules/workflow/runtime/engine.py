@@ -28,6 +28,10 @@ from app.kernel.runtime.runs.tool_calls import (
     summarize_tool_payload,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.modules.workflow.runtime.approval import (
+    APPROVAL_REJECTED,
+    WorkflowApprovalDeclined,
+)
 from app.modules.workflow.runtime.limits import WorkflowLimitExceeded
 
 if TYPE_CHECKING:
@@ -37,6 +41,8 @@ if TYPE_CHECKING:
 def _limit_error_code(exc: BaseException) -> str | None:
     """A run stopped by a declared limit records the limit as its error code."""
 
+    if isinstance(exc, WorkflowApprovalDeclined):
+        return APPROVAL_REJECTED
     return exc.reason if isinstance(exc, WorkflowLimitExceeded) else None
 
 
@@ -232,8 +238,14 @@ class ExecutionEngine:
         *,
         workflow_run_id: str,
         checkpoint: dict[str, Any],
+        approval_status: str,
     ) -> dict[str, Any]:
-        """Resume one workflow from a durable approval checkpoint."""
+        """Resume one workflow from a durable approval checkpoint.
+
+        ``approval_status`` is the decision on the call the run stopped for.
+        Only ``approved`` lets the call run; any other ends its node as
+        ``APPROVAL_REJECTED`` without calling the tool.
+        """
 
         run = await self.db.get(Run, plan.run_id)
         if (
@@ -249,7 +261,7 @@ class ExecutionEngine:
             result = await self._execute_workflow(
                 plan,
                 workflow_run_id=workflow_run_id,
-                checkpoint=checkpoint,
+                checkpoint={**checkpoint, "approval_status": approval_status},
             )
             if result.get("status") == "waiting_approval":
                 self.state_machine.transition_run(
