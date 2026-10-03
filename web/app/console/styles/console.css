@@ -337,22 +337,22 @@
 .console-root .seg button:hover:not(.on){color:var(--foreground)}
 
 /* chips */
-.console-root .chip{
+:is(.console-root,.console-theme) .chip{
   display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;
   border-radius:99px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.02em;
   border:1px solid var(--border);color:var(--muted-foreground);white-space:nowrap;
 }
-.console-root .chip i{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
-.console-root .chip.st-pass{background:var(--ok-tint);border-color:transparent;color:var(--success-foreground)}
-.console-root .chip.st-pass i{background:var(--success)}
-.console-root .chip.st-degraded{background:var(--warn-tint);border-color:transparent;color:var(--warning-foreground)}
-.console-root .chip.st-degraded i{background:var(--warning)}
-.console-root .chip.st-blocked, .console-root .chip.st-failed{background:var(--bad-tint);border-color:transparent;color:var(--danger-foreground)}
-.console-root .chip.st-blocked i, .console-root .chip.st-failed i{background:var(--danger)}
-.console-root .chip.st-running{background:var(--primary-subtle);border-color:transparent;color:var(--primary-subtle-foreground)}
-.console-root .chip.st-running i{background:var(--primary);animation:pulse 1.4s ease infinite}
-.console-root .chip.st-info{background:var(--info-tint);border-color:transparent;color:var(--info)}
-.console-root .chip.st-info i{background:var(--info)}
+:is(.console-root,.console-theme) .chip i{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+:is(.console-root,.console-theme) .chip.st-pass{background:var(--ok-tint);border-color:transparent;color:var(--success-foreground)}
+:is(.console-root,.console-theme) .chip.st-pass i{background:var(--success)}
+:is(.console-root,.console-theme) .chip.st-degraded{background:var(--warn-tint);border-color:transparent;color:var(--warning-foreground)}
+:is(.console-root,.console-theme) .chip.st-degraded i{background:var(--warning)}
+:is(.console-root,.console-theme) .chip.st-blocked, :is(.console-root,.console-theme) .chip.st-failed{background:var(--bad-tint);border-color:transparent;color:var(--danger-foreground)}
+:is(.console-root,.console-theme) .chip.st-blocked i, :is(.console-root,.console-theme) .chip.st-failed i{background:var(--danger)}
+:is(.console-root,.console-theme) .chip.st-running{background:var(--primary-subtle);border-color:transparent;color:var(--primary-subtle-foreground)}
+:is(.console-root,.console-theme) .chip.st-running i{background:var(--primary);animation:pulse 1.4s ease infinite}
+:is(.console-root,.console-theme) .chip.st-info{background:var(--info-tint);border-color:transparent;color:var(--info)}
+:is(.console-root,.console-theme) .chip.st-info i{background:var(--info)}
 @keyframes pulse{50%{opacity:.35}}
 
 /* panels & tiles */
@@ -971,7 +971,7 @@
 }
 .console-root .btn:active{transform:translateY(.5px)}
 /* v13: flat buttons — solid brand fill, hover darker (base layer rules apply) */
-.console-root .chip{letter-spacing:.035em}
+:is(.console-root,.console-theme) .chip{letter-spacing:.035em}
 
 /* navigation: group rules extend, active states breathe */
 .console-root .sub-cap{display:flex;align-items:center;gap:8px}

@@ -1,3 +1,10 @@
+export {
+  ApprovalModal,
+  approvalStatusChip,
+  approverNames,
+  useApprovalMembers,
+  useDeadlineLabel,
+} from './approval-modal'
 export { Backlink } from './backlink'
 export { CodeBlock } from './code-block'
 export { ConsoleButton } from './button'

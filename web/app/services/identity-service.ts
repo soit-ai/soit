@@ -240,8 +240,11 @@ export const updateWorkspace = (
   return patch<WorkspaceInfo>(`/workspaces/${workspaceId}`, data, config)
 }
 
-export const listWorkspaceMembers = (workspaceId: string): Promise<WorkspaceMember[]> => {
-  return get<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`)
+export const listWorkspaceMembers = (
+  workspaceId: string,
+  config?: RequestConfigWithToast,
+): Promise<WorkspaceMember[]> => {
+  return get<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`, undefined, config)
 }
 
 export const updateWorkspaceMemberRole = (

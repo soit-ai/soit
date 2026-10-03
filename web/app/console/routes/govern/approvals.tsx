@@ -3,13 +3,19 @@ import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
+  ApprovalModal,
+  approvalStatusChip,
+  approverNames,
   ConsoleButton,
   ConsoleTabs,
   DataStateRow,
+  FilterChip,
   Pager,
   StatTile,
   StatTileGrid,
   StatusChip,
+  useApprovalMembers,
+  useDeadlineLabel,
   Workbench,
   WorkbenchPanel,
 } from '../../components'
@@ -57,51 +63,54 @@ function median(values: number[]): string {
   return `${(minutes / 60).toFixed(1)}h`
 }
 
-function decisionStatus(status: ApprovalResponse['status']) {
-  if (status === 'approved') return { status: 'pass' as const, label: 'APPROVED' }
-  if (status === 'rejected') return { status: 'blocked' as const, label: 'REJECTED' }
-  if (status === 'canceled') return { status: 'info' as const, label: 'CANCELED' }
-  return { status: 'running' as const, label: 'PENDING' }
-}
-
 export default function ConsoleApprovals() {
   const { t } = useTranslation()
   const navigate = useConsoleNavigate()
+  const deadlineLabel = useDeadlineLabel()
+  const { label } = useApprovalMembers(true)
   const [tab, setTab] = useState<'pending' | 'decided'>('pending')
+  const [filter, setFilter] = useState<'all' | 'mine'>('all')
+  const [opened, setOpened] = useState<ApprovalResponse | null>(null)
 
   const pendingQuery = useQuery({
     queryKey: ['console', 'approvals', 'pending'],
     queryFn: () => listApprovals({ status: 'pending', page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
-  // The API filters by a single status, so the decided view merges the three
+  // The API filters by a single status, so the decided view merges the four
   // terminal states rather than asking for "everything that is not pending".
   const decidedQuery = useQuery({
     queryKey: ['console', 'approvals', 'decided'],
     queryFn: async () => {
-      const [approved, rejected, canceled] = await Promise.all([
-        listApprovals({ status: 'approved', page_size: PAGE_SIZE }),
-        listApprovals({ status: 'rejected', page_size: PAGE_SIZE }),
-        listApprovals({ status: 'canceled', page_size: PAGE_SIZE }),
-      ])
-      return [...approved.items, ...rejected.items, ...canceled.items].sort((a, b) =>
-        String(b.resolved_at || b.created_at).localeCompare(String(a.resolved_at || a.created_at)),
+      const outcomes = await Promise.all(
+        (['approved', 'rejected', 'canceled', 'expired'] as const).map((status) =>
+          listApprovals({ status, page_size: PAGE_SIZE }),
+        ),
       )
+      return outcomes
+        .flatMap((page) => page.items)
+        .sort((a, b) =>
+          String(b.resolved_at || b.created_at).localeCompare(String(a.resolved_at || a.created_at)),
+        )
     },
     options: { retry: false, refetchOnWindowFocus: false },
   })
 
   const pending = pendingQuery.data?.items || []
   const decided = decidedQuery.data || []
+  const mine = pending.filter((row) => row.assigned_to_me)
+  const shown = filter === 'mine' ? mine : pending
+
+  const refresh = () => {
+    void pendingQuery.refetch()
+    void decidedQuery.refetch()
+  }
 
   const resolveMutation = useMutation({
     mutationKey: ['console', 'approvals', 'resolve'],
     mutationFn: ({ id, status }: { id: string; status: 'approved' | 'rejected' }) =>
       resolveApproval(id, { status }, { suppressErrorToast: true }),
-    onSuccess: () => {
-      void pendingQuery.refetch()
-      void decidedQuery.refetch()
-    },
+    onSuccess: refresh,
     onError: (error) => {
       toast.error(requestErrorMessage(error, 'Failed to resolve the approval'))
     },
@@ -129,6 +138,37 @@ export default function ConsoleApprovals() {
       row.task_id ? { label: row.task_id, to: `/execute/tasks/${row.task_id}` } : null,
     ].filter(Boolean) as Array<{ label: string; to: string }>
 
+  const approversCell = (row: ApprovalResponse) => {
+    const names = approverNames(row, label)
+    if (names.length === 0) return <span className="dimmer">{t('console.approvals.anyWriter')}</span>
+    return (
+      <span style={{ overflowWrap: 'anywhere' }}>
+        {names.join(', ')}
+        {row.assigned_to_me && <span className="dimmer"> · {t('console.approvals.you')}</span>}
+      </span>
+    )
+  }
+
+  const titleButton = (row: ApprovalResponse, bold: boolean) => (
+    <button
+      type="button"
+      style={{
+        background: 'none',
+        border: 0,
+        padding: 0,
+        color: 'inherit',
+        font: 'inherit',
+        textAlign: 'left',
+        cursor: 'pointer',
+        fontWeight: bold ? 600 : undefined,
+        overflowWrap: 'anywhere',
+      }}
+      onClick={() => setOpened(row)}
+    >
+      {row.title || row.id}
+    </button>
+  )
+
   return (
     <Workbench
       title={t('console.approvals.title')}
@@ -155,7 +195,7 @@ export default function ConsoleApprovals() {
             sub={
               <span className="mono dimmer">
                 {decided.filter((row) => row.status === 'approved').length} approved ·{' '}
-                {decided.filter((row) => row.status === 'rejected').length} rejected
+                {decided.filter((row) => row.status !== 'approved').length} refused
               </span>
             }
           />
@@ -167,8 +207,8 @@ export default function ConsoleApprovals() {
           />
           <StatTile
             label={t('console.approvals.tiles.escalations')}
-            value={String(pending.filter((row) => elapsed(row.created_at).includes('h')).length)}
-            sub={<span className="mono dimmer">pending over an hour</span>}
+            value={String(pending.filter((row) => row.expires_at && deadlineLabel(row.expires_at).soon).length)}
+            sub={<span className="mono dimmer">{t('console.approvals.dueSub')}</span>}
           />
         </StatTileGrid>
       }
@@ -185,11 +225,19 @@ export default function ConsoleApprovals() {
     >
       {tab === 'pending' ? (
         <WorkbenchPanel className="mt-3.5">
+          <div className="flex flex-wrap items-center gap-2" style={{ padding: '8px 12px' }}>
+            <FilterChip active={filter === 'all'} count={pending.length} onClick={() => setFilter('all')}>
+              {t('console.approvals.filters.all')}
+            </FilterChip>
+            <FilterChip active={filter === 'mine'} count={mine.length} onClick={() => setFilter('mine')}>
+              {t('console.approvals.filters.mine')}
+            </FilterChip>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('console.approvals.columns.request')}</TableHead>
-                <TableHead>{t('console.approvals.columns.gate')}</TableHead>
+                <TableHead>{t('console.approvals.columns.approvers')}</TableHead>
                 <TableHead>{t('console.approvals.columns.requestedBy')}</TableHead>
                 <TableHead className="num">{t('console.approvals.columns.waiting')}</TableHead>
                 <TableHead>{t('console.approvals.columns.context')}</TableHead>
@@ -197,31 +245,43 @@ export default function ConsoleApprovals() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pending.length === 0 ? (
+              {shown.length === 0 ? (
                 <DataStateRow
                   colSpan={6}
                   isPending={pendingQuery.isPending}
                   isError={pendingQuery.isError}
                 />
               ) : (
-                pending.map((row) => {
+                shown.map((row) => {
                   const waiting = elapsed(row.created_at)
+                  const due = row.expires_at ? deadlineLabel(row.expires_at) : null
+                  const canDecide = row.can_decide !== false
                   return (
                     <TableRow key={row.id}>
                       <TableCell>
-                        <b style={{ fontWeight: 600 }}>{row.title || row.id}</b>
+                        {titleButton(row, true)}
                         <br />
-                        <span className="dimmer" style={{ fontSize: 11 }}>
-                          {row.agent_id || row.thread_id || '—'}
+                        <span className="mono dimmer" style={{ fontSize: 11 }}>
+                          {row.policy_ref || row.agent_id || row.thread_id || '—'}
                         </span>
                       </TableCell>
-                      <TableCell className="mono dim">{row.policy_ref || '—'}</TableCell>
-                      <TableCell className="dim">{row.requested_by || '—'}</TableCell>
-                      <TableCell
-                        className="num"
-                        style={waiting.includes('h') ? { color: 'var(--warning-foreground)' } : undefined}
-                      >
-                        {waiting}
+                      <TableCell>{approversCell(row)}</TableCell>
+                      <TableCell className="dim">{row.requested_by ? label(row.requested_by) : '—'}</TableCell>
+                      <TableCell className="num">
+                        <span style={waiting.includes('h') ? { color: 'var(--warning-foreground)' } : undefined}>
+                          {waiting}
+                        </span>
+                        {due && (
+                          <>
+                            <br />
+                            <span
+                              style={{ fontSize: 11, color: due.soon ? 'var(--warning-foreground)' : undefined }}
+                              className={due.soon ? undefined : 'dimmer'}
+                            >
+                              {due.text}
+                            </span>
+                          </>
+                        )}
                       </TableCell>
                       <TableCell>
                         {contextLinks(row).length === 0
@@ -243,25 +303,32 @@ export default function ConsoleApprovals() {
                             ))}
                       </TableCell>
                       <TableCell className="num">
-                        <span style={{ display: 'inline-flex', gap: 6 }}>
-                          <ConsoleButton
-                            variant="primary"
-                            size="sm"
-                            disabled={resolveMutation.isPending}
-                            onClick={() =>
-                              resolveMutation.mutate({ id: row.id, status: 'approved' })
-                            }
-                          >
-                            {t('console.approvals.approve')}
-                          </ConsoleButton>
-                          <ConsoleButton
-                            size="sm"
-                            disabled={resolveMutation.isPending}
-                            onClick={() =>
-                              resolveMutation.mutate({ id: row.id, status: 'rejected' })
-                            }
-                          >
-                            {t('console.approvals.reject')}
+                        <span className="inline-flex flex-wrap justify-end" style={{ gap: 6 }}>
+                          {canDecide && (
+                            <>
+                              <ConsoleButton
+                                variant="primary"
+                                size="sm"
+                                disabled={resolveMutation.isPending}
+                                onClick={() =>
+                                  resolveMutation.mutate({ id: row.id, status: 'approved' })
+                                }
+                              >
+                                {t('console.approvals.approve')}
+                              </ConsoleButton>
+                              <ConsoleButton
+                                size="sm"
+                                disabled={resolveMutation.isPending}
+                                onClick={() =>
+                                  resolveMutation.mutate({ id: row.id, status: 'rejected' })
+                                }
+                              >
+                                {t('console.approvals.reject')}
+                              </ConsoleButton>
+                            </>
+                          )}
+                          <ConsoleButton variant="ghost" size="sm" onClick={() => setOpened(row)}>
+                            {t('console.approvals.details')}
                           </ConsoleButton>
                         </span>
                       </TableCell>
@@ -295,15 +362,17 @@ export default function ConsoleApprovals() {
                 />
               ) : (
                 decided.map((row) => {
-                  const decision = decisionStatus(row.status)
+                  const decision = approvalStatusChip(row.status)
                   return (
                     <TableRow key={row.id}>
                       <TableCell className="num dimmer">
                         {relativeTime(row.resolved_at || row.created_at)}
                       </TableCell>
-                      <TableCell className="dim">{row.title || row.id}</TableCell>
+                      <TableCell className="dim">{titleButton(row, false)}</TableCell>
                       <TableCell className="mono dim">{row.policy_ref || '—'}</TableCell>
-                      <TableCell className="dim">{row.resolved_by || '—'}</TableCell>
+                      <TableCell className="dim">
+                        {!row.resolved_by ? '—' : row.resolved_by === 'system' ? 'system' : label(row.resolved_by)}
+                      </TableCell>
                       <TableCell className="num dim">
                         {elapsed(row.created_at, row.resolved_at)}
                       </TableCell>
@@ -326,6 +395,14 @@ export default function ConsoleApprovals() {
           </Table>
           <Pager summary={t('console.approvals.decidedNote')} />
         </WorkbenchPanel>
+      )}
+      {opened && (
+        <ApprovalModal
+          approval={opened}
+          open={Boolean(opened)}
+          onOpenChange={(next) => !next && setOpened(null)}
+          onChanged={refresh}
+        />
       )}
     </Workbench>
   )

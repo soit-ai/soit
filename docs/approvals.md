@@ -111,6 +111,21 @@ Notifications use the `task` category, so members who switched it off in their
 notification preferences are not notified, and those who chose a channel get
 it there as well. Each event notifies once, even when it is delivered again.
 
+## In the console
+
+**Govern › Approvals** lists pending requests with who may decide each one
+(*you* when it is you), how long it has waited and when it is due. **Assigned
+to me** narrows the list to the requests that name you, and Approve and Reject
+appear only on the requests you may decide. **Details** shows what a request
+would do, its approvers, its deadline and its history, and lets an approver
+delegate it or an approver, the requester or an admin cancel it. The decided
+view includes expired requests. A task waiting on a request shows the same
+approvers and deadline on its page.
+
+Each request returned by the API carries `can_decide`, `can_cancel` and
+`assigned_to_me` for the caller, worked out by the same rules the server
+enforces.
+
 ## History
 
 `GET /api/v1/observe/approvals/{id}/decisions` returns every decision,

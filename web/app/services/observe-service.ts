@@ -222,7 +222,7 @@ export const createRunFeedback = (data: RunFeedbackCreate) => {
   return post('/observe/feedback', data)
 }
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'canceled'
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'canceled' | 'expired'
 
 export interface ApprovalResponse {
   id: string
@@ -234,6 +234,16 @@ export interface ApprovalResponse {
   policy_ref?: string | null
   status: ApprovalStatus
   details_json?: Record<string, unknown> | null
+  /** Members or service principals who may decide; with no roles either, any writer may. */
+  assignee_user_ids?: string[] | null
+  /** Workspace roles whose holders may decide. */
+  assignee_roles?: string[] | null
+  /** When an undecided request expires, which counts as a rejection. */
+  expires_at?: string | null
+  /** What the caller may do now; an older server sends none of these. */
+  can_decide?: boolean
+  can_cancel?: boolean
+  assigned_to_me?: boolean
   requested_by?: string | null
   resolved_by?: string | null
   resolution_note?: string | null
@@ -262,6 +272,32 @@ export const resolveApproval = (
   config?: RequestConfigWithToast,
 ): Promise<ApprovalResponse> => {
   return post<ApprovalResponse>(`/observe/approvals/${approvalId}/resolve`, data, config)
+}
+
+export interface ApprovalDecisionEntry {
+  id: string
+  approval_id: string
+  action: 'approved' | 'rejected' | 'canceled' | 'expired' | 'delegated'
+  actor_id?: string | null
+  actor_role?: string | null
+  note?: string | null
+  assignees_before_json?: { user_ids?: string[]; roles?: string[] } | null
+  assignees_after_json?: { user_ids?: string[]; roles?: string[] } | null
+  created_at: string
+}
+
+/** Hand a pending request to one member, who becomes its only approver. */
+export const delegateApproval = (
+  approvalId: string,
+  data: { user_id: string; note?: string },
+  config?: RequestConfigWithToast,
+): Promise<ApprovalResponse> => {
+  return post<ApprovalResponse>(`/observe/approvals/${approvalId}/delegate`, data, config)
+}
+
+/** Every decision, closing and delegation of a request, oldest first. */
+export const listApprovalDecisions = (approvalId: string): Promise<ApprovalDecisionEntry[]> => {
+  return get<ApprovalDecisionEntry[]>(`/observe/approvals/${approvalId}/decisions`)
 }
 
 /** Terminal failures across the runtime; each kind has its own redrive path. */

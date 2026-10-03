@@ -16,7 +16,8 @@ import { NavLink, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { requestErrorMessage } from '@/utils/request'
 import { listApprovals, resolveApproval } from '@/services/observe-service'
-import { relativeTime } from '../../adapters/palette'
+import { relativeTime } from '../../adapters/palette'
+import { approverNames, useApprovalMembers, useDeadlineLabel } from '../../components'
 import {
   cancelTask,
   getTask,
@@ -139,6 +140,8 @@ export default function ConsoleTaskDetail() {
 
   // Approvals hang on the tool call that raised them, and the call belongs to
   // the task, so the task is where they can be found and answered.
+  const deadlineLabel = useDeadlineLabel()
+  const { label: memberLabel } = useApprovalMembers(true)
   const approvalsQuery = useQuery({
     queryKey: ['console', 'task-detail', id, 'approvals'],
     queryFn: () => listApprovals({ task_id: id as string, status: 'pending', page_size: 10 }),
@@ -421,6 +424,14 @@ export default function ConsoleTaskDetail() {
                       {t('console.taskDetail.approvalRaised', {
                         ago: relativeTime(approval.created_at),
                       })}
+                      {approval.expires_at && ` · ${deadlineLabel(approval.expires_at).text}`}
+                    </span>
+                    <span className="dimmer" style={{ fontSize: 11, overflowWrap: 'anywhere' }}>
+                      {t('console.approvals.awaiting', {
+                        approvers:
+                          approverNames(approval, memberLabel).join(', ') ||
+                          t('console.approvals.anyWriter'),
+                      })}
                     </span>
                     {/* What is being approved, exactly as the run asked it. */}
                     {!!details.parameters && (
@@ -431,6 +442,7 @@ export default function ConsoleTaskDetail() {
                         {JSON.stringify(details.parameters, null, 2)}
                       </pre>
                     )}
+                    {approval.can_decide !== false && (
                     <span style={{ display: 'inline-flex', gap: 6 }}>
                       <ConsoleButton
                         variant="primary"
@@ -463,6 +475,7 @@ export default function ConsoleTaskDetail() {
                         {t('console.taskDetail.reject')}
                       </ConsoleButton>
                     </span>
+                    )}
                   </div>
                 )
               })

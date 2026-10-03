@@ -55,6 +55,14 @@ record for operators.
   handed to; an expired one notifies whoever opened it. They use the `task`
   notification category. Approval events now carry the request's assignees,
   deadline and requester, and delegation sends `approval.delegated`.
+- Govern › Approvals shows who may decide each request and when it is due,
+  filters to the requests assigned to you, offers Approve and Reject only on
+  the ones you may decide, and opens a request's details: what it would do,
+  its approvers, deadline and history, with delegation and cancellation. The
+  decided view includes expired requests, and a task's page shows the
+  approvers and deadline of the request it waits on. Approval responses carry
+  `can_decide`, `can_cancel` and `assigned_to_me` for the caller. Status chips
+  inside console dialogs are now styled.
 
 ## [1.6.1] - 2026-10-03
 
