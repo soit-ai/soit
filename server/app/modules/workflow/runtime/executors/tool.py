@@ -5,7 +5,7 @@ Tool node executor.
 
 from typing import Any
 
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import ConflictError, ValidationError
 from app.kernel.ports.approvals import ApprovalRecord
 from app.kernel.runtime.db.models.runs import RunStep
 from app.kernel.runtime.runs.tool_calls import (
@@ -18,7 +18,11 @@ from app.kernel.runtime.tools.approval import (
     resolve_tool_policy,
     tool_approval_rule,
 )
-from app.modules.workflow.runtime.executors.base import ExecutionContext, NodeExecutor
+from app.modules.workflow.runtime.executors.base import (
+    ExecutionContext,
+    NodeExecutor,
+    WorkflowApprovalDeclined,
+)
 
 
 def stable_workflow_tool_call_id(
@@ -358,6 +362,27 @@ class ToolNodeExecutor(NodeExecutor):
                 if linked_response:
                     output["response_id"] = linked_response.id
                 return output
+
+        if resuming_approval and context.resume_approval_status != "approved":
+            # Rejected, canceled or expired: the waiting call is closed
+            # without crossing the outbound boundary.
+            if tool_execution_service is not None:
+                try:
+                    await tool_execution_service.reject_approval(
+                        ToolExecutionCommand(
+                            run_id=context.run_id,
+                            run_step_id=tool_run_step_id,
+                            tool_call_id=tool_call_id,
+                            tool_ref=tool_ref,
+                            arguments=parameters,
+                            idempotency_key=f"tool:{context.run_id}:{tool_call_id}",
+                            created_by=context.ctx.user_id,
+                        )
+                    )
+                except (ValueError, ConflictError):
+                    # Already closed by an earlier attempt.
+                    pass
+            raise WorkflowApprovalDeclined(node_id=node_id, status=context.resume_approval_status)
 
         if tool_execution_service is not None:
             tool_execution_claim = await tool_execution_service.claim(

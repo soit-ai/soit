@@ -463,6 +463,8 @@ def build_evaluation_service(*, db: AsyncSession, ctx: RequestContext) -> Regres
 
 
 def build_workflow_service(*, db: AsyncSession, ctx: RequestContext) -> WorkflowService:
+    from app.modules.observe.infra.tool_approvals import SessionToolApprovals
+
     container = get_container()
     workflow_repo = WorkflowRepository(db, ctx)
     version_repo = WorkflowVersionRepository(db, ctx)
@@ -477,6 +479,7 @@ def build_workflow_service(*, db: AsyncSession, ctx: RequestContext) -> Workflow
         response_service=build_response_service(db=db, ctx=ctx),
         approval_checkpoint_gateway=_get_optional_approval_checkpoint_gateway(),
         approval_ledger=_approval_ledger(),
+        tool_approvals=SessionToolApprovals(db),
         workflow_knowledge_query_port=KnowledgeRuntimeWorkflowQueryAdapter(
             runtime_service=build_knowledge_runtime_service(db=db, ctx=ctx),
             ctx=ctx,

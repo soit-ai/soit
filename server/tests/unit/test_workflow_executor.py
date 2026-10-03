@@ -1644,7 +1644,8 @@ async def test_workflow_tool_node_intercepts_required_approval_before_tool_invoc
     resumed = await WorkflowExecutor(engine).execute(
         plan,
         context,
-        checkpoint=checkpoint,
+        # The call runs only on an approved decision.
+        checkpoint={**checkpoint, "approval_status": "approved"},
     )
 
     assert resumed["value"]["tool_ref"] == "tool:http:prod_delete_user"
@@ -1779,6 +1780,7 @@ async def test_execution_engine_persists_and_resumes_workflow_approval_checkpoin
         plan,
         workflow_run_id=workflow_run.id,
         checkpoint=dict(workflow_run.checkpoint_json),
+        approval_status="approved",
     )
 
     await async_db.refresh(run)
@@ -1793,3 +1795,90 @@ async def test_execution_engine_persists_and_resumes_workflow_approval_checkpoin
     assert (await async_db.execute(
         select(RunStepToolCall).where(RunStepToolCall.run_id == plan.run_id)
     )).scalars().all() == [record]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("decision", ["rejected", "canceled", "expired"])
+async def test_a_declined_workflow_approval_never_calls_the_tool(
+    async_db: Session,
+    ctx: RequestContext,
+    monkeypatch: pytest.MonkeyPatch,
+    decision: str,
+) -> None:
+    trace_writer = TraceWriter(async_db, ctx)
+    backend = ExplicitApprovalToolPort()
+    tool_port = ToolPolicyGateway(
+        gateway=backend,
+        ctx=ctx,
+        trace_writer=trace_writer,
+        enable_egress_check=False,
+    )
+
+    class FakeContainer:
+        def get_llm_port(self, **_: Any) -> LLMPort:
+            return FakeLLMPort()
+
+        def get_tool_port(self, **_: Any) -> ToolPort:
+            return tool_port
+
+        def get_vector_port(self, **_: Any) -> None:
+            return None
+
+        def get_plugin_runtime_port(self, **_: Any) -> None:
+            return None
+
+    monkeypatch.setattr("app.wiring.get_container", lambda: FakeContainer())
+    engine = ExecutionEngine(async_db, ctx, trace_writer)
+    plan = ExecutionPlan(
+        run_id="",
+        mode="workflow",
+        inputs={"value": "declined"},
+        subject_kind="workflow",
+        subject_id="wf_declined_approval",
+        subject_version_id="ver_declined_approval",
+        plan_data={
+            "nodes": {
+                "tool1": {
+                    "id": "tool1",
+                    "type": "tool",
+                    # A decision is final: no retry may call the tool after all.
+                    "retry_policy": {"max_retries": 3},
+                    "input": {
+                        "tool_ref": "tool:test:explicit_approval",
+                        "value": "{{ inputs.value }}",
+                    },
+                },
+            },
+            "edges": [],
+            "execution_order": ["tool1"],
+            "semantics": {"concurrency": 1},
+            "policy": {},
+        },
+    )
+    await engine.execute(plan)
+    workflow_run = (await async_db.execute(
+        select(WorkflowRun).where(WorkflowRun.run_id == plan.run_id)
+    )).scalars().one()
+
+    with pytest.raises(Exception, match="not approved"):
+        await engine.resume_workflow(
+            plan,
+            workflow_run_id=workflow_run.id,
+            checkpoint=dict(workflow_run.checkpoint_json),
+            approval_status=decision,
+        )
+
+    run = await async_db.get(Run, plan.run_id)
+    await async_db.refresh(run)
+    record = (await async_db.execute(
+        select(RunStepToolCall).where(RunStepToolCall.run_id == plan.run_id)
+    )).scalars().one()
+    await async_db.refresh(record)
+    assert backend.calls == []
+    assert record.status == "rejected"
+    assert run.status == "failed"
+    assert run.error_code == "APPROVAL_REJECTED"
+    failed_steps = (await async_db.execute(
+        select(RunStep).where(RunStep.run_id == plan.run_id, RunStep.error_code == "APPROVAL_REJECTED")
+    )).scalars().all()
+    assert len(failed_steps) == 1

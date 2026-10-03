@@ -12,6 +12,17 @@ record for operators.
 
 ## [Unreleased]
 
+### Fixed
+
+- A workflow run that stopped for approval resumed whatever the decision:
+  resuming skipped the tool node's approval gate, so a call a reviewer
+  rejected, or nobody had decided yet, ran once anyone allowed to run the
+  workflow resumed it. Resuming now reads the request the run waits on: a
+  pending or missing request answers `409` and the run keeps waiting; a
+  rejected, canceled or expired call ends its node as `APPROVAL_REJECTED`
+  without calling the tool, and the node's retry policy does not apply;
+  only an approved call runs.
+
 ## [1.6.0] - 2026-10-02
 
 ### Added

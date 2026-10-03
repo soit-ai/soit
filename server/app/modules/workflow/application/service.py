@@ -20,10 +20,12 @@ from app.kernel.contracts.pagination import PageToken
 from app.kernel.events.bus import EventBus
 from app.kernel.identity.guard import rbac_guard, workspace_guard
 from app.kernel.identity.permissions import RESOURCE_WORKFLOW
+from app.kernel.ports.approvals.interface import ToolApprovalPort
 from app.kernel.runtime.common import lease as runtime_lease
 from app.kernel.runtime.db.models.runs import Run
 from app.kernel.runtime.responses.service import ResponseService
 from app.kernel.runtime.runs.writer import TraceWriter
+from app.kernel.runtime.status import ApprovalStatus
 from app.kernel.specs.validator import validate_runtime_spec
 from app.modules.identity.application.display import resolve_user_display_names_async
 from app.modules.versioning.application.service import VersionControlService
@@ -96,10 +98,12 @@ class WorkflowService:
         workflow_knowledge_query_port: WorkflowKnowledgeQueryPort | None = None,
         node_knowledge_query_port_factory: Callable[[AsyncSession], WorkflowKnowledgeQueryPort]
         | None = None,
+        tool_approvals: ToolApprovalPort | None = None,
         **_: Any,
     ):
         self.db = db
         self.ctx = ctx
+        self.tool_approvals = tool_approvals
         self.workflow_repo = workflow_repo if isinstance(workflow_repo, WorkflowRepository) else WorkflowRepository(db, ctx)
         self.version_repo = version_repo if isinstance(version_repo, WorkflowVersionRepository) else WorkflowVersionRepository(db, ctx)
         self.compiler = WorkflowCompiler()
@@ -704,6 +708,7 @@ class WorkflowService:
         inputs = checkpoint.get("inputs")
         if not isinstance(inputs, dict):
             raise ValidationError("Workflow approval checkpoint inputs are invalid")
+        approval_status = await self._approval_decision(run.id, checkpoint)
         plan = self.compiler.compile(version.spec_json, inputs, run.id)
         plan.subject_kind = "workflow"
         plan.subject_id = workflow_id
@@ -712,6 +717,7 @@ class WorkflowService:
             plan,
             workflow_run_id=workflow_run.id,
             checkpoint=checkpoint,
+            approval_status=approval_status,
         )
         refreshed = await self._get_run_record(workflow_id, run_id)
         return {
@@ -719,6 +725,27 @@ class WorkflowService:
             "status": refreshed.status,
             "output": result,
         }
+
+    async def _approval_decision(self, run_id: str, checkpoint: dict[str, Any]) -> str:
+        """The decision on the call a run stopped for; a resume waits for one.
+
+        Only an ``approved`` call runs when the run resumes. A rejected,
+        canceled or expired one ends its node without calling the tool, and a
+        run whose request is still pending, or cannot be found, does not
+        resume at all.
+        """
+
+        tool_call_id = checkpoint.get("tool_call_id")
+        decision = (
+            await self.tool_approvals.decision_for(self.ctx, run_id=run_id, tool_call_id=str(tool_call_id))
+            if self.tool_approvals is not None and tool_call_id
+            else None
+        )
+        if decision is None:
+            raise ConflictError("The approval request this run waits on was not found")
+        if decision.status == ApprovalStatus.PENDING.value:
+            raise ConflictError(f"Approval {decision.approval_id} is still pending")
+        return decision.status
 
     async def prepare_redrive(self, workflow_run_id: str) -> PreparedRedrive:
         """Stage one failed workflow run for resume from its crash checkpoint.
