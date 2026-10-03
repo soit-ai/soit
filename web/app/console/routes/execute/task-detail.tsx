@@ -16,7 +16,7 @@ import { NavLink, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { requestErrorMessage } from '@/utils/request'
 import { listApprovals, resolveApproval } from '@/services/observe-service'
-import { relativeTime } from '../../adapters/palette'
+import { relativeTime } from '../../adapters/palette'
 import { approverNames, useApprovalMembers, useDeadlineLabel } from '../../components'
 import {
   cancelTask,
