@@ -22,6 +22,14 @@ record for operators.
   rejected, canceled or expired call ends its node as `APPROVAL_REJECTED`
   without calling the tool, and the node's retry policy does not apply;
   only an approved call runs.
+- Two decisions on one approval request could both be taken.
+  `POST /api/v1/observe/approvals/{id}/resolve` read the request and wrote
+  it without a lock, so an approval and a rejection sent together could both
+  commit and both resume the run, and the same decision sent twice failed
+  with `500`. The request is now locked while it is decided: exactly one
+  decision is taken, the same decision again returns the request unchanged
+  and sends no second event, and a different decision on a closed request
+  answers `409` (it was `400`).
 
 ## [1.6.0] - 2026-10-02
 
