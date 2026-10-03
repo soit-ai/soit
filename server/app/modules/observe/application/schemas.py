@@ -84,6 +84,13 @@ class ApprovalResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    can_decide: bool = False
+    """Whether the caller may approve or reject the request now."""
+    can_cancel: bool = False
+    """Whether the caller may close the request without a decision now."""
+    assigned_to_me: bool = False
+    """Whether the request names the caller, as a member or by a role they hold."""
+
     model_config = ConfigDict(from_attributes=True)
 
     @field_validator("assignee_user_ids", "assignee_roles", mode="before")

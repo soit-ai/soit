@@ -217,3 +217,21 @@ async def test_deciding_a_request_past_its_deadline_closes_it_as_expired(async_c
     assert delegated.status_code == status.HTTP_409_CONFLICT
     assert stored["status"] == "expired"
     assert await _history(async_client, approval_id) == [("expired", "system")]
+
+
+async def test_each_caller_is_told_what_they_may_do(async_client, act_as) -> None:
+    assigned = await _create(async_client, assignee_user_ids=["u_alice"])
+    open_to_all = await _create(async_client)
+
+    async def seen(user_id: str, approval_id: str) -> tuple[bool, bool, bool]:
+        act_as(user_id)
+        data = (await async_client.get(f"/api/v1/observe/approvals/{approval_id}")).json()["data"]
+        return data["can_decide"], data["can_cancel"], data["assigned_to_me"]
+
+    assert await seen("u_alice", assigned) == (True, True, True)
+    assert await seen("u_bob", assigned) == (False, False, False)
+    assert await seen("u_admin", assigned) == (False, True, False)
+    assert await seen("u_bob", open_to_all) == (True, True, False)
+    act_as("u_bob")
+    listed = (await async_client.get("/api/v1/observe/approvals", params={"status": "pending"})).json()["data"]["items"]
+    assert {item["id"]: item["can_decide"] for item in listed} == {assigned: False, open_to_all: True}

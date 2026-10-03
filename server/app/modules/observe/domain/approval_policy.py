@@ -69,6 +69,15 @@ def may_decide(approval: Any, ctx: RequestContext) -> bool:
     return (ctx.user_id or "") in current["user_ids"] or (ctx.workspace_role or "") in current["roles"]
 
 
+def assigned_to(approval: Any, ctx: RequestContext) -> bool:
+    """Whether ``approval`` names ``ctx``, as a member or by a role they hold now."""
+
+    if not is_assigned(approval):
+        return False
+    current = assignees(approval)
+    return (ctx.user_id or "") in current["user_ids"] or (ctx.workspace_role or "") in current["roles"]
+
+
 def may_cancel(approval: Any, ctx: RequestContext) -> bool:
     """Whether ``ctx`` may close ``approval`` without a decision."""
 
