@@ -65,7 +65,7 @@ dependencies = [
     # v1.x is maintenance-only but still the stable line; the upper bound keeps
     # v2 (2026-07-28 spec, stateless core, no initialize handshake) out until
     # the adapter is migrated, while still admitting v1 security patches.
-    "mcp>=1.28.1,<2",
+    "mcp>=1.30.0,<2",
     "apprise==1.13.1",
     "ag-ui-protocol==0.1.22",
     "litellm==1.103.0",
