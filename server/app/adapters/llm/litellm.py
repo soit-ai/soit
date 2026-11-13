@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from app.adapters.llm.content_parts import openai_chat_content
 from app.adapters.llm.litellm_image_routes import (
+    DECOMPOSE,
     EDIT,
     EDIT_OPTIONS,
     GENERATE,
@@ -20,6 +21,12 @@ from app.adapters.llm.litellm_image_routes import (
     takes_openai_sizes,
 )
 from app.adapters.llm.upstream_ids import litellm_ids
+from app.adapters.llm.volcengine_layers import Poster as LayersPoster
+from app.adapters.llm.volcengine_layers import decompose as decompose_layers
+from app.adapters.llm.volcengine_layers import (
+    supports_layer_decomposition,
+    validate_decomposition_request,
+)
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.ports.llm.image_mask import mask_to_openai_alpha
 from app.kernel.ports.llm.interface import (
@@ -28,6 +35,7 @@ from app.kernel.ports.llm.interface import (
     ChatStreamChunk,
     EmbeddingResponse,
     GeneratedImage,
+    ImageDecompositionResponse,
     ImageGenerationResponse,
     LLMPort,
     RerankResponse,
@@ -137,6 +145,7 @@ class LiteLLMPort(LLMPort):
         rerank_fn: SDKCall | None = None,
         image_generation_fn: SDKCall | None = None,
         image_edit_fn: SDKCall | None = None,
+        layers_post: LayersPoster | None = None,
         load_sdk_defaults: bool = True,
         image_capabilities: dict[str, Any] | None = None,
     ) -> None:
@@ -181,6 +190,8 @@ class LiteLLMPort(LLMPort):
         self._rerank = rerank_fn
         self._image_generation = image_generation_fn
         self._image_edit = image_edit_fn
+        # None sends layer decompositions over a fresh HTTP client; tests pass a fake.
+        self._layers_post = layers_post
 
     def _upstream_ids(self, response: Any) -> tuple[str | None, str | None]:
         """The provider's own response and request ids, never ones LiteLLM made up."""
@@ -606,6 +617,12 @@ class LiteLLMPort(LLMPort):
         **options: Any,
     ) -> None:
         """Refuse what this model's LiteLLM route cannot deliver, before any call."""
+        if operation == DECOMPOSE:
+            self._decomposition_model(model)
+            validate_decomposition_request(
+                size=size, max_layers=options.get("max_layers"), model=model
+            )
+            return
         model_name = self._model_name(model)
         route, _carried = self._check_image_route(
             model, model_name, operation=operation, n=n, size=size, has_mask=has_mask, options=options
@@ -860,6 +877,50 @@ class LiteLLMPort(LLMPort):
             images=images,
             model=_value(response, "model", params["model"]),
             upstream_request_id=self._upstream_ids(response)[1],
+        )
+
+    def _decomposition_model(self, model: str) -> str:
+        """Ark's own name for ``model``, or a refusal where no decomposition route exists.
+
+        LiteLLM has no layer decomposition request, so this call bypasses it
+        and goes to the provider's API directly; only providers whose request
+        is written in ``volcengine_layers`` can serve it.
+        """
+        if not supports_layer_decomposition(self.litellm_provider):
+            raise KernelError(
+                "MODEL_CAPABILITY_UNAVAILABLE",
+                f"No layer decomposition route for {model}",
+                {
+                    "model": model,
+                    "capability": "image_decompose",
+                    "reason": "no_decomposition_route",
+                },
+            )
+        prefix, separator, name = self._model_name(model).partition("/")
+        return name if separator and prefix == self.litellm_provider else prefix
+
+    async def decompose_image(
+        self,
+        image: bytes,
+        model: str,
+        prompt: str | None = None,
+        max_layers: int | None = None,
+        text_recognition: bool = False,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageDecompositionResponse:
+        return await decompose_layers(
+            api_base=self.api_base,
+            api_key=self.api_key,
+            model_name=self._decomposition_model(model),
+            image=image,
+            prompt=prompt,
+            max_layers=max_layers,
+            text_recognition=text_recognition,
+            size=size,
+            response_format=kwargs.get("response_format"),
+            timeout=self.timeout,
+            post=self._layers_post,
         )
 
     async def rerank(

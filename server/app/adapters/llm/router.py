@@ -15,6 +15,7 @@ from app.kernel.ports.llm.interface import (
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    ImageDecompositionResponse,
     ImageGenerationResponse,
     LLMPort,
     LLMRuntimeTarget,
@@ -374,10 +375,25 @@ class LLMRouterPort(LLMPort):
         Refused while the route resolves, like a missing capability, so a
         virtual model moves on to its next target instead of failing.
         """
-        for capability, operation in (("image_generation", "generate"), ("image_edit", "edit")):
+        for capability, operation in (
+            ("image_generation", "generate"),
+            ("image_edit", "edit"),
+            ("image_decompose", "decompose"),
+        ):
             if capability not in required_capabilities:
                 continue
-            if config.adapter_backend == "litellm":
+            if operation == "decompose":
+                from app.adapters.llm.volcengine_layers import (
+                    supports_layer_decomposition,
+                )
+
+                # Served beside LiteLLM, by the provider's own request.
+                if config.adapter_backend == "litellm" and supports_layer_decomposition(
+                    config.litellm_provider
+                ):
+                    continue
+                reason = "no_decomposition_route"
+            elif config.adapter_backend == "litellm":
                 from app.adapters.llm.litellm import litellm_model_name
                 from app.adapters.llm.litellm_image_routes import image_route
 
@@ -630,6 +646,29 @@ class LLMRouterPort(LLMPort):
             model=model,
             mask=mask,
             n=n,
+            size=size,
+            **self._downstream_kwargs(kwargs),
+        )
+        response.runtime_target = route.target
+        return response
+
+    async def decompose_image(
+        self,
+        image: bytes,
+        model: str,
+        prompt: str | None = None,
+        max_layers: int | None = None,
+        text_recognition: bool = False,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageDecompositionResponse:
+        route = await self.resolve_route(model, kwargs.get("ctx"), ("image_decompose",))
+        response = await route.port.decompose_image(
+            image=image,
+            model=model,
+            prompt=prompt,
+            max_layers=max_layers,
+            text_recognition=text_recognition,
             size=size,
             **self._downstream_kwargs(kwargs),
         )

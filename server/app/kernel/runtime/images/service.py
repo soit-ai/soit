@@ -2,10 +2,13 @@
 
 One execution path for governed image jobs.
 
-Generation and editing differ only in which gateway method they call and what
-they send; everything after that — how results are returned, how the run is
-closed, what evidence is written — is identical, so it lives here once and both
-the synchronous request and the detached worker call the same function.
+Generation, editing and layer decomposition differ only in which gateway
+method they call and what they send; everything after that — how results are
+returned, how the run is closed, what evidence is written — is identical, so it
+lives here once and both the synchronous request and the detached worker call
+the same function. A decomposition returns one more thing: where each layer
+sits, which an artifact job keeps beside the images as a ``layers.json``
+manifest.
 
 Returning results as run artifacts exists because the inline shape has a
 ceiling: four 2048px images are 10-16 MB of base64 in one response body, which
@@ -26,7 +29,12 @@ from typing import Any
 
 from app.kernel.commons.errors import ForbiddenError, KernelError, ValidationError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.ports.llm.interface import ImageGenerationResponse, LLMPort
+from app.kernel.ports.llm.interface import (
+    ImageDecompositionResponse,
+    ImageGenerationResponse,
+    LLMPort,
+    TextLine,
+)
 from app.kernel.ports.safety.interface import (
     ContentSafetyPort,
     SafetyDecision,
@@ -88,7 +96,7 @@ class ImageJobRequest:
     """Everything one image call needs, independent of how it was submitted."""
 
     kind: str
-    """Either ``generate`` or ``edit``."""
+    """``generate``, ``edit`` or ``decompose``."""
 
     model: str
     prompt: str
@@ -100,12 +108,16 @@ class ImageJobRequest:
     image: bytes | None = None
     mask: bytes | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    max_layers: int | None = None
+    """Decomposition only: the most layers to return, the base excluded."""
+    text_recognition: bool = False
+    """Decomposition only: also return the recognized text."""
 
     def __post_init__(self) -> None:
-        if self.kind not in ("generate", "edit"):
+        if self.kind not in ("generate", "edit", "decompose"):
             raise ValidationError(f"Unsupported image job kind: {self.kind}")
-        if self.kind == "edit" and not self.image:
-            raise ValidationError("An image edit requires a source image")
+        if self.kind in ("edit", "decompose") and not self.image:
+            raise ValidationError(f"An image {self.kind} requires a source image")
 
     @property
     def file_format(self) -> str:
@@ -113,6 +125,12 @@ class ImageJobRequest:
 
     @property
     def summary(self) -> str:
+        if self.kind == "decompose":
+            return (
+                f"model={self.model}, max_layers={self.max_layers or 'auto'}, "
+                f"text_recognition={'yes' if self.text_recognition else 'no'}, "
+                f"prompt={self.prompt[:200]}"
+            )
         masked = "yes" if self.mask else "no"
         base = f"model={self.model}, n={self.n}"
         if self.kind == "edit":
@@ -131,11 +149,30 @@ class ImageResult:
 
 
 @dataclass(frozen=True)
+class LayerPlacement:
+    """Where a decomposed layer goes; its image is the matching entry of ``results``."""
+
+    z_index: int
+    bounding_box: tuple[int, int, int, int] | None
+    name: str | None = None
+    description: str | None = None
+    size: str | None = None
+    text: str | None = None
+    text_lines: list[TextLine] | None = None
+
+
+@dataclass(frozen=True)
 class ImageJobOutcome:
     model: str | None
     results: list[ImageResult]
     safety: list[dict[str, Any]] = field(default_factory=list)
     """What the content check found, recorded as run evidence."""
+    layers: list[LayerPlacement] | None = None
+    """Decomposition only: ``results[0]`` is the base, ``results[i]`` is ``layers[i - 1]``."""
+    base_size: str | None = None
+    """Decomposition only: the canvas, ``WIDTHxHEIGHT``, the layer boxes are measured on."""
+    manifest_artifact_id: str | None = None
+    """Decomposition artifact job only: the ``layers.json`` run artifact."""
 
 
 def _image_options(request: ImageJobRequest) -> dict[str, Any]:
@@ -154,6 +191,13 @@ def _gateway_kwargs(request: ImageJobRequest, run_id: str) -> dict[str, Any]:
     return {**_image_options(request), "run_id": run_id}
 
 
+def _check_options(request: ImageJobRequest) -> dict[str, Any]:
+    options = _image_options(request)
+    if request.kind == "decompose":
+        options["max_layers"] = request.max_layers
+    return options
+
+
 async def check_image_job(llm_port: LLMPort, request: ImageJobRequest) -> None:
     """Refuse a job its model or route cannot serve as asked, before its run opens.
 
@@ -167,7 +211,7 @@ async def check_image_job(llm_port: LLMPort, request: ImageJobRequest) -> None:
         n=request.n,
         size=request.size,
         has_mask=request.mask is not None,
-        **_image_options(request),
+        **_check_options(request),
     )
 
 
@@ -175,8 +219,18 @@ async def _call_gateway(
     llm_port: LLMPort,
     request: ImageJobRequest,
     run_id: str,
-) -> ImageGenerationResponse:
+) -> ImageGenerationResponse | ImageDecompositionResponse:
     kwargs = _gateway_kwargs(request, run_id)
+    if request.kind == "decompose":
+        return await llm_port.decompose_image(
+            image=request.image,
+            model=request.model,
+            prompt=request.prompt or None,
+            max_layers=request.max_layers,
+            text_recognition=request.text_recognition,
+            size=request.size,
+            **kwargs,
+        )
     if request.kind == "edit":
         return await llm_port.edit_image(
             image=request.image,
@@ -211,7 +265,7 @@ def _images_prefix(ctx: RequestContext, run_id: str) -> str:
 
 
 def _operation(request: ImageJobRequest) -> str:
-    return "edit_image" if request.kind == "edit" else "generate_image"
+    return f"{request.kind}_image"
 
 
 async def _store_provider_link(
@@ -260,7 +314,7 @@ async def _store_provider_link(
 
 
 async def _store_as_artifacts(
-    response: ImageGenerationResponse,
+    response: ImageGenerationResponse | ImageDecompositionResponse,
     *,
     ctx: RequestContext,
     trace_writer: TraceWriter,
@@ -318,7 +372,7 @@ async def _store_as_artifacts(
 
 
 async def _inspect_results(
-    response: ImageGenerationResponse,
+    response: ImageGenerationResponse | ImageDecompositionResponse,
     *,
     content_safety: ContentSafetyPort | None,
     request: ImageJobRequest,
@@ -376,6 +430,99 @@ async def _inspect_results(
     return evidence
 
 
+def _placements(response: ImageDecompositionResponse) -> list[LayerPlacement]:
+    return [
+        LayerPlacement(
+            z_index=layer.z_index,
+            bounding_box=layer.bounding_box,
+            name=layer.name,
+            description=layer.description,
+            size=layer.size,
+            text=layer.text,
+            text_lines=layer.text_lines,
+        )
+        for layer in response.layers
+    ]
+
+
+def text_lines_json(lines: list[TextLine] | None) -> list[dict[str, Any]] | None:
+    """Recognized text as plain JSON, for a response body or the manifest."""
+    if lines is None:
+        return None
+    return [
+        {
+            "text": line.text,
+            "bounding_box": list(line.bounding_box) if line.bounding_box else None,
+            "runs": [
+                {
+                    "text": run.text,
+                    "style": {
+                        key: value
+                        for key, value in vars(run.style).items()
+                        if value is not None
+                    },
+                }
+                for run in line.runs
+            ],
+        }
+        for line in lines
+    ]
+
+
+async def _store_layer_manifest(
+    *,
+    results: list[ImageResult],
+    layers: list[LayerPlacement],
+    base_size: str | None,
+    model: str | None,
+    ctx: RequestContext,
+    trace_writer: TraceWriter,
+    storage_port: StoragePort,
+    run_id: str,
+) -> str:
+    """Keep where each layer goes beside the layer images, as one run artifact.
+
+    An asynchronous decomposition reaches its caller only as run artifacts, and
+    an image artifact says nothing of where the layer sits: without this the
+    images could be fetched but not put back together.
+    """
+    manifest = {
+        "model": model,
+        "base": {"artifact_id": results[0].artifact_id, "size": base_size},
+        "layers": [
+            {
+                "artifact_id": result.artifact_id,
+                "z_index": layer.z_index,
+                "bounding_box": list(layer.bounding_box) if layer.bounding_box else None,
+                "name": layer.name,
+                "description": layer.description,
+                "size": layer.size,
+                "text": layer.text,
+                "text_lines": text_lines_json(layer.text_lines),
+            }
+            for layer, result in zip(layers, results[1:], strict=True)
+        ],
+    }
+    data = json.dumps(manifest, ensure_ascii=False).encode("utf-8")
+    storage_key = f"{_images_prefix(ctx, run_id)}/layers.json"
+    await storage_port.put(
+        storage_key,
+        data,
+        content_type="application/json",
+        metadata={"run_id": run_id},
+    )
+    artifact = await trace_writer.create_artifact(
+        run_id=run_id,
+        artifact_type="json",
+        storage_key=storage_key,
+        mime="application/json",
+        size_bytes=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+        meta={"kind": "image_layers", "name": "layers.json", "operation": "decompose_image"},
+    )
+    return artifact.id
+
+
 async def execute_image_job(
     request: ImageJobRequest,
     *,
@@ -427,4 +574,28 @@ async def execute_image_job(
             for image in response.images
         ]
 
-    return ImageJobOutcome(model=response.model, results=results, safety=safety)
+    if not isinstance(response, ImageDecompositionResponse):
+        return ImageJobOutcome(model=response.model, results=results, safety=safety)
+
+    layers = _placements(response)
+    manifest_artifact_id = None
+    if request.response_format == "artifact":
+        assert storage_port is not None
+        manifest_artifact_id = await _store_layer_manifest(
+            results=results,
+            layers=layers,
+            base_size=response.base_size,
+            model=response.model,
+            ctx=ctx,
+            trace_writer=trace_writer,
+            storage_port=storage_port,
+            run_id=run_id,
+        )
+    return ImageJobOutcome(
+        model=response.model,
+        results=results,
+        safety=safety,
+        layers=layers,
+        base_size=response.base_size,
+        manifest_artifact_id=manifest_artifact_id,
+    )

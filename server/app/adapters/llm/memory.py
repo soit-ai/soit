@@ -17,11 +17,16 @@ from app.kernel.ports.llm.interface import (
     ChatMessage,
     ChatResponse,
     ChatStreamChunk,
+    DecomposedLayer,
     EmbeddingResponse,
     GeneratedImage,
+    ImageDecompositionResponse,
     ImageGenerationResponse,
     LLMPort,
     RerankResponse,
+    TextLine,
+    TextRun,
+    TextStyle,
     ToolCall,
     ToolDefinition,
 )
@@ -226,6 +231,56 @@ class InMemoryLLMPort(LLMPort):
         encoded = _tiny_image_b64(kwargs.get("output_format"))
         return ImageGenerationResponse(
             images=[GeneratedImage(b64_json=encoded) for _ in range(max(1, n))],
+            model=model_name,
+        )
+
+    async def decompose_image(
+        self,
+        image: bytes,
+        model: str,
+        prompt: str | None = None,
+        max_layers: int | None = None,
+        text_recognition: bool = False,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageDecompositionResponse:
+        model_name = model.split(":")[-1] if ":" in model else model
+        self.last_decompose = {
+            "image_bytes": len(image or b""),
+            "prompt": prompt,
+            "max_layers": max_layers,
+            "text_recognition": text_recognition,
+            "size": size,
+            "kwargs": dict(kwargs),
+        }
+        encoded = _tiny_image_b64("png")
+        hosted = kwargs.get("response_format") == "url"
+
+        def _image(name: str) -> GeneratedImage:
+            # Like the real provider, a url answer carries a link and no bytes.
+            if hosted:
+                return GeneratedImage(url=f"https://images.test/{model_name}/{name}.png")
+            return GeneratedImage(b64_json=encoded)
+
+        layers = [
+            DecomposedLayer(
+                image=_image(f"layer-{index}"),
+                z_index=index,
+                bounding_box=(0, 0, 1, 1),
+                name=f"layer {index}",
+            )
+            for index in range(1, min(max_layers or 2, 2) + 1)
+        ]
+        if text_recognition:
+            # Like the real provider, only the layer that shows text carries it.
+            layers[0].text = "hello"
+            layers[0].text_lines = [
+                TextLine(text="hello", bounding_box=(0, 0, 1, 1), runs=[TextRun("hello", TextStyle())])
+            ]
+        return ImageDecompositionResponse(
+            base=_image("base"),
+            layers=layers,
+            base_size="1x1",
             model=model_name,
         )
 

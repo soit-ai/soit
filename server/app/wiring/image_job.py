@@ -324,8 +324,13 @@ async def _close_step(
     )
     if not charge:
         return
-    edit = metrics.get("image_edit") is True
-    route = await describe_route(writer.ctx, model_ref, "image_edit" if edit else "image_generation")
+    if metrics.get("image_decompose") is True:
+        capability, operation = "image_decompose", "decompose_image"
+    elif metrics.get("image_edit") is True:
+        capability, operation = "image_edit", "edit_image"
+    else:
+        capability, operation = "image_generation", "generate_image"
+    route = await describe_route(writer.ctx, model_ref, capability)
     target = getattr(route, "target", None)
     pricing, identity = unconfirmed_image_charge(
         getattr(route, "pricing", None) or {},
@@ -353,7 +358,7 @@ async def _close_step(
         pricing_snapshot_json=pricing.snapshot,
         **identity,
         source_port="llm",
-        operation="edit_image" if edit else "generate_image",
+        operation=operation,
         request_count=images,
     )
 

@@ -13,6 +13,12 @@ Editing covers three shapes through one endpoint, because they are one provider
 call: inpainting (image + mask), outpainting (a pre-expanded canvas whose new
 margin is masked), and reference editing (image, no mask).
 
+Decomposition splits an image into a base image (the source with the lifted
+elements removed and the area behind them filled in) and transparent layers,
+each with the box it occupies on the source. It is billed per returned image,
+the base included. An artifact or asynchronous decomposition also writes a
+``layers.json`` run artifact that says where each layer image goes.
+
 A field neither request takes is refused rather than ignored: an option the
 caller believes was applied, such as a seed, would otherwise be dropped while
 the image is billed as if it had been honoured.
@@ -34,11 +40,13 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.llm.image_mask import MASK_CONVENTION, assert_mask_matches_image
 from app.kernel.runtime.attachments.service import AttachmentService
 from app.kernel.runtime.images.service import (
+    ImageJobOutcome,
     ImageJobRequest,
     ImageResult,
     check_image_job,
     execute_image_job,
     resolve_response_format,
+    text_lines_json,
 )
 from app.kernel.runtime.runs.writer import TraceWriter
 from app.wiring import get_container
@@ -253,10 +261,11 @@ async def _submit(
     db: AsyncSession,
     run_async: bool,
     response: Response,
-) -> tuple[str, str, str | None, list[ImageDatum]]:
+) -> tuple[str, str, str | None, list[ImageDatum], ImageJobOutcome | None]:
     """Open a run and either finish the job now or hand it to a worker.
 
-    Returns the run id, its status, the model, and whatever results exist yet.
+    Returns the run id, its status, the model, whatever results exist yet,
+    and the finished job's outcome (None while it is queued).
     """
     # Before the run opens: a detached job's results reach the caller only
     # as run artifacts, whoever built the request.
@@ -278,7 +287,7 @@ async def _submit(
             run_id=run.id,
         )
         response.status_code = status.HTTP_202_ACCEPTED
-        return run.id, "queued", None, []
+        return run.id, "queued", None, [], None
 
     await trace_writer.update_run_status(run.id, "running")
     await db.commit()
@@ -310,7 +319,7 @@ async def _submit(
         await db.commit()
         raise
 
-    return run.id, "succeeded", outcome.model, _to_data(outcome.results)
+    return run.id, "succeeded", outcome.model, _to_data(outcome.results), outcome
 
 
 @router.post(
@@ -326,7 +335,7 @@ async def create_image_generation(
 ) -> ImageGenerationRead:
     """Generate images and record usage against a dedicated run."""
 
-    run_id, run_status, model, data = await _submit(
+    run_id, run_status, model, data, _outcome = await _submit(
         ImageJobRequest(
             kind="generate",
             model=payload.model,
@@ -393,7 +402,7 @@ async def create_image_edit(
         if value is not None:
             extra[name] = value
 
-    run_id, run_status, model, data = await _submit(
+    run_id, run_status, model, data, _outcome = await _submit(
         ImageJobRequest(
             kind="edit",
             model=payload.model,
@@ -417,4 +426,141 @@ async def create_image_edit(
         status=run_status,
         mask_convention=MASK_CONVENTION,
         data=data,
+    )
+
+
+class ImageDecompositionCreate(BaseModel):
+    """Image layer decomposition request.
+
+    ``image`` arrives as an ``attachment_id`` or as inline base64, as for
+    edits. ``prompt`` is optional: without one the model lifts out the main
+    elements it finds.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    model: str = Field(min_length=1)
+    prompt: str | None = Field(default=None, max_length=4000)
+    image_attachment_id: str | None = None
+    image_b64: str | None = None
+    max_layers: int | None = Field(
+        default=None,
+        ge=1,
+        le=99,
+        description="Most layers to return, the base image excluded. Omitted, the provider decides.",
+    )
+    text_recognition: bool = Field(
+        default=False,
+        description="Also return the text the model recognized, line by line with its approximate style.",
+    )
+    size: str | None = Field(
+        default=None,
+        pattern=r"^(1K|1\.5K|2K|auto)$",
+        description="Output resolution tier.",
+    )
+    response_format: str | None = Field(
+        default=None, pattern="^(b64_json|url|artifact)$"
+    )
+    run_async: bool = Field(default=False, alias="async")
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "ImageDecompositionCreate":
+        if bool(self.image_attachment_id) == bool(self.image_b64):
+            raise ValueError(
+                "Provide the source image as exactly one of "
+                "image_attachment_id or image_b64"
+            )
+        self.response_format = _resolved_response_format(self.response_format, self.run_async)
+        return self
+
+
+class LayerRead(BaseModel):
+    z_index: int
+    """Stacking order; 1 is the lowest layer above the base."""
+    bounding_box: list[int] | None
+    """``[left, top, right, bottom]`` on the base image's canvas (``base_size``),
+    which may be larger than the source. The layer image may be another size
+    again; resize it to this box to place it."""
+    name: str | None = None
+    description: str | None = None
+    size: str | None = None
+    text: str | None = None
+    """The text the layer shows, when text recognition was asked for and found some."""
+    text_lines: list[dict[str, Any]] | None = None
+    image: ImageDatum
+
+
+class ImageDecompositionRead(BaseModel):
+    run_id: str
+    model: str | None
+    status: str
+    base: ImageDatum | None
+    """The source with the layers removed; None while an asynchronous job runs."""
+    base_size: str | None = None
+    """``WIDTHxHEIGHT`` of the base image: the canvas every box is measured on."""
+    layers: list[LayerRead]
+    manifest_artifact_id: str | None = None
+    """The ``layers.json`` run artifact, on an artifact job."""
+
+
+@router.post(
+    "/decompositions",
+    response_model=ImageDecompositionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_image_decomposition(
+    payload: ImageDecompositionCreate,
+    ctx: Annotated[RequestContext, Depends(require_workspace_write_ctx)],
+    db: Annotated[AsyncSession, Depends(get_async_db)],
+    attachments: Annotated[AttachmentService, Depends(get_attachment_service)],
+    response: Response,
+) -> ImageDecompositionRead:
+    """Split an image into a base image and layers, and record usage against a run."""
+
+    image = await _resolve_image_input(
+        attachments,
+        attachment_id=payload.image_attachment_id,
+        inline_b64=payload.image_b64,
+        field="image",
+    )
+    run_id, run_status, model, data, outcome = await _submit(
+        ImageJobRequest(
+            kind="decompose",
+            model=payload.model,
+            prompt=payload.prompt or "",
+            size=payload.size,
+            response_format=payload.response_format or "b64_json",
+            image=image,
+            max_layers=payload.max_layers,
+            text_recognition=payload.text_recognition,
+        ),
+        ctx=ctx,
+        db=db,
+        run_async=payload.run_async,
+        response=response,
+    )
+    if outcome is None or outcome.layers is None:
+        return ImageDecompositionRead(
+            run_id=run_id, model=model, status=run_status, base=None, layers=[]
+        )
+    return ImageDecompositionRead(
+        run_id=run_id,
+        model=model,
+        status=run_status,
+        base=data[0],
+        base_size=outcome.base_size,
+        layers=[
+            LayerRead(
+                z_index=layer.z_index,
+                bounding_box=list(layer.bounding_box) if layer.bounding_box else None,
+                name=layer.name,
+                description=layer.description,
+                size=layer.size,
+                text=layer.text,
+                text_lines=text_lines_json(layer.text_lines),
+                image=datum,
+            )
+            for layer, datum in zip(outcome.layers, data[1:], strict=True)
+        ],
+        manifest_artifact_id=outcome.manifest_artifact_id,
     )

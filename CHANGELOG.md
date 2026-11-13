@@ -12,6 +12,18 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- `POST /api/v1/images/decompositions` splits an image into a base image and
+  transparent layers, each with its bounding box on the base image, and can return
+  the recognized text with its approximate style. It is served by Volcengine
+  Ark models (`litellm_provider` `volcengine`, with a `base_url`) that have
+  the new `image_decompose` capability, which no preset grants; other routes
+  are refused with `MODEL_CAPABILITY_UNAVAILABLE` before a run opens. Billed
+  per returned image, the base included, under the `decompose_image`
+  operation. Artifact and asynchronous jobs also write a `layers.json` run
+  artifact placing each layer. See [Layer decomposition](./docs/gateway.md#layer-decomposition).
+
 ## [1.8.0] - 2026-10-03
 
 ### Added
