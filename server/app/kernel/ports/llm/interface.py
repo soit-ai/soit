@@ -277,6 +277,95 @@ class ImageGenerationResponse:
         self.upstream_request_id = upstream_request_id
 
 
+@dataclass
+class TextStyle:
+    """How a run of recognized text looks, as closely as the provider can tell."""
+
+    font_family: str | None = None
+    """The closest known font family, not necessarily the one used."""
+    color: str | None = None
+    """``#RRGGBB``."""
+    bold: bool | None = None
+    italic: bool | None = None
+    underline: bool | None = None
+    strikethrough: bool | None = None
+    shadow: bool | None = None
+    translucent: bool | None = None
+
+
+@dataclass
+class TextRun:
+    text: str
+    style: TextStyle
+
+
+@dataclass
+class TextLine:
+    text: str
+    bounding_box: tuple[int, int, int, int] | None
+    """On the same canvas as the layer boxes."""
+    runs: list[TextRun]
+
+
+@dataclass
+class DecomposedLayer:
+    """One element a layer decomposition lifted out of the source image.
+
+    ``bounding_box`` is where the element sits, as ``(left, top, right,
+    bottom)`` in the pixels of the base image, which the provider may return
+    larger than the source: the base's ``size`` is the canvas the boxes are
+    measured on. The layer image need not match its box either, since
+    providers return layers at their own output scale; a caller placing a
+    layer resizes it to the box.
+    """
+
+    image: GeneratedImage
+    z_index: int
+    """Stacking order; 1 is the lowest layer above the base image."""
+    bounding_box: tuple[int, int, int, int] | None = None
+    name: str | None = None
+    description: str | None = None
+    size: str | None = None
+    """The returned image's dimensions as ``WIDTHxHEIGHT``, when the provider says."""
+    text: str | None = None
+    """The text this layer shows, when text recognition was asked for and found some."""
+    text_lines: list[TextLine] | None = None
+    """The recognized text line by line, with each line's box and styled runs."""
+
+
+class ImageDecompositionResponse:
+    """A source image split into a base image and stacked layers.
+
+    The base is the source with the lifted elements removed and the area
+    behind them filled in; the layers are the elements, transparent around
+    their edges. ``images`` lists every returned image, the base first, which
+    is what the call is billed for.
+    """
+
+    def __init__(
+        self,
+        base: GeneratedImage,
+        layers: list[DecomposedLayer],
+        base_size: str | None = None,
+        model: str | None = None,
+        runtime_target: LLMRuntimeTarget | None = None,
+        upstream_id: str | None = None,
+        upstream_request_id: str | None = None,
+    ):
+        self.base = base
+        self.layers = layers
+        self.base_size = base_size
+        """The base image's ``WIDTHxHEIGHT``: the canvas every box is measured on."""
+        self.model = model
+        self.runtime_target = runtime_target
+        self.upstream_id = upstream_id
+        self.upstream_request_id = upstream_request_id
+
+    @property
+    def images(self) -> list[GeneratedImage]:
+        return [self.base, *(layer.image for layer in self.layers)]
+
+
 class RerankResponse:
     """Rerank response from LLM."""
 
@@ -433,6 +522,40 @@ class LLMPort(ABC):
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not support image editing"
+        )
+
+    async def decompose_image(
+        self,
+        image: bytes,
+        model: str,
+        prompt: str | None = None,
+        max_layers: int | None = None,
+        text_recognition: bool = False,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageDecompositionResponse:
+        """Split an image into a base image and stacked transparent layers.
+
+        Not abstract, for the same reason as ``generate_image``: only a
+        provider with a layer decomposition model implements it.
+
+        Args:
+            image: Source image bytes.
+            model: Model reference.
+            prompt: Optional instruction naming which elements to lift out;
+                without one the model picks the main elements itself.
+            max_layers: Upper bound on returned layers, the base excluded;
+                None leaves it to the provider.
+            text_recognition: Also return the text the model recognized,
+                line by line with its approximate style.
+            size: Output resolution tier as the provider names it.
+            **kwargs: Additional provider parameters.
+
+        Returns:
+            ImageDecompositionResponse instance.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support image layer decomposition"
         )
 
     async def check_image_request(

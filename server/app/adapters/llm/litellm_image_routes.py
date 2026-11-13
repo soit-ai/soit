@@ -17,6 +17,9 @@ from __future__ import annotations
 
 GENERATE = "generate"
 EDIT = "edit"
+# Layer decomposition never goes through LiteLLM (see ``volcengine_layers``);
+# the name is shared so every image operation is spelled one way.
+DECOMPOSE = "decompose"
 
 # The options SOIT forwards by name. "n" stands for more than one image and
 # "mask" for an edit mask; a single image and no mask need no route support.

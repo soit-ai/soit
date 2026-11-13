@@ -40,6 +40,7 @@ from app.kernel.ports.llm.interface import (
     ChatResponse,
     ChatStreamChunk,
     EmbeddingResponse,
+    ImageDecompositionResponse,
     ImageGenerationResponse,
     LLMPort,
     LLMRuntimeTarget,
@@ -144,6 +145,12 @@ _CallResult = TypeVar("_CallResult")
 
 # Route failures that mean "this target cannot serve the call right now";
 # a virtual model moves on to its next target instead of failing.
+_IMAGE_CAPABILITY_BY_OPERATION: dict[str, tuple[str, ...]] = {
+    "generate": ("image_generation",),
+    "edit": ("image_edit",),
+    "decompose": ("image_decompose",),
+}
+
 _UNAVAILABLE_ROUTE_CODES = frozenset(
     {
         "MODEL_PROVIDER_DISABLED",
@@ -1154,7 +1161,8 @@ class LLMPolicyGateway(LLMPort):
         validate_image_request(
             image_capabilities,
             model=target,
-            size=size,
+            # A decomposition names a resolution tier, not pixel dimensions.
+            size=None if operation == "decompose" else size,
             has_mask=has_mask,
             background=options.get("background"),
             seed=options.get("seed"),
@@ -2226,6 +2234,7 @@ class LLMPolicyGateway(LLMPort):
         edit: bool,
         size: str | None = None,
         quality: str | None = None,
+        decompose: bool = False,
     ) -> None:
         """Make durable, before the provider is asked, what the call asks for.
 
@@ -2241,6 +2250,7 @@ class LLMPolicyGateway(LLMPort):
         metrics: dict[str, Any] = {
             "requested_images": images,
             "image_edit": edit,
+            **({"image_decompose": True} if decompose else {}),
             "model": model,
             "model_ref": target,
             "provider_id": served_by.provider_id if served_by else None,
@@ -2318,7 +2328,7 @@ class LLMPolicyGateway(LLMPort):
         has, on a run.
         """
         self._check_model_allowed(model)
-        required = ("image_edit",) if operation == "edit" else ("image_generation",)
+        required = _IMAGE_CAPABILITY_BY_OPERATION.get(operation, ("image_generation",))
         describer = getattr(type(self.gateway), "describe_route", None)
         try:
             targets = await self._targets(model)
@@ -2550,6 +2560,210 @@ class LLMPolicyGateway(LLMPort):
                         quality=kwargs.get("quality"),
                         operation="edit_image",
                         run_id=resolve_run_id(kwargs, self.ctx),
+                        elapsed_ms=int((utc_now() - start_time).total_seconds() * 1000),
+                    )
+                await self.trace_writer.update_step_status(
+                    step.id,
+                    "failed",
+                    metrics={"usage_estimated": True} if charged else None,
+                    error_code="IMAGE_ERROR",
+                    error_message=str(e),
+                    error_details=error_details(e),
+                )
+            raise
+
+    async def decompose_image(
+        self,
+        image: bytes,
+        model: str,
+        prompt: str | None = None,
+        max_layers: int | None = None,
+        text_recognition: bool = False,
+        size: str | None = None,
+        **kwargs: Any,
+    ) -> ImageDecompositionResponse:
+        """Split an image into layers with policy enforcement.
+
+        The same chain as ``edit_image``: one rate limit, one daily quota, one
+        credit guard, one trace step, one cost row. A decomposition is billed
+        per returned image, the base included, which is how providers charge
+        it; the count is known only from the answer.
+
+        Before the answer, the call is counted as ``max_layers`` plus the
+        base: that is the most it can return, and what a timeout is charged.
+        Without a ``max_layers`` it is counted as the base alone.
+
+        Args:
+            image: Source image bytes.
+            model: Model reference.
+            prompt: Optional instruction naming the elements to lift out.
+            max_layers: Upper bound on returned layers, the base excluded.
+            text_recognition: Also return recognized text.
+            size: Output resolution tier.
+            **kwargs: Additional parameters.
+
+        Returns:
+            ImageDecompositionResponse instance.
+        """
+        run_id = resolve_run_id(kwargs, self.ctx)
+        await self._admit(model=model, family="image", credit_operation="decompose_image", run_id=run_id)
+        requested = (max_layers + 1) if max_layers else 1
+
+        step = None
+        if self.trace_writer:
+            if not run_id:
+                raise ValueError("run_id is required when trace_writer is enabled")
+            step = await self.trace_writer.create_step(
+                run_id=run_id,
+                step_type="llm",
+                input_summary=(
+                    f"model={model}, max_layers={max_layers or 'auto'}, "
+                    f"text_recognition={'yes' if text_recognition else 'no'}, "
+                    f"prompt={(prompt or '')[:200]}"
+                ),
+            )
+            await self.trace_writer.update_step_status(step.id, "running")
+            await self.trace_writer.release_before_wait()
+
+        options = {**kwargs, "max_layers": max_layers}
+        start_time = utc_now()
+        route: _ResolvedPolicyRoute | None = None
+        target = model
+        asked = False
+        try:
+            route, target, attempts = await self._first_available_route(
+                model,
+                ("image_decompose",),
+                timeout_fallback=self.image_timeout_seconds,
+                max_retries_cap=self.image_max_retries,
+                admits=lambda route, target: self._admit_image_call(
+                    route,
+                    target,
+                    credit_operation="decompose_image",
+                    run_id=run_id,
+                    image_count=requested,
+                    size=size,
+                    options=kwargs,
+                    request=lambda: self._admit_image_request(
+                        route.port,
+                        route.image_capabilities,
+                        target,
+                        operation="decompose",
+                        n=requested,
+                        size=size,
+                        has_mask=False,
+                        options=options,
+                    ),
+                ),
+            )
+            await self._note_image_call(
+                step,
+                route=route,
+                model=model,
+                target=target,
+                images=requested,
+                edit=False,
+                size=size,
+                decompose=True,
+            )
+            asked = True
+            with call_span(
+                self.otel_tracer,
+                "soit.llm.decompose_image",
+                keeps_content=await self._keeps_content(),
+                attributes={
+                    "gen_ai.operation.name": "image_decompose",
+                    "gen_ai.request.model": model,
+                    "gen_ai.provider.name": _provider_from_model(model) or "unknown",
+                    "soit.tenant.id": self.ctx.tenant_id,
+                    "soit.workspace.id": self.ctx.workspace_id,
+                    "soit.run.id": run_id or "",
+                    "soit.step.id": step.id if step else "",
+                    "soit.llm.image.requested_count": requested,
+                },
+            ) as span:
+                response = await self._run_call(
+                    lambda: route.port.decompose_image(
+                        image=image,
+                        model=target,
+                        prompt=prompt,
+                        max_layers=max_layers,
+                        text_recognition=text_recognition,
+                        size=size,
+                        ctx=self.ctx,
+                        **kwargs,
+                    ),
+                    timeout_factory=lambda: KernelTimeoutError(
+                        f"LLM image decomposition timed out after {route.timeout_seconds} seconds",
+                        {"timeout_seconds": route.timeout_seconds, "model": model},
+                    ),
+                    timeout_seconds=route.timeout_seconds,
+                    max_retries=route.max_retries,
+                    retry_backoff=route.retry_backoff,
+                    retryable_status_codes=route.retryable_status_codes,
+                )
+                response.runtime_target = response.runtime_target or route.target
+                span.set_attribute("gen_ai.response.model", response.model or model)
+                span.set_attribute("soit.llm.image.generated_count", len(response.images))
+
+            if step and self.trace_writer:
+                elapsed_ms = int((utc_now() - start_time).total_seconds() * 1000)
+                image_count = len(response.images)
+                identity = _runtime_cost_fields(
+                    requested_model=model,
+                    upstream_model=response.model,
+                    target=response.runtime_target,
+                )
+                await self.trace_writer.update_step_status(
+                    step.id,
+                    "succeeded",
+                    metrics={
+                        "image_count": image_count,
+                        "layer_count": len(response.layers),
+                        "latency_ms": elapsed_ms,
+                        **({"attempts": attempts} if attempts else {}),
+                        "model": response.model or model,
+                        "model_ref": identity["model_ref"],
+                        "provider_id": identity["provider_id"],
+                        "provider_slug": identity["provider_slug"],
+                        "provider_kind": identity["provider_kind"],
+                        "upstream_model": identity["upstream_model"],
+                    },
+                )
+                pricing = _with_runtime_identity(
+                    _image_pricing(route.pricing, image_count=image_count, size=size),
+                    requested_model=model,
+                    identity=identity,
+                )
+                await self.trace_writer.record_cost(
+                    run_id=run_id,
+                    step_id=step.id,
+                    billing_basis="images",
+                    billed_quantity=image_count,
+                    currency=pricing.currency,
+                    amount=pricing.amount,
+                    pricing_snapshot_json=pricing.snapshot,
+                    **identity,
+                    source_port="llm",
+                    operation="decompose_image",
+                    latency_ms=elapsed_ms,
+                    **_upstream_fields(response),
+                    request_count=1,
+                )
+
+            return response
+        except Exception as e:
+            if step and self.trace_writer:
+                charged = asked and route is not None and isinstance(e, KernelTimeoutError)
+                if charged:
+                    await self._charge_unanswered_images(
+                        step.id,
+                        route=route,
+                        model=model,
+                        images=requested,
+                        size=size,
+                        operation="decompose_image",
+                        run_id=run_id,
                         elapsed_ms=int((utc_now() - start_time).total_seconds() * 1000),
                     )
                 await self.trace_writer.update_step_status(

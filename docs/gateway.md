@@ -184,6 +184,46 @@ an image provider receives: what a route cannot carry is refused either
 way, and Bedrock's SDXL and SD3 generations, Black Forest Labs edits and
 Vertex AI Gemini edits no longer need it.
 
+### Layer decomposition
+
+`POST /api/v1/images/decompositions` splits one image into a base image (the
+source with the lifted elements removed and the area behind them filled in)
+and transparent layers, each with its `bounding_box` as
+`[left, top, right, bottom]`. Boxes are measured on the base image, whose
+dimensions the response gives as `base_size`; the provider may return the
+base larger than the source (a 900×1280 source came back as 1717×2442 at
+`2K`), so scale by the source over `base_size` to place a layer on the
+source. A layer image may come back at yet another scale than its box;
+resize it to the box. The request
+takes the image (`image_attachment_id` or `image_b64`, PNG or JPEG), an
+optional `prompt` naming the elements to lift out, `max_layers` (1 to 99, the
+base not counted), `text_recognition` (each layer that shows text also
+carries `text` and `text_lines`, line by line with each line's box and each
+run's approximate font, colour and style), `size` (`1K`,
+`1.5K`, `2K` or `auto`), `response_format` and `async`.
+
+LiteLLM has no such request, so SOIT sends the provider's own. Only Volcengine
+Ark models are served: a provider with `litellm_provider` `volcengine` and a
+`base_url` (for example `https://ark.cn-beijing.volces.com/api/v3`), whose
+model has the `image_decompose` capability. No preset grants it; mark the
+model in its capability matrix. Any other route is refused with `422`
+`MODEL_CAPABILITY_UNAVAILABLE`, `reason` `no_decomposition_route`, before a
+run opens. SOIT asks for no watermark.
+
+A full decomposition answered inline runs to over 10 MB; with
+`response_format` `url` the provider's links come back instead (Ark's are
+signed and expire after 24 hours), and the caller downloads the images
+itself. SOIT neither inspects nor keeps linked images (content safety, where
+configured, records them as `not_inspected`) and writes no `layers.json`.
+
+The call is billed per returned image, the base included, at the model's
+image price; an `image_variants` entry can price each `size` tier. A
+decomposition that times out is charged as `max_layers` plus the base, or the
+base alone without a `max_layers`. With `response_format` `artifact`, and on
+an asynchronous job, the images become run artifacts and a `layers.json`
+artifact (`meta.kind` `image_layers`) says which artifact is the base and
+where each layer goes.
+
 ## Every call is a run
 
 Each call creates a run with `mode=gateway`, `kind` `chat`, `embedding` or

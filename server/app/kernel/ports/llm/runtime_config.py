@@ -35,6 +35,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": True,
         "image_edit": True,
+        "image_decompose": False,
     },
     "openai_compatible": {
         "chat": True,
@@ -43,6 +44,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": True,
         "image_edit": True,
+        "image_decompose": False,
     },
     "deepseek": {
         "chat": True,
@@ -51,6 +53,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": False,
         "image_edit": False,
+        "image_decompose": False,
     },
     "anthropic": {
         "chat": True,
@@ -59,6 +62,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": False,
         "image_edit": False,
+        "image_decompose": False,
     },
     "gemini": {
         "chat": True,
@@ -69,6 +73,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         # LiteLLM has no image-edit branch for Gemini; a route here would fail
         # at the provider with each vendor's own wording instead of ours.
         "image_edit": False,
+        "image_decompose": False,
     },
     "azure_openai": {
         "chat": True,
@@ -77,6 +82,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": True,
         "image_edit": True,
+        "image_decompose": False,
     },
     "bedrock": {
         "chat": True,
@@ -85,6 +91,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": True,
         "image_edit": True,
+        "image_decompose": False,
     },
     "openrouter": {
         "chat": True,
@@ -93,6 +100,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": True,
         "image_edit": False,
+        "image_decompose": False,
     },
     "ollama": {
         "chat": True,
@@ -101,6 +109,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": False,
         "image_generation": False,
         "image_edit": False,
+        "image_decompose": False,
     },
     "dashscope": {
         "chat": True,
@@ -109,6 +118,7 @@ PROVIDER_CAPABILITY_PRESETS: dict[str, dict[str, bool]] = {
         "tools": True,
         "image_generation": True,
         "image_edit": False,
+        "image_decompose": False,
     },
 }
 
