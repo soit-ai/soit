@@ -299,6 +299,23 @@ class TextRun:
     style: TextStyle
 
 
+class ProviderCallError(Exception):
+    """The provider failed a call, or could not be reached, and SOIT wrote the call itself.
+
+    An adapter that speaks a provider's own request (no SDK in between) raises
+    this for a failure asking again may cure: a rate limit, a server error, a
+    lost connection. ``status_code`` is what the gateway's retry policy reads,
+    ``None`` when no answer came. Once retries are spent the gateway reports it
+    as ``MODEL_PROVIDER_FAILED``, so the caller can tell the provider's trouble
+    from a fault in SOIT.
+    """
+
+    def __init__(self, status_code: int | None, code: str | None, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+
+
 @dataclass
 class TextLine:
     text: str

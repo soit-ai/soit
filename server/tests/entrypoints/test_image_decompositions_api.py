@@ -17,6 +17,9 @@ from fastapi import status
 from PIL import Image
 from sqlmodel import select
 
+from app.adapters.llm.memory import InMemoryLLMPort
+from app.adapters.llm.volcengine_layers import ArkRequestError
+from app.kernel.commons.errors import ForbiddenError
 from app.kernel.runtime.db.models.runs import Run, RunArtifact, RunCostEntry, RunStep
 from app.kernel.runtime.runs.exporter import to_runtrace_spec
 from app.kernel.specs import validate_spec
@@ -142,3 +145,45 @@ class TestDecomposition:
         response = await _decompose(async_client, size="1024x1024")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestProviderFailure:
+    """What the caller is told when the provider, not SOIT, failed the call."""
+
+    @pytest.mark.asyncio
+    async def test_a_provider_failure_is_not_an_internal_error(self, async_client, async_db, monkeypatch):
+        async def failing(*_args, **_kwargs):
+            raise ArkRequestError(None, "ConnectError", "the provider could not be reached")
+
+        monkeypatch.setattr(InMemoryLLMPort, "decompose_image", failing)
+
+        response = await _decompose(async_client, max_layers=2)
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY, response.json()
+        assert response.json()["code"] == "MODEL_PROVIDER_FAILED"
+        run = (await async_db.exec(select(Run).where(Run.mode == "image"))).all()[-1]
+        assert run.status == "failed"
+        assert run.error_code == "MODEL_PROVIDER_FAILED"
+
+    @pytest.mark.asyncio
+    async def test_a_provider_moderation_refusal_reaches_the_caller(self, async_client, monkeypatch):
+        async def refusing(*_args, **_kwargs):
+            raise ForbiddenError(
+                "The provider refused the image under its content policy",
+                {
+                    "provider": "volcengine",
+                    "direction": "inbound",
+                    "provider_error_code": "InputImageSensitiveContentDetected",
+                    "categories": ["provider_content_policy"],
+                },
+            )
+
+        monkeypatch.setattr(InMemoryLLMPort, "decompose_image", refusing)
+
+        response = await _decompose(async_client, max_layers=2)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        body = response.json()
+        assert body["code"] == "FORBIDDEN"
+        assert body["details"]["categories"] == ["provider_content_policy"]
+        assert body["details"]["direction"] == "inbound"

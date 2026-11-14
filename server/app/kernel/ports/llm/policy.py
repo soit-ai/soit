@@ -44,6 +44,7 @@ from app.kernel.ports.llm.interface import (
     ImageGenerationResponse,
     LLMPort,
     LLMRuntimeTarget,
+    ProviderCallError,
     RerankResponse,
 )
 from app.kernel.ports.llm.runtime_config import validate_image_request
@@ -2774,6 +2775,15 @@ class LLMPolicyGateway(LLMPort):
                     error_message=str(e),
                     error_details=error_details(e),
                 )
+            if isinstance(e, ProviderCallError):
+                # Retries are spent: the caller gets a code that says the
+                # provider failed, not an internal error.
+                details: dict[str, Any] = {"model": model, "provider_error_code": e.code}
+                if e.status_code is not None:
+                    details["provider_status"] = e.status_code
+                raise KernelError(
+                    "MODEL_PROVIDER_FAILED", "The provider failed the image decomposition", details
+                ) from e
             raise
 
     async def rerank(

@@ -23,6 +23,9 @@ record for operators.
   per returned image, the base included, under the `decompose_image`
   operation. Artifact and asynchronous jobs also write a `layers.json` run
   artifact placing each layer. See [Layer decomposition](./docs/gateway.md#layer-decomposition).
+  A provider moderation refusal answers `403` `FORBIDDEN` with `categories`,
+  a request the provider rejects `400` `VALIDATION_ERROR` with its reason,
+  and a provider failure or lost connection `502` `MODEL_PROVIDER_FAILED`.
 
 ## [1.8.0] - 2026-10-03
 

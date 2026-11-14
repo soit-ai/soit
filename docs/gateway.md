@@ -210,6 +210,16 @@ model in its capability matrix. Any other route is refused with `422`
 `MODEL_CAPABILITY_UNAVAILABLE`, `reason` `no_decomposition_route`, before a
 run opens. SOIT asks for no watermark.
 
+When Ark refuses the call, the caller is told why. A moderation refusal of
+the source or the result answers `403` `FORBIDDEN`, as SOIT's own content
+safety does, with `categories` `["provider_content_policy"]`, `direction`
+(`inbound` for the source, `outbound` for the result) and Ark's code as
+`provider_error_code`. A request Ark rejects, such as a source under its
+minimum of 262,144 pixels, answers `400` `VALIDATION_ERROR` with Ark's
+message and `reason` `provider_rejected`. A rejected key, a model the account
+has not activated, a provider error once retries are spent, or a provider
+that could not be reached answers `502` `MODEL_PROVIDER_FAILED`.
+
 A full decomposition answered inline runs to over 10 MB; with
 `response_format` `url` the provider's links come back instead (Ark's are
 signed and expire after 24 hours), and the caller downloads the images
