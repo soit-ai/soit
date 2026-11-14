@@ -52,6 +52,7 @@ record for operators.
   Docling 2.150.0, which accepts Pillow 13. Console: the AG-UI
   client 1.0.4 with `@assistant-ui/react-ag-ui` 0.1.10 and
   `@assistant-ui/react` 0.15.36, zod 4.6.6, qs 6.17.1 and Vite 8.3.8.
+  CLI: certifi 2026.10.23, which drops the distrusted emSign roots.
   The server now needs Python 3.11.5 or later (it was 3.11), which Soup Sieve 4
   requires.
 
