@@ -12,6 +12,8 @@ record for operators.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-14
+
 ### Added
 
 - `POST /api/v1/images/decompositions` splits an image into a base image and
@@ -26,11 +28,6 @@ record for operators.
   A provider moderation refusal answers `403` `FORBIDDEN` with `categories`,
   a request the provider rejects `400` `VALIDATION_ERROR` with its reason,
   and a provider failure or lost connection `502` `MODEL_PROVIDER_FAILED`.
-
-## [1.8.0] - 2026-10-03
-
-### Added
-
 - A workspace can stop requesters approving their own approval requests.
   `forbid_self_approval` on `PATCH /api/v1/workspaces/{id}` (and **Settings ›
   Security**), set by a workspace Owner or Admin, refuses whoever opened a
@@ -46,6 +43,15 @@ record for operators.
 - **Settings › Security** has the self-approval setting, Govern › Approvals
   and a task's page offer Approve only where the caller may approve, and a
   request's details say when another approver is needed.
+
+### Changed
+
+- Dependencies flagged by the security audits are upgraded. Server: Pillow
+  13.0.0, LiteLLM 1.103.1, MCP 1.30.0, setuptools 84.2.1, OpenTelemetry 1.45.2,
+  aiohttp 3.14.5 and other transitive packages; the knowledge worker moves to
+  Docling 2.150.0, which accepts Pillow 13. Console: the AG-UI
+  client 1.0.4 with `@assistant-ui/react-ag-ui` 0.1.10 and
+  `@assistant-ui/react` 0.15.36, zod 4.6.6, qs 6.17.1 and Vite 8.3.8.
 
 ## [1.7.0] - 2026-10-03
 
