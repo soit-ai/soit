@@ -18,11 +18,12 @@ from typing import Any
 import httpx
 
 from app.adapters.llm.upstream_ids import header_id
-from app.kernel.commons.errors import KernelError, ValidationError
+from app.kernel.commons.errors import ForbiddenError, KernelError, ValidationError
 from app.kernel.ports.llm.interface import (
     DecomposedLayer,
     GeneratedImage,
     ImageDecompositionResponse,
+    ProviderCallError,
     TextLine,
     TextRun,
     TextStyle,
@@ -42,17 +43,66 @@ _REQUEST_ID_HEADERS = ("x-request-id", "x-tt-logid")
 Poster = Callable[[str, dict[str, str], dict[str, Any], float | None], Awaitable[httpx.Response]]
 
 
-class ArkRequestError(Exception):
-    """Ark refused or failed the call.
+class ArkRequestError(ProviderCallError):
+    """Ark failed the call in a way asking again may cure, or could not be reached.
 
-    ``status_code`` is what the gateway's retry policy reads; the message keeps
-    Ark's own code so an operator can look it up.
+    ``status_code`` is what the gateway's retry policy reads (``None`` when no
+    answer came); the message keeps Ark's own code so an operator can look it up.
     """
 
-    def __init__(self, status_code: int, code: str | None, message: str) -> None:
-        super().__init__(f"Ark returned {status_code} {code or ''}: {message}".strip())
-        self.status_code = status_code
-        self.code = code
+    def __init__(self, status_code: int | None, code: str | None, message: str) -> None:
+        shown = status_code if status_code is not None else "no answer"
+        super().__init__(status_code, code, f"Ark returned {shown} {code or ''}: {message}".strip())
+
+
+# Answers Ark may give differently a moment later; every other 4xx is final.
+_TRANSIENT_STATUSES = frozenset({408, 409, 425, 429})
+
+# Ark names a moderation refusal ``InputImageSensitiveContentDetected``,
+# ``OutputImageSensitiveContentDetected``, ``InputTextSensitiveContentDetected``
+# and the like.
+_SENSITIVE_CONTENT = "SensitiveContent"
+
+
+def refusal(status_code: int, code: str | None, message: str) -> KernelError | None:
+    """SOIT's error for an Ark answer that asking again would not change.
+
+    ``None`` for what may pass on a retry (a rate limit, a server error),
+    which stays an ``ArkRequestError`` for the gateway's retry policy.
+
+    A moderation refusal answers as SOIT's own content safety does, ``FORBIDDEN``
+    with ``categories``, saying whether the source or the result was refused. A
+    rejected key, or a model the account has not activated, is the provider's
+    configuration and not the caller's request. Anything else Ark refused is
+    the request itself, and Ark's message says what to change.
+    """
+    if status_code < 400 or status_code >= 500 or status_code in _TRANSIENT_STATUSES:
+        return None
+    details: dict[str, Any] = {
+        "provider": VOLCENGINE_PROVIDER,
+        "provider_status": status_code,
+        "provider_error_code": code,
+    }
+    if code and _SENSITIVE_CONTENT in code:
+        direction = "outbound" if code.startswith("Output") else "inbound" if code.startswith("Input") else None
+        return ForbiddenError(
+            "The provider refused the image under its content policy",
+            {
+                **details,
+                **({"direction": direction} if direction else {}),
+                "categories": ["provider_content_policy"],
+            },
+        )
+    if status_code in {401, 403, 404}:
+        return KernelError(
+            "MODEL_PROVIDER_FAILED",
+            f"The provider refused the credential or the model: {message}",
+            details,
+        )
+    return ValidationError(
+        f"The provider refused the request: {message}",
+        {**details, "reason": "provider_rejected"},
+    )
 
 
 def supports_layer_decomposition(litellm_provider: str | None) -> bool:
@@ -278,7 +328,12 @@ async def decompose(
     )
     url = f"{api_base.rstrip('/')}/images/generations"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    response = await (post or _post)(url, headers, body, timeout)
+    try:
+        response = await (post or _post)(url, headers, body, timeout)
+    except httpx.TransportError as exc:
+        # Raised from the connection, before any answer: name the kind of
+        # failure, not the exception text, which can carry the request.
+        raise ArkRequestError(None, type(exc).__name__, "the provider could not be reached") from exc
     request_id = header_id(response.headers, *_REQUEST_ID_HEADERS)
     try:
         payload = response.json()
@@ -287,11 +342,12 @@ async def decompose(
     if response.status_code >= 400 or not isinstance(payload, Mapping):
         error = payload.get("error") if isinstance(payload, Mapping) else None
         error = error if isinstance(error, Mapping) else {}
-        raise ArkRequestError(
-            response.status_code,
-            _text(error.get("code")),
-            (_text(error.get("message")) or response.text or "no body")[:500],
-        )
+        code = _text(error.get("code"))
+        message = (_text(error.get("message")) or response.text or "no body")[:500]
+        refused = refusal(response.status_code, code, message)
+        if refused is not None:
+            raise refused
+        raise ArkRequestError(response.status_code, code, message)
     return parse_response(
         payload,
         model_name=model_name,

@@ -23,7 +23,7 @@ from app.adapters.llm.volcengine_layers import (
     decompose,
     parse_response,
 )
-from app.kernel.commons.errors import KernelError, ValidationError
+from app.kernel.commons.errors import ForbiddenError, KernelError, ValidationError
 from app.kernel.contracts.context import RequestContext
 from app.kernel.security.egress import GovernedEgressGuard
 from app.settings.settings import settings
@@ -223,6 +223,22 @@ class TestAnswer:
         assert refused.value.code == "IMAGE_UNDELIVERABLE"
 
 
+async def _call(post) -> Any:
+    return await decompose(
+        api_base=BASE,
+        api_key="k",
+        model_name="m",
+        image=_png(),
+        prompt=None,
+        max_layers=None,
+        text_recognition=False,
+        size=None,
+        response_format=None,
+        timeout=None,
+        post=post,
+    )
+
+
 class TestCall:
     @pytest.mark.asyncio
     async def test_posts_to_the_configured_base(self) -> None:
@@ -286,6 +302,78 @@ class TestCall:
 
         assert failed.value.status_code == 429
         assert failed.value.code == "RateLimitExceeded"
+
+    @pytest.mark.asyncio
+    async def test_a_moderation_refusal_answers_as_content_safety_does(self) -> None:
+        post = _Post(
+            status_code=400,
+            payload={
+                "error": {
+                    "code": "InputImageSensitiveContentDetected",
+                    "message": "The request failed because the input image may contain sensitive information.",
+                }
+            },
+        )
+
+        with pytest.raises(ForbiddenError) as refused:
+            await _call(post)
+
+        assert refused.value.details["categories"] == ["provider_content_policy"]
+        assert refused.value.details["direction"] == "inbound"
+        assert refused.value.details["provider_error_code"] == "InputImageSensitiveContentDetected"
+
+    @pytest.mark.asyncio
+    async def test_a_refused_result_is_outbound(self) -> None:
+        post = _Post(
+            status_code=400,
+            payload={"error": {"code": "OutputImageSensitiveContentDetected", "message": "x"}},
+        )
+
+        with pytest.raises(ForbiddenError) as refused:
+            await _call(post)
+
+        assert refused.value.details["direction"] == "outbound"
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_request_keeps_arks_reason(self) -> None:
+        # What Ark answered a 64x64 source on a live call (2026-11-13).
+        post = _Post(
+            status_code=400,
+            payload={
+                "error": {
+                    "code": "InvalidParameter",
+                    "message": "image size must be at least 262144px. Request id: r-1",
+                }
+            },
+        )
+
+        with pytest.raises(ValidationError) as refused:
+            await _call(post)
+
+        assert "262144px" in refused.value.message
+        assert refused.value.details["reason"] == "provider_rejected"
+        assert refused.value.details["provider_status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_key_is_the_providers_configuration(self) -> None:
+        post = _Post(status_code=401, payload={"error": {"code": "AuthenticationError", "message": "bad key"}})
+
+        with pytest.raises(KernelError) as refused:
+            await _call(post)
+
+        assert refused.value.code == "MODEL_PROVIDER_FAILED"
+
+    @pytest.mark.asyncio
+    async def test_a_lost_connection_is_left_to_the_retry_policy(self) -> None:
+        async def unreachable(*_args):
+            raise httpx.ConnectError("[Errno 101] Network is unreachable")
+
+        with pytest.raises(ArkRequestError) as failed:
+            await _call(unreachable)
+
+        assert failed.value.status_code is None
+        assert failed.value.code == "ConnectError"
+        assert "Errno" not in str(failed.value)
 
     @pytest.mark.asyncio
     async def test_refuses_a_size_tier_ark_does_not_have(self) -> None:
