@@ -11,6 +11,7 @@ import httpx
 import numpy as np
 from openai import AsyncOpenAI
 
+from app.adapters.http.shared_client import shared_http_client
 from app.adapters.llm.content_parts import openai_chat_content, openai_responses_content
 from app.adapters.llm.tool_names import (
     TOOL_NAME_PATTERN,
@@ -61,11 +62,21 @@ class OpenAILLMPort(LLMPort):
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=self.egress_base_url,
-            http_client=httpx.AsyncClient(follow_redirects=False),
+            http_client=self._http_client(),
         )
         self._use_responses_api = (
             base_url is None if use_responses_api is None else use_responses_api
         )
+
+    @staticmethod
+    def _http_client() -> httpx.AsyncClient:
+        # Ports routed per request share the loop's pool. One built outside a
+        # loop (the static providers, at startup) lives as long as the process
+        # and keeps a client of its own.
+        try:
+            return shared_http_client()
+        except RuntimeError:
+            return httpx.AsyncClient(follow_redirects=False)
 
     @classmethod
     def _chat_tool_choice(cls, tool_choice: Any, tool_name_map: dict[str, str]) -> Any:

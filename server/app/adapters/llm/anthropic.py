@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.adapters.http.shared_client import pooled_http_client, shared_http_client
 from app.adapters.llm.content_parts import anthropic_image_block
 from app.adapters.llm.tool_names import tool_name_alias, tool_name_maps
 from app.adapters.llm.upstream_ids import clean_id, header_id
@@ -112,15 +113,15 @@ class AnthropicLLMPort(LLMPort):
             name_map=name_map,
             **kwargs,
         )
-        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
-            response = await client.post(
-                f"{self.base_url}/v1/messages",
-                headers=self._headers(),
-                json=payload,
-            )
-            response.raise_for_status()
-            body = response.json()
-            request_id = header_id(getattr(response, "headers", None), "request-id")
+        client = shared_http_client(self._http_timeout())
+        response = await client.post(
+            f"{self.base_url}/v1/messages",
+            headers=self._headers(),
+            json=payload,
+        )
+        response.raise_for_status()
+        body = response.json()
+        request_id = header_id(getattr(response, "headers", None), "request-id")
 
         usage = body.get("usage") or {}
         tool_calls = self._extract_tool_calls(body, reverse_map)
@@ -168,7 +169,7 @@ class AnthropicLLMPort(LLMPort):
         # calls are numbered in the order they start, as OpenAI numbers them.
         tool_positions: dict[int, int] = {}
         assembled: dict[int, dict[str, str]] = {}
-        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
+        async with pooled_http_client(self._http_timeout()) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/v1/messages",

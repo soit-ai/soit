@@ -10,6 +10,7 @@
     "app/infra/db/transaction.py",
     "app/infra/telemetry.py",
     "app/adapters/http/governed_fetch.py",
+    "app/adapters/http/shared_client.py",
     "app/kernel/events/envelope.py",
     "app/kernel/events/publisher.py",
     "app/kernel/events/dispatcher.py"

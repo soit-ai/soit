@@ -12,6 +12,15 @@ record for operators.
 
 ## [Unreleased]
 
+### Changed
+
+- Model provider calls reuse pooled HTTP connections. The OpenAI, Anthropic
+  and Gemini adapters share one client per event loop instead of opening one
+  per call, so a call no longer pays a fresh TCP and TLS handshake, and the
+  OpenAI adapter no longer leaves an unclosed client behind on every call.
+  `LLM_HTTP_MAX_CONNECTIONS` (200), `LLM_HTTP_MAX_KEEPALIVE_CONNECTIONS` (50)
+  and `LLM_HTTP_KEEPALIVE_EXPIRY_SECONDS` (30) size the pool per process.
+
 ## [1.8.0] - 2026-11-14
 
 ### Added

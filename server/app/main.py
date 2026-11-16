@@ -388,6 +388,9 @@ async def lifespan(app: FastAPI):
                 await task
             except asyncio.CancelledError:
                 pass
+        from app.adapters.http.shared_client import close_shared_http_clients
+
+        await close_shared_http_clients()
 
 
 # Create FastAPI application

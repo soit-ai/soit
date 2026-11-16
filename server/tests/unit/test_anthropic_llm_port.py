@@ -346,5 +346,6 @@ async def test_a_provider_timeout_or_none_bounds_the_http_calls(monkeypatch, tim
     async for _chunk in port.stream_chat([ChatMessage(role="user", content="hi")], model="claude-sonnet-4-6"):
         pass
 
-    assert len(opened) == 2
+    # Both calls ride the loop's one pooled client, opened with the bound.
+    assert len(opened) == 1
     assert all(opened_timeout.read == read and opened_timeout.connect == 10.0 for opened_timeout in opened)

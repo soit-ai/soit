@@ -63,6 +63,18 @@ class Settings(BaseSettings):
     docs/operations/database-connections.md.
     """
 
+    # Model provider HTTP pool
+    llm_http_max_connections: int = 200
+    """Connections one process may hold open to model providers at once.
+
+    Every streaming call holds one for its whole length, so this caps the
+    concurrent model calls of an API or worker process.
+    """
+    llm_http_max_keepalive_connections: int = 50
+    """Idle provider connections kept for reuse."""
+    llm_http_keepalive_expiry_seconds: float = 30.0
+    """How long an idle provider connection is kept."""
+
     # Redis
     redis_host: str = "localhost"
     """Redis host."""

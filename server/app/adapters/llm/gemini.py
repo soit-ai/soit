@@ -30,6 +30,7 @@ from uuid import uuid4
 
 import httpx
 
+from app.adapters.http.shared_client import pooled_http_client
 from app.adapters.llm.tool_names import tool_name_alias, tool_name_maps
 from app.adapters.llm.upstream_ids import clean_id
 from app.kernel.commons.errors import ValidationError
@@ -189,7 +190,7 @@ class GeminiLLMPort(LLMPort):
         name_map, reverse_map = self._name_maps(tools)
         payload = self._payload(messages, temperature, max_tokens, tools, tool_choice, name_map, kwargs)
         model_name = self._resolve_model_name(model)
-        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
+        async with pooled_http_client(self._http_timeout()) as client:
             response = await client.post(
                 f"{self.base_url}/models/{model_name}:generateContent",
                 headers=self._headers(),
@@ -233,7 +234,7 @@ class GeminiLLMPort(LLMPort):
         raw_finish: str | None = None
         calls: list[ToolCall] = []
         response_id: str | None = None
-        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
+        async with pooled_http_client(self._http_timeout()) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/models/{model_name}:streamGenerateContent",
@@ -299,7 +300,7 @@ class GeminiLLMPort(LLMPort):
         if dimensions:
             request["outputDimensionality"] = int(dimensions)
         payload = {"requests": [{**request, "content": {"parts": [{"text": text}]}} for text in texts]}
-        async with httpx.AsyncClient(timeout=self._http_timeout()) as client:
+        async with pooled_http_client(self._http_timeout()) as client:
             response = await client.post(
                 f"{self.base_url}/models/{model_name}:batchEmbedContents",
                 headers=self._headers(),
