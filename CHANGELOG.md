@@ -26,6 +26,10 @@ record for operators.
   `DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` (five minutes), and a lock wait
   gives up after `DATABASE_LOCK_TIMEOUT_MS` (30 seconds). `0` disables one.
   See [database connections](docs/operations/database-connections.md).
+- The Milvus vector adapter runs its blocking client calls on a worker thread
+  instead of the event loop, so a knowledge search no longer stalls every
+  other request and execution in the process, and it loads a collection once
+  per process instead of before every search.
 
 ## [1.8.0] - 2026-11-14
 

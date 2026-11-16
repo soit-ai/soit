@@ -27,6 +27,9 @@ from app.settings.settings import settings
 LITE_MODE = "lite"
 """Value of `MILVUS_MODE` that runs the embedded Milvus Lite engine."""
 
+_loaded_collections: set[tuple[str, str, int, str, str]] = set()
+"""Collections this process has loaded, keyed by connection and name."""
+
 
 class MilvusVectorPort(VectorPort):
     """Milvus vector gateway adapter.
@@ -123,6 +126,21 @@ class MilvusVectorPort(VectorPort):
         self._ensure_connected()
         utility.get_server_version()
 
+    def _load_key(self, collection_name: str) -> tuple[str, str, int, str, str]:
+        return (self.mode, self.host, self.port, self.lite_file, collection_name)
+
+    def _load_once(self, coll: Collection, collection_name: str) -> None:
+        """Load a collection into memory the first time this process uses it.
+
+        Loading an already loaded collection is a round trip to Milvus that
+        every search used to pay; a search that finds it released reloads it.
+        """
+        key = self._load_key(collection_name)
+        if key in _loaded_collections:
+            return
+        coll.load()
+        _loaded_collections.add(key)
+
     @staticmethod
     def _normalize_collection_name(name: str) -> str:
         """Normalize collection name to Milvus-compatible format."""
@@ -199,13 +217,28 @@ class MilvusVectorPort(VectorPort):
     ) -> None:
         """Ensure Milvus collection exists."""
         del index_ref, run_id
-        self._ensure_connected()
         milvus_metric = self._to_milvus_metric(metric_type)
+        await asyncio.to_thread(
+            self._ensure_collection_connected,
+            collection,
+            dimension,
+            bool(metadata_schema),
+            milvus_metric,
+        )
+
+    def _ensure_collection_connected(
+        self,
+        collection_name: str,
+        dimension: int,
+        include_metadata: bool,
+        metric_type: str,
+    ) -> None:
+        self._ensure_connected()
         self._ensure_collection(
-            collection_name=collection,
+            collection_name=collection_name,
             dimension=dimension,
-            include_metadata=bool(metadata_schema),
-            metric_type=milvus_metric,
+            include_metadata=include_metadata,
+            metric_type=metric_type,
         )
 
     async def query(
@@ -228,13 +261,25 @@ class MilvusVectorPort(VectorPort):
         Returns:
             VectorQueryResult instance.
         """
+        # pymilvus is a blocking gRPC client: on the event loop, one search
+        # would stall every other request and execution in the process.
+        return await asyncio.to_thread(self._query, collection, vector, top_k, filter, kwargs)
+
+    def _query(
+        self,
+        collection: str,
+        vector: list[float],
+        top_k: int,
+        filter: dict[str, Any] | None,
+        kwargs: dict[str, Any],
+    ) -> VectorQueryResult:
         self._ensure_connected()
         collection_name = self._normalize_collection_name(collection)
         if not utility.has_collection(collection_name):
             return VectorQueryResult(ids=[], scores=[])
 
         coll = Collection(collection_name)
-        coll.load()
+        self._load_once(coll, collection_name)
 
         # Build search params
         search_params = {
@@ -262,14 +307,24 @@ class MilvusVectorPort(VectorPort):
         if kwargs.get("include_metadata", False):
             output_fields = ["metadata"]
 
-        results = coll.search(
-            data=[vector],
-            anns_field="vector",
-            param=search_params,
-            limit=top_k,
-            expr=expr,
-            output_fields=output_fields,
-        )
+        def search() -> Any:
+            return coll.search(
+                data=[vector],
+                anns_field="vector",
+                param=search_params,
+                limit=top_k,
+                expr=expr,
+                output_fields=output_fields,
+            )
+
+        try:
+            results = search()
+        except Exception:
+            # Released or recreated since this process loaded it: load again
+            # and retry once.
+            _loaded_collections.discard(self._load_key(collection_name))
+            self._load_once(coll, collection_name)
+            results = search()
 
         # Extract results
         if not results or len(results) == 0:
@@ -323,13 +378,22 @@ class MilvusVectorPort(VectorPort):
         if len(vectors) != len(ids):
             raise ValueError("Vectors and IDs must have the same length")
 
+        await asyncio.to_thread(self._insert, collection, vectors, ids, metadata)
+
+    def _insert(
+        self,
+        collection: str,
+        vectors: list[list[float]],
+        ids: list[str],
+        metadata: list[dict[str, Any]] | None,
+    ) -> None:
         self._ensure_connected()
         collection_name = self._normalize_collection_name(collection)
 
         dimension = len(vectors[0])
         include_metadata = bool(metadata)
         coll = self._ensure_collection(collection_name, dimension, include_metadata)
-        coll.load()
+        self._load_once(coll, collection_name)
 
         # Prepare data for insertion
         # Milvus expects data as a list of lists, where each inner list represents a field
@@ -359,10 +423,13 @@ class MilvusVectorPort(VectorPort):
         if not ids:
             return
 
+        await asyncio.to_thread(self._delete, collection, ids)
+
+    def _delete(self, collection: str, ids: list[str]) -> None:
         self._ensure_connected()
         collection_name = self._normalize_collection_name(collection)
         coll = Collection(collection_name)
-        coll.load()
+        self._load_once(coll, collection_name)
 
         # Delete by IDs
         # Milvus delete expects a filter expression or list of IDs
