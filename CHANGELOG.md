@@ -30,6 +30,9 @@ record for operators.
   instead of the event loop, so a knowledge search no longer stalls every
   other request and execution in the process, and it loads a collection once
   per process instead of before every search.
+- Password hashing and checking run on a worker thread. Each costs a few
+  hundred milliseconds of CPU by design, and on the event loop every sign-in,
+  sign-up, password change and MFA disable stalled the whole API process.
 
 ## [1.8.0] - 2026-11-14
 

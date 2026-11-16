@@ -42,3 +42,25 @@ def test_a_password_past_72_bytes_is_cut_where_passlib_cut_it() -> None:
 @pytest.mark.parametrize("stored", [None, "", "not-a-bcrypt-hash", "$2b$12$short"])
 def test_no_hash_or_a_malformed_one_matches_nothing(stored: str | None) -> None:
     assert not verify_password(_SAMPLE, stored)
+
+
+
+@pytest.mark.asyncio
+async def test_async_forms_run_off_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    from app.modules.identity.application import passwords
+
+    seen: list[int] = []
+    real = passwords.bcrypt.checkpw
+
+    def spy(password: bytes, hashed: bytes) -> bool:
+        seen.append(threading.get_ident())
+        return real(password, hashed)
+
+    stored = await passwords.hash_password_async(_SAMPLE)
+    monkeypatch.setattr(passwords.bcrypt, "checkpw", spy)
+
+    assert await passwords.verify_password_async(_SAMPLE, stored)
+    assert not await passwords.verify_password_async("wrong horse", stored)
+    assert seen and threading.get_ident() not in seen
