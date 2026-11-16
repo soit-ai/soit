@@ -73,3 +73,21 @@ shortfall against the bound as an immediate outage.
   `QueuePool limit ... reached`;
 - the readiness probe (`/health/ready`) flapping under load while the
   database itself is idle.
+
+## Timeout backstops
+
+Every pooled connection starts with three PostgreSQL session limits, so one
+misbehaving code path cannot hold a connection, or the locks it took, until
+the process dies:
+
+| Setting | Default | PostgreSQL parameter |
+| --- | --- | --- |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | 120000 (2 min) | `statement_timeout` |
+| `DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 300000 (5 min) | `idle_in_transaction_session_timeout` |
+| `DATABASE_LOCK_TIMEOUT_MS` | 30000 (30 s) | `lock_timeout` |
+
+`0` disables a limit. They are backstops: no request or worker statement
+should come near them, and hitting one is a bug to report, not a value to
+raise. Migrations open their own connection and are not bound by them. A
+session PostgreSQL ends for idling in a transaction shows up as an error on
+that request only; the pool replaces the connection.

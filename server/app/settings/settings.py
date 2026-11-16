@@ -62,6 +62,21 @@ class Settings(BaseSettings):
     cover ``processes x (pool_size + max_overflow)`` plus a margin; see
     docs/operations/database-connections.md.
     """
+    database_statement_timeout_ms: int = 120_000
+    """Longest one SQL statement may run before PostgreSQL cancels it; 0 disables.
+
+    A backstop, not a tuning knob: no request or worker statement should come
+    near it. Migrations open their own connection and are not bound by it.
+    """
+    database_idle_in_transaction_timeout_ms: int = 300_000
+    """How long a session may sit idle inside an open transaction; 0 disables.
+
+    A code path that forgets to end its transaction otherwise holds a pooled
+    connection, and any row locks it took, until the process dies. PostgreSQL
+    ends such a session after this long and the pool replaces the connection.
+    """
+    database_lock_timeout_ms: int = 30_000
+    """Longest a statement waits for a row or table lock; 0 disables."""
 
     # Model provider HTTP pool
     llm_http_max_connections: int = 200

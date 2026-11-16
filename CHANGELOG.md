@@ -20,6 +20,12 @@ record for operators.
   OpenAI adapter no longer leaves an unclosed client behind on every call.
   `LLM_HTTP_MAX_CONNECTIONS` (200), `LLM_HTTP_MAX_KEEPALIVE_CONNECTIONS` (50)
   and `LLM_HTTP_KEEPALIVE_EXPIRY_SECONDS` (30) size the pool per process.
+- Pooled PostgreSQL connections start with timeout backstops: a statement is
+  cancelled after `DATABASE_STATEMENT_TIMEOUT_MS` (two minutes), a session left
+  idle inside a transaction is ended after
+  `DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS` (five minutes), and a lock wait
+  gives up after `DATABASE_LOCK_TIMEOUT_MS` (30 seconds). `0` disables one.
+  See [database connections](docs/operations/database-connections.md).
 
 ## [1.8.0] - 2026-11-14
 

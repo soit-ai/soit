@@ -49,6 +49,30 @@ def json_column_serializer(value: Any) -> str:
     return orjson.dumps(value, option=orjson.OPT_NON_STR_KEYS).decode()
 
 
+def session_options() -> str:
+    """The libpq ``options`` every pooled connection starts with.
+
+    The timeouts are backstops: a statement that runs away, a lock that is
+    never released, or a transaction a code path forgot to end would otherwise
+    hold a pooled connection indefinitely and starve every other request.
+    """
+    options = [
+        # Timestamps are stored as naive UTC. psycopg renders an aware
+        # datetime in the session time zone before it reaches a
+        # `timestamp without time zone` column, so a server whose default
+        # zone is not UTC would shift every write by its offset.
+        "-c timezone=UTC",
+    ]
+    for name, value in (
+        ("statement_timeout", settings.database_statement_timeout_ms),
+        ("idle_in_transaction_session_timeout", settings.database_idle_in_transaction_timeout_ms),
+        ("lock_timeout", settings.database_lock_timeout_ms),
+    ):
+        if int(value) > 0:
+            options.append(f"-c {name}={int(value)}")
+    return " ".join(options)
+
+
 def build_async_engine(database_url: str) -> AsyncEngine:
     """Create an async engine for a configured (sync-style) database URL."""
     database_url = _async_database_url(database_url)
@@ -62,11 +86,7 @@ def build_async_engine(database_url: str) -> AsyncEngine:
     return create_async_engine(
         database_url,
         echo=False,
-        # Timestamps are stored as naive UTC. psycopg renders an aware
-        # datetime in the session time zone before it reaches a
-        # `timestamp without time zone` column, so a server whose default
-        # zone is not UTC would shift every write by its offset.
-        connect_args={"options": "-c timezone=UTC"},
+        connect_args={"options": session_options()},
         pool_pre_ping=True,
         pool_size=_POOL_SIZE,
         max_overflow=_MAX_OVERFLOW,
