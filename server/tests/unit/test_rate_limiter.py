@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 import redis.asyncio as redis_async
+from redis.exceptions import NoScriptError
 
 from app.kernel.commons.errors import RateLimitExceededError
 from app.kernel.ports.common.rate_limiter import RateLimiter
@@ -19,6 +20,8 @@ def mock_redis():
     """Create mock Redis client."""
     redis_client = AsyncMock(spec=redis_async.Redis)
     redis_client.eval = AsyncMock(return_value=[1, "0"])  # Allowed
+    # A Redis that has not cached the script yet: the limiter falls back to EVAL.
+    redis_client.evalsha = AsyncMock(side_effect=NoScriptError("NOSCRIPT"))
     redis_client.ttl = AsyncMock(return_value=60)
     redis_client.zremrangebyscore = AsyncMock()
     redis_client.zcard = AsyncMock(return_value=0)
@@ -156,3 +159,16 @@ async def test_a_refusal_says_when_a_slot_frees(real_redis, held, limit, wait):
         await limiter.check_rate_limit(key=key, limit=limit, window_seconds=86400)
 
     assert abs(refused.value.details["retry_after"] - wait) <= 2
+
+
+@pytest.mark.asyncio
+async def test_a_cached_script_is_called_by_digest(mock_redis):
+    """Once Redis holds the script, a check sends only its digest."""
+    from app.kernel.ports.common import rate_limiter
+
+    mock_redis.evalsha = AsyncMock(return_value=[1, "0"])
+    limiter = RateLimiter(redis_client=mock_redis)
+
+    assert await limiter.check_rate_limit(key="k", limit=5, window_seconds=60) is True
+    assert mock_redis.evalsha.await_args.args[0] == rate_limiter._SLIDING_WINDOW_SHA
+    mock_redis.eval.assert_not_awaited()

@@ -3,15 +3,42 @@
 Redis-based rate limiter using sliding window algorithm.
 """
 
+import hashlib
 import math
 import secrets
 import time
 from typing import Any, cast
 
 import redis.asyncio as redis_async
+from redis.exceptions import NoScriptError
 
 from app.kernel.commons.errors import RateLimitExceededError
 from app.kernel.ports.common.redis_client import shared_redis
+
+# Sliding window log. Each request is its own member: two requests in the same
+# instant are two requests. A refusal returns when the request whose leaving
+# frees a slot was made: the oldest while the window holds the limit, a later
+# one when the limit was lowered below what it holds. The key's TTL says only
+# when the last one leaves.
+_SLIDING_WINDOW_SCRIPT = """
+local key = KEYS[1]
+local window_start = tonumber(ARGV[1])
+local now = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local window_seconds = tonumber(ARGV[4])
+
+redis.call('ZREMRANGEBYSCORE', key, 0, window_start)
+local count = redis.call('ZCARD', key)
+
+if count < limit then
+    redis.call('ZADD', key, now, ARGV[5])
+    redis.call('EXPIRE', key, window_seconds)
+    return {1, ARGV[2]}
+end
+local freeing = redis.call('ZRANGE', key, count - limit, count - limit, 'WITHSCORES')
+return {0, freeing[2] or ARGV[2]}
+"""
+_SLIDING_WINDOW_SHA = hashlib.sha1(_SLIDING_WINDOW_SCRIPT.encode("utf-8")).hexdigest()
 
 
 class RateLimiter:
@@ -64,41 +91,22 @@ class RateLimiter:
         now = time.time()
         window_start = now - window_seconds
 
-        # Each request is its own member: two requests in the same instant
-        # are two requests. A refusal returns when the request whose leaving
-        # frees a slot was made: the oldest while the window holds the limit,
-        # a later one when the limit was lowered below what it holds. The
-        # key's TTL says only when the last one leaves.
-        lua_script = """
-        local key = KEYS[1]
-        local window_start = tonumber(ARGV[1])
-        local now = tonumber(ARGV[2])
-        local limit = tonumber(ARGV[3])
-        local window_seconds = tonumber(ARGV[4])
-
-        redis.call('ZREMRANGEBYSCORE', key, 0, window_start)
-        local count = redis.call('ZCARD', key)
-
-        if count < limit then
-            redis.call('ZADD', key, now, ARGV[5])
-            redis.call('EXPIRE', key, window_seconds)
-            return {1, ARGV[2]}
-        end
-        local freeing = redis.call('ZRANGE', key, count - limit, count - limit, 'WITHSCORES')
-        return {0, freeing[2] or ARGV[2]}
-        """
+        args = (
+            str(window_start),
+            str(now),
+            str(limit),
+            str(window_seconds),
+            f"{now}:{secrets.token_hex(8)}",
+        )
 
         try:
-            result = await redis.eval(
-                lua_script,
-                1,  # Number of keys
-                redis_key,
-                str(window_start),
-                str(now),
-                str(limit),
-                str(window_seconds),
-                f"{now}:{secrets.token_hex(8)}",
-            )
+            # The script is sent by digest; only a Redis that has not seen it
+            # yet (first call, restart, SCRIPT FLUSH) gets the full text,
+            # which EVAL also caches for the next call.
+            try:
+                result = await redis.evalsha(_SLIDING_WINDOW_SHA, 1, redis_key, *args)
+            except NoScriptError:
+                result = await redis.eval(_SLIDING_WINDOW_SCRIPT, 1, redis_key, *args)
 
             allowed, freeing_at = cast(list[Any], result)
             if int(allowed) == 0:

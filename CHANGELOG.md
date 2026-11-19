@@ -33,6 +33,9 @@ record for operators.
 - Password hashing and checking run on a worker thread. Each costs a few
   hundred milliseconds of CPU by design, and on the event loop every sign-in,
   sign-up, password change and MFA disable stalled the whole API process.
+- Rate limit checks send their Redis script by digest (`EVALSHA`) and fall
+  back to the full text only when Redis has not cached it yet, instead of
+  sending the whole script on every model and tool call.
 
 ## [1.8.0] - 2026-11-14
 
