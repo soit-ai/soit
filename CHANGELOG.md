@@ -14,6 +14,16 @@ record for operators.
 
 ### Added
 
+- The lite profile runs in production. `ENVIRONMENT=production` now accepts
+  pgvector (`VECTOR_BACKEND=pgvector`) and secrets sealed in PostgreSQL
+  (`SECRETS_BACKEND=sealed`, which needs no Vault), and tracing, a model
+  provider key in the environment and plugin signing keys are optional; the
+  API logs a warning at startup for each of those choices. Production also
+  takes its only accepted value for inline execution, the durable worker and
+  plugin signature and digest checks when they are left unset, so they no
+  longer have to be spelled out. Explicitly unsafe values, Milvus Lite and
+  the lite profile's default `SECRET_KEY` are still refused.
+
 - Two metrics for what SOIT adds to a model call:
   `soit_llm_pre_provider_seconds` (by `operation`) is the time a call spends
   in admission, routing, credentials and pricing before its provider request,

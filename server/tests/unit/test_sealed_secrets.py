@@ -73,11 +73,15 @@ def test_the_backend_setting_is_validated() -> None:
         Settings(_env_file=None, secrets_backend="file")
 
 
-def test_production_refuses_the_sealed_backend() -> None:
-    production = _production_settings(secrets_backend="sealed")
-    with pytest.raises(ValueError, match="Vault secrets backend"):
-        production.validate_runtime_requirements()
-    _production_settings(secrets_backend="vault").validate_runtime_requirements()
+def test_production_runs_the_sealed_backend_without_vault() -> None:
+    production = _production_settings(secrets_backend="sealed", vault_url=None, vault_token=None)
+
+    production.validate_runtime_requirements()
+    assert any("SECRET_KEY" in warning for warning in production.runtime_warnings())
+    with pytest.raises(ValueError, match="Vault URL and token"):
+        _production_settings(
+            secrets_backend="vault", vault_url=None, vault_token=None
+        ).validate_runtime_requirements()
 
 
 def test_the_container_selects_the_sealed_store(monkeypatch: pytest.MonkeyPatch) -> None:

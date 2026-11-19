@@ -18,6 +18,29 @@ PLACEHOLDER_STORAGE_CREDENTIALS = frozenset(
 )
 """Object storage credentials shipped in .env.example and MinIO's own defaults."""
 
+PLACEHOLDER_SECRET_KEYS = frozenset(
+    {
+        "change-me",
+        "your-secret-key-change-in-production",
+        # The lite compose file's default, long enough to pass on length alone.
+        "soit-lite-evaluation-secret-key-change-me",
+    }
+)
+"""SECRET_KEY values shipped in the repository, refused in production."""
+
+_PRODUCTION_SAFE_DEFAULTS: dict[str, bool] = {
+    "response_interaction_inline_execution": False,
+    "response_interaction_worker_enabled": True,
+    "plugin_signature_required": True,
+    "plugin_integrity_required": True,
+}
+"""Values production takes for these settings when the operator leaves them unset.
+
+Each is the only value production accepts, so asking an operator to type it
+added configuration without adding a choice. One set explicitly to anything
+else is still refused by `Settings.validate_runtime_requirements`.
+"""
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -745,6 +768,15 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _apply_production_defaults(self) -> "Settings":
+        if (self.environment or "").strip().lower() != "production":
+            return self
+        for name, value in _PRODUCTION_SAFE_DEFAULTS.items():
+            if name not in self.model_fields_set:
+                setattr(self, name, value)
+        return self
+
+    @model_validator(mode="after")
     def _validate_vector_store(self) -> "Settings":
         backend = (self.vector_backend or "").strip().lower()
         if backend not in {"milvus", "pgvector"}:
@@ -765,6 +797,28 @@ class Settings(BaseSettings):
         self.secrets_backend = backend
         return self
 
+    def runtime_warnings(self) -> list[str]:
+        """Production choices that are allowed but worth saying out loud at startup."""
+        if (self.environment or "").strip().lower() != "production":
+            return []
+        warnings: list[str] = []
+        if not self.otel_enabled:
+            warnings.append(
+                "OpenTelemetry tracing is off; runs, costs and audit are still recorded, "
+                "but no traces are exported"
+            )
+        if self.secrets_backend == "sealed":
+            warnings.append(
+                "Secret values are sealed in PostgreSQL with a key derived from SECRET_KEY: "
+                "back up SECRET_KEY with the database, and never change it, or every stored "
+                "secret becomes unreadable"
+            )
+        if self.plugin_signature_required and not self.plugin_signature_public_keys:
+            warnings.append(
+                "No PLUGIN_SIGNATURE_PUBLIC_KEYS: third-party plugin packages cannot be installed"
+            )
+        return warnings
+
     def validate_runtime_requirements(self) -> None:
         """Fail closed when production runtime dependencies are not configured."""
         if (self.environment or "").strip().lower() != "production":
@@ -782,12 +836,10 @@ class Settings(BaseSettings):
             raise ValueError("Production database URL must include host, database, and credentials")
         if (self.event_bus_backend or "").strip().lower() != "redis":
             raise ValueError("Production requires the Redis event bus backend")
-        if self.vector_backend != "milvus":
-            # pgvector is a development convenience that puts the vector store
-            # in the application database. Production runs the vector store the
-            # deployment profile provisions and operates.
-            raise ValueError("Production requires the Milvus vector backend")
-        if self.milvus_mode == "lite":
+        # pgvector keeps vectors in the application database, which is what
+        # the lite profile runs in production; Milvus is the choice for
+        # collections too large for it.
+        if self.vector_backend == "milvus" and self.milvus_mode == "lite":
             # Milvus Lite is a single-process file store meant for local
             # debugging. Nothing else can read it, so it must not be what a
             # production deployment silently falls back to.
@@ -800,12 +852,8 @@ class Settings(BaseSettings):
             raise ValueError("Production requires the durable chat interaction worker")
         if not self.plugin_signature_required:
             raise ValueError("Production requires plugin signature verification")
-        if not self.plugin_signature_public_keys:
-            # Requiring signatures with no trusted key rejects every package,
-            # which reads as a signature gate but is really a total block.
-            raise ValueError(
-                "Production requires at least one plugin signature public key"
-            )
+        # With no trusted key every third-party package is refused, which
+        # fails closed; runtime_warnings says so at startup.
         if not self.plugin_integrity_required:
             raise ValueError("Production requires plugin package digest verification")
         if (
@@ -817,29 +865,14 @@ class Settings(BaseSettings):
             # reporting that inspection is on, which is worse than declaring it
             # unavailable. The built-in provider needs no endpoint.
             raise ValueError("Content safety is set to http but no endpoint is configured")
-        if not self.otel_enabled:
-            raise ValueError("Production requires OpenTelemetry tracing")
-        if not (self.otel_exporter_otlp_endpoint or "").strip():
-            raise ValueError("Production requires an OpenTelemetry OTLP endpoint")
-        if self.secrets_backend != "vault":
-            # Sealed values sit next to the data they protect, behind the one
-            # application key; production keeps them in the operated Vault.
-            raise ValueError("Production requires the Vault secrets backend")
-        if not self.vault_url or not self.vault_token:
+        if self.otel_enabled and not (self.otel_exporter_otlp_endpoint or "").strip():
+            raise ValueError("Production requires an OpenTelemetry OTLP endpoint when tracing is on")
+        # Sealed secrets (the lite profile) keep values in PostgreSQL behind a
+        # key derived from SECRET_KEY; Vault is required only when chosen.
+        if self.secrets_backend == "vault" and (not self.vault_url or not self.vault_token):
             raise ValueError("Production requires Vault URL and token")
-        if not any(
-            [
-                self.openai_api_key,
-                self.deepseek_api_key,
-                self.anthropic_api_key,
-            ]
-        ):
-            raise ValueError("Production requires at least one LLM provider key")
         secret_key = (self.secret_key or "").strip()
-        if len(secret_key) < 32 or secret_key in {
-            "change-me",
-            "your-secret-key-change-in-production",
-        }:
+        if len(secret_key) < 32 or secret_key in PLACEHOLDER_SECRET_KEYS:
             raise ValueError("Production requires a non-placeholder SECRET_KEY of at least 32 characters")
         try:
             storage_options = json.loads(self.storage_options_json or "{}")

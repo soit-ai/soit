@@ -56,9 +56,10 @@ secret values sealed in PostgreSQL with a key derived from `SECRET_KEY` instead
 of Vault, and one `worker` runs knowledge ingest, the outbox dispatcher and the
 scheduler together.
 
-Nothing stops working. The trade is durability and scale: changing
-`SECRET_KEY` orphans the sealed secret values, and the settings refuse pgvector
-and sealed secrets when `ENVIRONMENT=production`. See
+Nothing stops working, and the profile runs in production too. The trade is
+scale and where secrets live: vectors share PostgreSQL with everything else,
+and the sealed secret values are only as safe as `SECRET_KEY`, which must be
+backed up with the database and never changed. See
 [docker/README.md](../docker/README.md#lite-profile).
 
 ## Topology 2: the full files without vector retrieval

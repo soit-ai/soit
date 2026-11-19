@@ -144,9 +144,10 @@ What you get on first launch:
 - Database migrations applied automatically
 - An empty Community workspace where Agents, Workflows, and Knowledge bases can be created through the UI without demo seed data
 
-The lite profile is for evaluation; the settings refuse pgvector and sealed
-secrets when `ENVIRONMENT=production`. The full topology runs Milvus, MinIO
-and Vault the way a production deployment does:
+The lite profile runs in production too (see
+[docker/README.md](docker/README.md#lite-profile)). The full topology adds
+Milvus, MinIO and Vault, for collections too large for PostgreSQL and secrets
+kept outside the database:
 
 ```bash
 cp .env.example .env

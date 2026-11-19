@@ -92,6 +92,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan context manager."""
     _ = app
     app_settings.validate_runtime_requirements()
+    for warning in app_settings.runtime_warnings():
+        logger.warning("Production configuration: %s", warning)
     # Startup
     # Create database tables if needed
 

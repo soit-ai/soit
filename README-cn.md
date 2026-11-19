@@ -138,7 +138,7 @@ docker compose -f docker/docker-compose.lite.yml up -d
 - 自动应用数据库迁移
 - 一个空的 Community 工作区，可以通过 UI 创建 Agent、Workflow 和知识库，没有演示种子数据
 
-lite 配置面向评估；`ENVIRONMENT=production` 时配置校验会拒绝 pgvector 与密封密钥。完整拓扑按生产方式运行 Milvus、MinIO 与 Vault：
+lite 配置同样可以用于生产（见 [docker/README.md](docker/README.md#lite-profile)）。完整拓扑额外运行 Milvus、MinIO 与 Vault，适用于 PostgreSQL 容纳不下的向量规模，以及要求密钥存放在数据库之外的场景：
 
 ```bash
 cp .env.example .env

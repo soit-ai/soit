@@ -61,11 +61,11 @@ def test_production_settings_require_durable_chat_worker() -> None:
         config.validate_runtime_requirements()
 
 
-def test_production_settings_require_opentelemetry() -> None:
-    config = _production_settings(otel_enabled=False)
+def test_production_settings_allow_tracing_off_and_say_so() -> None:
+    config = _production_settings(otel_enabled=False, otel_exporter_otlp_endpoint="")
 
-    with pytest.raises(ValueError, match="OpenTelemetry tracing"):
-        config.validate_runtime_requirements()
+    config.validate_runtime_requirements()
+    assert any("OpenTelemetry" in warning for warning in config.runtime_warnings())
 
 
 def test_production_settings_require_otlp_endpoint() -> None:
@@ -82,15 +82,14 @@ def test_production_settings_require_vault_configuration() -> None:
         config.validate_runtime_requirements()
 
 
-def test_production_settings_require_llm_provider() -> None:
-    config = _production_settings(
+def test_production_settings_leave_model_providers_to_the_console() -> None:
+    # Providers and their credentials are configured per workspace; a key in
+    # the environment is optional.
+    _production_settings(
         openai_api_key=None,
         deepseek_api_key=None,
         anthropic_api_key=None,
-    )
-
-    with pytest.raises(ValueError, match="LLM provider"):
-        config.validate_runtime_requirements()
+    ).validate_runtime_requirements()
 
 
 def test_production_settings_reject_placeholder_secret_key() -> None:
@@ -161,10 +160,46 @@ def test_production_settings_require_plugin_signature_verification() -> None:
         config.validate_runtime_requirements()
 
 
-def test_production_settings_require_a_trusted_plugin_public_key() -> None:
+def test_production_settings_without_plugin_keys_refuse_every_package() -> None:
+    # Signatures stay required, so no trusted key means no third-party
+    # package installs: closed, and said at startup.
     config = _production_settings(plugin_signature_public_keys=[])
 
-    with pytest.raises(ValueError, match="plugin signature public key"):
+    config.validate_runtime_requirements()
+    assert config.plugin_signature_required is True
+    assert any("PLUGIN_SIGNATURE_PUBLIC_KEYS" in warning for warning in config.runtime_warnings())
+
+
+def test_production_takes_safe_defaults_for_settings_left_unset() -> None:
+    config = Settings(
+        _env_file=None,
+        environment="production",
+        database_url="postgresql://user:pass@db/soit",
+        redis_url="redis://redis:6379/0",
+        secret_key="s" * 32,
+        event_bus_backend="redis",
+        vector_backend="pgvector",
+        secrets_backend="sealed",
+    )
+
+    config.validate_runtime_requirements()
+    assert config.response_interaction_inline_execution is False
+    assert config.response_interaction_worker_enabled is True
+    assert config.plugin_signature_required is True
+    assert config.plugin_integrity_required is True
+
+
+def test_development_keeps_its_own_defaults() -> None:
+    config = Settings(_env_file=None, environment="development")
+
+    assert config.response_interaction_inline_execution is True
+    assert config.plugin_signature_required is False
+
+
+def test_production_settings_reject_the_lite_profile_default_secret_key() -> None:
+    config = _production_settings(secret_key="soit-lite-evaluation-secret-key-change-me")
+
+    with pytest.raises(ValueError, match="SECRET_KEY"):
         config.validate_runtime_requirements()
 
 

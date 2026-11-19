@@ -1,10 +1,12 @@
 """Secret values sealed in the application database.
 
-For evaluation installs that run without Vault: values survive restarts,
-unlike the in-memory store, and sit in ``sealed_secret_values`` encrypted with
-a key derived from ``SECRET_KEY``. Anyone holding both a database dump and the
-application secret can open them, so production keeps secrets in Vault; the
-settings refuse this backend in production.
+For installs that run without Vault, the lite profile among them: values
+survive restarts, unlike the in-memory store, and sit in
+``sealed_secret_values`` encrypted with a key derived from ``SECRET_KEY``.
+Anyone holding both a database dump and the application secret can open them,
+and changing ``SECRET_KEY`` makes every one unreadable, so the two are backed
+up together and kept apart. Vault is the choice when secrets must live outside
+the database.
 
 Each call uses its own session and commits on its own, the way a call to
 Vault would: the value store is independent of the caller's transaction.

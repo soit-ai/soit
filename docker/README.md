@@ -45,10 +45,11 @@ It runs five long-running containers plus the one-shot `storage-init`,
 | dev-mode Vault, values lost on restart | values sealed in PostgreSQL with a key derived from `SECRET_KEY` (`SECRETS_BACKEND=sealed`) |
 | `knowledge-ingest-worker`, `outbox-dispatcher`, `scheduler` | one `worker` running all three loops (`scripts/combined_worker.py`) |
 
-Changing `SECRET_KEY` orphans the sealed secret values, and the settings
-refuse pgvector and sealed secrets when `ENVIRONMENT=production`: the lite
-profile is for evaluation, not for production. `docker/lite-smoke.sh` checks a
-running lite stack end to end (it is what CI runs).
+The lite profile runs in production as well. Back up `SECRET_KEY` with the
+database and never change it: the sealed secret values are encrypted with a
+key derived from it, and a new key leaves every one unreadable.
+`docker/lite-smoke.sh` checks a running lite stack end to end (it is what CI
+runs).
 
 ## Quick Start
 

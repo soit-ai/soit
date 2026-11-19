@@ -277,16 +277,17 @@ def test_settings_reject_an_unknown_backend():
         Settings(vector_backend="qdrant", _env_file=None)
 
 
-def test_production_refuses_the_pgvector_backend():
+def test_production_runs_the_pgvector_backend():
     settings = Settings(
         _env_file=None,
         environment="production",
         database_url="postgresql://soit:secret@db.internal:5432/soit",
         event_bus_backend="redis",
         vector_backend="pgvector",
+        secrets_backend="sealed",
+        secret_key="k" * 40,
     )
-    with pytest.raises(ValueError, match="Milvus vector backend"):
-        settings.validate_runtime_requirements()
+    settings.validate_runtime_requirements()
 
 
 def test_container_builds_the_backend_the_settings_name(monkeypatch):
