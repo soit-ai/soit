@@ -121,19 +121,20 @@ SOIT 围绕四项能力组织。每一项都是一等公民，既可以单独使
 
 ## 快速开始
 
-在本地试用 SOIT 最快的方式是 lite 配置：5 个容器（带 pgvector 的 PostgreSQL、Redis、API、Web 与一个后台 worker），无需 `.env`：
+在本地试用 SOIT 最快的方式是 lite 配置：5 个容器（带 pgvector 的 PostgreSQL、Redis、API、Web 与一个后台 worker），同样可以用于生产：
 
 ```bash
 git clone https://github.com/soit-ai/soit.git
 cd soit
+sh docker/init.sh       # 生成带随机密钥的 docker/.env，并打印管理员登录信息
 docker compose -f docker/docker-compose.lite.yml up -d
 ```
 
-然后打开 `http://localhost:5000`，用 `admin@example.com` / `changeme123` 登录（可用 `BOOTSTRAP_ADMIN_EMAIL`、`BOOTSTRAP_ADMIN_PASSWORD` 覆盖）。
+然后打开 `http://localhost:5000`，用 `init.sh` 打印的账号登录。生产环境执行 `sh docker/init.sh --domain soit.example.com`，即在该域名上提供 HTTPS。
 
 首次启动你会得到：
 
-- Web UI 在 `:5000`，API 在 `:9200`
+- Web UI、API、OpenAI 兼容网关与 MCP 都在同一个地址 `:5000`
 - 全部功能：向量通过 pgvector 存进 PostgreSQL，文件存本地卷，密钥值用 `SECRET_KEY` 派生的密钥加密后存数据库
 - 自动应用数据库迁移
 - 一个空的 Community 工作区，可以通过 UI 创建 Agent、Workflow 和知识库，没有演示种子数据
@@ -154,7 +155,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
 ```
 
-用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.8.0`）。镜像可用 `gh attestation verify` 校验。发布的 `web` 镜像按默认 API 地址 `http://localhost:9200/api/v1` 构建；如果覆盖了 API 宿主端口，请改用源码构建 web 镜像并设置 `VITE_BASE_URL`。
+用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.8.0`）。镜像可用 `gh attestation verify` 校验。发布的 `web` 镜像在自身域名下以 `/api/v1` 访问 API，并反向代理到 `api` 服务，因此任何宿主端口都可以使用。
 
 不是每个演示都需要全部服务。[docs/minimal-topology.md](./docs/minimal-topology.md) 列出每个容器的用途、哪些场景可以省掉哪些容器，以及省掉之后哪些功能会停止工作。
 

@@ -14,6 +14,7 @@ import sys
 
 from app.infra.db.session import get_async_session_local
 from app.modules.identity.application.schemas import UserCreate
+from app.settings.settings import settings
 from app.wiring.services import build_identity_service
 
 
@@ -26,8 +27,21 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+SHIPPED_DEFAULT_PASSWORDS = frozenset({"changeme123"})
+"""Admin passwords written in the compose files and docs, refused in production."""
+
+
 async def main() -> int:
     args = _parse_args()
+    if (settings.environment or "").strip().lower() == "production" and (
+        args.password in SHIPPED_DEFAULT_PASSWORDS
+    ):
+        print(
+            "Refusing to create the admin with the documented default password in "
+            "production. Set BOOTSTRAP_ADMIN_PASSWORD (docker/init.sh writes one).",
+            file=sys.stderr,
+        )
+        return 2
     db = get_async_session_local()()
     try:
         service = build_identity_service(db=db)

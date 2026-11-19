@@ -59,15 +59,18 @@ Notes:
   `--env-file .env`. `.env.example` lists `DATABASE_PUBLISHED_PORT`,
   `MINIO_API_PUBLISHED_PORT` and `MINIO_CONSOLE_PUBLISHED_PORT`; add the
   others to `.env` as you need them.
-- The `web` image is built with `VITE_BASE_URL`, `http://localhost:9200/api/v1`
-  by default. After changing `API_PUBLISHED_PORT`, build the web image from
-  source with `VITE_BASE_URL=http://localhost:<port>/api/v1`; the released
-  `web` image only knows the default.
+- The released `web` image calls the API on its own origin (`/api/v1`) and
+  proxies it to the `api` service, so changing `API_PUBLISHED_PORT` needs no
+  rebuild. A source build of the quickstart passes `VITE_BASE_URL`
+  (`http://localhost:9200/api/v1` by default), which the app then calls
+  directly instead.
 - The `outbox-dispatcher` metrics port (`9201`) is exposed on the Compose
   network only and is not published.
-- The lite profile (`docker/docker-compose.lite.yml`) publishes only
-  `API_PUBLISHED_PORT` and `WEB_PUBLISHED_PORT`; its PostgreSQL and Redis are
-  not reachable from the host.
+- The lite profile (`docker/docker-compose.lite.yml`) publishes
+  `WEB_PUBLISHED_PORT`, the API on the host's loopback
+  (`API_PUBLISHED_PORT`, `127.0.0.1:9200`), and Caddy's 80 and 443 on the
+  loopback until `HTTP_PUBLISHED_PORT` and `HTTPS_PUBLISHED_PORT` say
+  otherwise; its PostgreSQL and Redis are not reachable from the host.
 
 ## Seed the Demo Workspace
 

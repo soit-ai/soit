@@ -128,16 +128,17 @@ worker), no `.env` required.
 ```bash
 git clone https://github.com/soit-ai/soit.git
 cd soit
+sh docker/init.sh       # writes docker/.env with fresh secrets; prints the admin sign-in
 docker compose -f docker/docker-compose.lite.yml up -d
 ```
 
-Then open `http://localhost:5000` and sign in as `admin@example.com` /
-`changeme123` (override with `BOOTSTRAP_ADMIN_EMAIL` and
-`BOOTSTRAP_ADMIN_PASSWORD`).
+Then open `http://localhost:5000` and sign in with what `init.sh` printed.
+For production, `sh docker/init.sh --domain soit.example.com` serves HTTPS
+on that name.
 
 What you get on first launch:
 
-- Web UI on `:5000`, API on `:9200`
+- Web UI, API, OpenAI-compatible gateway and MCP on one address, `:5000`
 - Every feature: vectors in PostgreSQL through pgvector, files on a local
   volume, secret values sealed in the database with a key derived from
   `SECRET_KEY`
@@ -166,9 +167,9 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 ```
 
 Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.8.0`). Images can be
-verified with `gh attestation verify`. The released `web` image serves the
-API at the default `http://localhost:9200/api/v1`; if you override the API
-host port, build the web image from source with `VITE_BASE_URL` instead.
+verified with `gh attestation verify`. The released `web` image calls the API
+on its own origin at `/api/v1` and proxies it to the `api` service, so any
+host port works.
 
 Not every demo needs all of these services. [docs/minimal-topology.md](./docs/minimal-topology.md)
 lists what each container is for, which ones a scenario can leave out, and

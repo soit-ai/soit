@@ -1,0 +1,44 @@
+# Overlay that builds the lite profile's images from this checkout instead of
+# pulling the released ones. From the repository root:
+#
+#   docker compose -f docker/docker-compose.lite.yml \
+#     -f docker/docker-compose.lite.build.yml up -d --build
+#
+# The images are tagged soit-local/*, so a later run without this overlay goes
+# back to the released images rather than reusing a local build by accident.
+
+services:
+  storage-init:
+    image: soit-local/server:dev
+    build:
+      context: ../server
+      target: runtime
+
+  migrate:
+    image: soit-local/server:dev
+    build:
+      context: ../server
+      target: runtime
+
+  bootstrap:
+    image: soit-local/server:dev
+    build:
+      context: ../server
+      target: runtime
+
+  api:
+    image: soit-local/server:dev
+    build:
+      context: ../server
+      target: runtime
+
+  worker:
+    image: soit-local/knowledge-worker:dev
+    build:
+      context: ../server
+      target: knowledge-worker
+
+  web:
+    image: soit-local/web:dev
+    build:
+      context: ../web

@@ -7,7 +7,9 @@ quickstart validation.
 
 | File | Contents |
 | --- | --- |
-| `docker-compose.lite.yml` | Lite evaluation profile: PostgreSQL with pgvector, Redis, `api`, `web` and one `worker`. Standalone, project name `soit-lite`. |
+| `docker-compose.lite.yml` | Lite profile, for a laptop or production: PostgreSQL with pgvector, Redis, `api`, `web` and one `worker`, from the released images. Standalone, project name `soit-lite`. |
+| `docker-compose.lite.build.yml` | Overlay that builds the lite profile's images from this checkout. |
+| `init.sh`, `init.ps1` | Write `docker/.env` for the lite profile with fresh secrets; `--domain` (`-Domain`) for production. |
 | `docker-compose.yml` | Quickstart entry point. Includes the three files below; defines nothing itself. |
 | `docker-compose.infra.yml` | Bundled infrastructure: PostgreSQL, Redis, MinIO, Milvus with etcd, dev-mode Vault. |
 | `docker-compose.app.yml` | Application processes: `migrate`, `bootstrap`, `api`, `web`, `knowledge-ingest-worker`, `outbox-dispatcher`, `scheduler`. |
@@ -29,14 +31,22 @@ the symptoms to their causes.
 
 ## Lite Profile
 
-The smallest install that runs every feature, for trying SOIT on a laptop:
+The smallest install that runs every feature, on a laptop or in production.
+From the repository root:
 
 ```bash
+sh docker/init.sh          # once; PowerShell: docker/init.ps1
 docker compose -f docker/docker-compose.lite.yml up -d
 ```
 
+`init.sh` writes `docker/.env` with a random `SECRET_KEY`, database password
+and admin password, and prints the admin sign-in. Open
+`http://localhost:5000`. Without `docker/.env` the profile still starts, on
+the documented defaults (`admin@example.com` / `changeme123`), which
+production refuses.
+
 It runs five long-running containers plus the one-shot `storage-init`,
-`migrate` and `bootstrap` jobs, and needs no `.env`:
+`migrate` and `bootstrap` jobs:
 
 | Full quickstart | Lite profile |
 | --- | --- |
@@ -45,11 +55,53 @@ It runs five long-running containers plus the one-shot `storage-init`,
 | dev-mode Vault, values lost on restart | values sealed in PostgreSQL with a key derived from `SECRET_KEY` (`SECRETS_BACKEND=sealed`) |
 | `knowledge-ingest-worker`, `outbox-dispatcher`, `scheduler` | one `worker` running all three loops (`scripts/combined_worker.py`) |
 
-The lite profile runs in production as well. Back up `SECRET_KEY` with the
-database and never change it: the sealed secret values are encrypted with a
-key derived from it, and a new key leaves every one unreadable.
+`web` is the only entry point: it serves the app and proxies `/api`, the
+OpenAI-compatible `/v1`, and `/mcp` to the API on the same origin. The API's
+own port is published on the host's loopback only (`API_PUBLISHED_PORT`,
+default `127.0.0.1:9200`), for local scripts.
+
 `docker/lite-smoke.sh` checks a running lite stack end to end (it is what CI
 runs).
+
+### Production with the lite profile
+
+```bash
+sh docker/init.sh --domain soit.example.com --email you@example.com
+docker compose -f docker/docker-compose.lite.yml up -d
+```
+
+With `--domain`, `docker/.env` also sets `ENVIRONMENT=production`, and `web`
+serves HTTPS for that name on ports 80 and 443 with a certificate Caddy
+obtains and renews (kept in the `web_data` volume). Point the name's DNS at
+the host and open both ports first.
+
+What production checks, and what it leaves to you:
+
+- `SECRET_KEY` seals every stored secret. Back `docker/.env` up with the
+  database and never change the key: a new one leaves every secret
+  unreadable. Use Vault (`SECRETS_BACKEND=vault`) when secrets must live
+  outside the database.
+- Tracing is off unless `OTEL_ENABLED=true` and an
+  `OTEL_EXPORTER_OTLP_ENDPOINT` are set; runs, costs and audit are recorded
+  either way.
+- Third-party plugin packages must be signed: without
+  `PLUGIN_SIGNATURE_PUBLIC_KEYS` none can be installed.
+- The API logs one `Production configuration:` warning at startup for each
+  of these choices.
+- Back up the `postgres_data` and `storage_data` volumes
+  ([backup runbook](../docs/operations/backup-restore.md)).
+
+Pin a release with `SOIT_IMAGE_TAG`. To run what is in this checkout instead
+of the released images:
+
+```bash
+docker compose -f docker/docker-compose.lite.yml \
+  -f docker/docker-compose.lite.build.yml up -d --build
+```
+
+Grow out of the lite profile when vectors outgrow PostgreSQL or secrets must
+leave the database: [`docker-compose.production.yml`](docker-compose.production.yml)
+runs the same images against Milvus, Vault and object storage you operate.
 
 ## Quick Start
 

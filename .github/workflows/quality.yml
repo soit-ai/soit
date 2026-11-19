@@ -395,15 +395,20 @@ jobs:
     name: quickstart-lite
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      # This checkout, not the released images the profile pulls by default.
+      COMPOSE: docker compose -f docker/docker-compose.lite.yml -f docker/docker-compose.lite.build.yml
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Validate the lite profile
-        run: docker compose -f docker/docker-compose.lite.yml config --quiet
+        run: |
+          docker compose -f docker/docker-compose.lite.yml config --quiet
+          $COMPOSE config --quiet
 
       - name: Build and start the lite profile
-        run: docker compose -f docker/docker-compose.lite.yml up -d --build
+        run: $COMPOSE up -d --build
 
       - name: Lite profile smoke
         run: sh docker/lite-smoke.sh
@@ -411,12 +416,12 @@ jobs:
       - name: Lite profile logs on failure
         if: failure()
         run: |
-          docker compose -f docker/docker-compose.lite.yml ps
-          docker compose -f docker/docker-compose.lite.yml logs --tail 200
+          $COMPOSE ps
+          $COMPOSE logs --tail 200
 
       - name: Stop the lite profile
         if: always()
-        run: docker compose -f docker/docker-compose.lite.yml down -v
+        run: $COMPOSE down -v
   fullstack-real:
     name: fullstack-real
     runs-on: ubuntu-latest

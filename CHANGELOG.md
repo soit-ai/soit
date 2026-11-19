@@ -23,6 +23,13 @@ record for operators.
   plugin signature and digest checks when they are left unset, so they no
   longer have to be spelled out. Explicitly unsafe values, Milvus Lite and
   the lite profile's default `SECRET_KEY` are still refused.
+- `docker/init.sh` (and `docker/init.ps1`) writes `docker/.env` for the lite
+  profile with a random `SECRET_KEY`, database password and admin password;
+  `--domain` also sets `ENVIRONMENT=production` and serves HTTPS on that name
+  with a certificate Caddy obtains. It never overwrites `docker/.env` and
+  refuses to run over an existing lite database.
+- `docker/docker-compose.lite.build.yml`, an overlay that builds the lite
+  profile from the checkout.
 
 - Two metrics for what SOIT adds to a model call:
   `soit_llm_pre_provider_seconds` (by `operation`) is the time a call spends
@@ -81,6 +88,15 @@ record for operators.
   image works under any hostname. `SOIT_SITE_ADDRESS` (`:5000`) sets what it
   listens as; a hostname there serves HTTPS with a certificate Caddy obtains.
   `SOIT_API_UPSTREAM` (`api:9200`) names the API.
+
+- The lite profile pulls the released images instead of building from
+  source, and `web` is its single entry point: it serves the app and
+  proxies the API, the gateway and MCP, and the API's port is published on
+  the host's loopback only. The bootstrap job refuses the documented default
+  admin password in production.
+- Shell scripts and the Caddyfile keep LF line endings on every checkout
+  (`.gitattributes`), so an image built from a Windows checkout no longer
+  fails on its first `set -e`.
 
 ### Fixed
 

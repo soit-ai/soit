@@ -228,8 +228,13 @@ def test_web_docker_runtime_serves_spa_build_output() -> None:
     package = json.loads((ROOT / "web" / "package.json").read_text(encoding="utf-8"))
     dockerfile = (ROOT / "web" / "Dockerfile").read_text(encoding="utf-8")
 
+    caddyfile = (ROOT / "web" / "Caddyfile").read_text(encoding="utf-8")
+
+    # Local runs and the e2e suite serve the build with the Node script; the
+    # image serves the same output with Caddy, falling back to the app shell.
     assert package["scripts"]["start"] == "node ./scripts/serve-client.mjs"
-    assert "COPY scripts/serve-client.mjs ./scripts/serve-client.mjs" in dockerfile
+    assert "COPY --from=build /app/build/client /srv" in dockerfile
+    assert "try_files {path} /index.html" in caddyfile
 
 
 def test_scripts_readme_documents_phase1_demo_seed() -> None:

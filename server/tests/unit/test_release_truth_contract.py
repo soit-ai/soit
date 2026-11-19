@@ -104,6 +104,22 @@ def test_the_lite_profile_carries_the_same_runtime_manifest() -> None:
     assert lite["services"]["api"]["environment"]["RESPONSE_INTERACTION_WORKER_ENABLED"] == "true"
 
 
+def test_the_lite_profile_runs_this_releases_images() -> None:
+    lite = yaml.safe_load((ROOT / "docker" / "docker-compose.lite.yml").read_text(encoding="utf-8"))
+    build = yaml.safe_load(
+        (ROOT / "docker" / "docker-compose.lite.build.yml").read_text(encoding="utf-8")
+    )
+    tag = "${SOIT_IMAGE_TAG:-v" + RELEASE_VERSION + "}"
+
+    for name in ("storage-init", "migrate", "bootstrap", "api"):
+        assert lite["services"][name]["image"] == f"ghcr.io/soit-ai/soit/server:{tag}", name
+    assert lite["services"]["worker"]["image"] == f"ghcr.io/soit-ai/soit/knowledge-worker:{tag}"
+    assert lite["services"]["web"]["image"] == f"ghcr.io/soit-ai/soit/web:{tag}"
+    # Pulling, not building, is the default; the overlay builds every one of them.
+    assert all("build" not in service for service in lite["services"].values())
+    assert set(build["services"]) == {"storage-init", "migrate", "bootstrap", "api", "worker", "web"}
+
+
 def test_readmes_do_not_claim_unused_components_or_stale_versions() -> None:
     english = (ROOT / "README.md").read_text(encoding="utf-8")
     chinese = (ROOT / "README-cn.md").read_text(encoding="utf-8")

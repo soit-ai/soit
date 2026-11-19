@@ -1,5 +1,5 @@
-# SOIT lite profile: the smallest install that runs every feature, for
-# evaluating SOIT on a laptop. Five long-running containers instead of eleven:
+# SOIT lite profile: the smallest install that runs every feature, on a laptop
+# or in production. Five long-running containers instead of eleven:
 #
 #   postgres (with pgvector)  redis  api  web  worker
 #
@@ -11,15 +11,20 @@
 #   - secret values live in PostgreSQL, sealed with a key derived from
 #     SECRET_KEY, instead of Vault. Changing SECRET_KEY orphans them;
 #   - one worker container runs knowledge ingest, the outbox dispatcher and
-#     the scheduler, and the API runs the chat interaction worker.
+#     the scheduler, and the API runs the chat interaction worker;
+#   - web serves the app and puts the API, the OpenAI-compatible gateway and
+#     MCP behind the same origin, so nothing else needs publishing.
 #
-# It is an evaluation profile: the settings refuse pgvector and sealed secrets
-# when ENVIRONMENT=production. Start it from the repository root:
+# It runs the released images. Start it from the repository root:
 #
+#   sh docker/init.sh            # once: writes docker/.env with fresh secrets
 #   docker compose -f docker/docker-compose.lite.yml up -d
 #
-# then open http://localhost:5000 and sign in as the bootstrap admin
-# (admin@example.com / changeme123 unless overridden in .env).
+# then open http://localhost:5000 and sign in as the bootstrap admin (the
+# password init.sh printed). For production, `sh docker/init.sh --domain
+# soit.example.com` sets ENVIRONMENT=production and serves HTTPS on 443 with a
+# certificate Caddy obtains. To build from this checkout instead, add
+# `-f docker/docker-compose.lite.build.yml` and `--build`.
 name: soit-lite
 
 x-logging: &default-logging
@@ -44,6 +49,7 @@ x-server-environment: &server_environment
   STORAGE_AUTO_MKDIR: "true"
   VECTOR_BACKEND: pgvector
   SECRETS_BACKEND: sealed
+  # The default is refused in production; docker/init.sh writes a fresh one.
   SECRET_KEY: ${SECRET_KEY:-soit-lite-evaluation-secret-key-change-me}
   ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
   REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-14}
@@ -56,7 +62,15 @@ x-server-environment: &server_environment
   DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   OUTBOX_DISPATCHER_METRICS_PORT: 9201
-  OTEL_ENABLED: "false"
+  OTEL_ENABLED: ${OTEL_ENABLED:-false}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  PLUGIN_SIGNATURE_PUBLIC_KEYS: ${PLUGIN_SIGNATURE_PUBLIC_KEYS:-[]}
+  # The API sits behind web; name the network so API key address allowlists
+  # see the client, not the proxy.
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-[]}
+  # Public addresses, set by docker/init.sh --domain.
+  MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
+  SYSTEM_MAIL_LINK_BASE_URL: ${SYSTEM_MAIL_LINK_BASE_URL:-}
 
 services:
   postgres:
@@ -88,9 +102,7 @@ services:
   # The application images run as appuser (uid 10001), and a fresh named
   # volume is owned by root; hand the file store to the application once.
   storage-init:
-    build:
-      context: ../server
-      target: runtime
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.8.0}
     user: "0:0"
     command: ["sh", "-c", "chown -R 10001:10001 /data/storage"]
     volumes:
@@ -99,9 +111,7 @@ services:
     logging: *default-logging
 
   migrate:
-    build:
-      context: ../server
-      target: runtime
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.8.0}
     environment: *server_environment
     depends_on:
       postgres:
@@ -111,9 +121,7 @@ services:
     logging: *default-logging
 
   bootstrap:
-    build:
-      context: ../server
-      target: runtime
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.8.0}
     environment:
       <<: *server_environment
     depends_on:
@@ -138,9 +146,7 @@ services:
     logging: *default-logging
 
   api:
-    build:
-      context: ../server
-      target: runtime
+    image: ghcr.io/soit-ai/soit/server:${SOIT_IMAGE_TAG:-v1.8.0}
     environment:
       <<: *server_environment
       OUTBOX_DISPATCHER_ENABLED: "false"
@@ -150,8 +156,10 @@ services:
       APPROVAL_SWEEPER_ENABLED: "true"
       IMAGE_JOB_REAPER_ENABLED: "true"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9200"]
+    # Clients reach the API through web; this port is for local scripts
+    # only and listens on the host's loopback unless told otherwise.
     ports:
-      - "${API_PUBLISHED_PORT:-9200}:9200"
+      - "${API_PUBLISHED_PORT:-127.0.0.1:9200}:9200"
     volumes:
       - storage_data:/data/storage
     depends_on:
@@ -167,9 +175,7 @@ services:
     logging: *default-logging
 
   worker:
-    build:
-      context: ../server
-      target: knowledge-worker
+    image: ghcr.io/soit-ai/soit/knowledge-worker:${SOIT_IMAGE_TAG:-v1.8.0}
     environment:
       <<: *server_environment
       OMP_NUM_THREADS: "1"
@@ -192,14 +198,19 @@ services:
     logging: *default-logging
 
   web:
-    build:
-      context: ../web
-      args:
-        VITE_BASE_URL: ${VITE_BASE_URL:-http://localhost:9200/api/v1}
+    image: ghcr.io/soit-ai/soit/web:${SOIT_IMAGE_TAG:-v1.8.0}
     environment:
-      PORT: 5000
+      # ":5000" serves plain HTTP. A hostname serves HTTPS on 443 with a
+      # certificate Caddy obtains and renews; publish 80 and 443 for it with
+      # HTTP_PUBLISHED_PORT=80 and HTTPS_PUBLISHED_PORT=443.
+      SOIT_SITE_ADDRESS: ${SOIT_SITE_ADDRESS:-:5000}
+      SOIT_API_UPSTREAM: api:9200
     ports:
       - "${WEB_PUBLISHED_PORT:-5000}:5000"
+      - "${HTTP_PUBLISHED_PORT:-127.0.0.1:8080}:80"
+      - "${HTTPS_PUBLISHED_PORT:-127.0.0.1:8443}:443"
+    volumes:
+      - web_data:/data
     depends_on:
       api:
         condition: service_healthy
@@ -210,3 +221,5 @@ volumes:
   postgres_data:
   redis_data:
   storage_data:
+  # Caddy's certificates and ACME account, kept across restarts.
+  web_data:

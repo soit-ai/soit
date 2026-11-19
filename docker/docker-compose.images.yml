@@ -11,9 +11,8 @@
 # docker/docker-compose.app.yml when the infrastructure is your own.
 #
 # Pin a release with SOIT_IMAGE_TAG (defaults to v1.8.0). The released web
-# image is built with the default API base URL http://localhost:9200/api/v1;
-# to serve the web UI against non-default host ports, build the web image
-# from source with VITE_BASE_URL instead.
+# image calls the API on its own origin and proxies it to the api service, so
+# it works whatever host ports are published.
 
 services:
   migrate:
