@@ -435,3 +435,26 @@ async def test_a_failing_key_counter_never_keeps_a_call_out_of_the_ledger() -> N
     assert status == "succeeded"
     [cost] = writer.costs
     assert (cost["prompt_tokens"], cost["completion_tokens"]) == (7, 3)
+
+
+def _pre_provider_count(operation: str) -> float:
+    from prometheus_client import REGISTRY
+
+    value = REGISTRY.get_sample_value(
+        "soit_llm_pre_provider_seconds_count", {"operation": operation}
+    )
+    return value or 0.0
+
+
+@pytest.mark.asyncio
+async def test_time_before_the_provider_is_observed_once_per_call() -> None:
+    before_stream = _pre_provider_count("stream_chat")
+    before_chat = _pre_provider_count("chat")
+    upstream = _Upstream(["Hello"], usage=(1, 1))
+
+    async for _chunk in _gateway(upstream, _writer()).stream_chat(MESSAGES, "m", run_id="run_1"):
+        pass
+    await _gateway(_Answering(), _writer()).chat(MESSAGES, "m", run_id="run_2")
+
+    assert _pre_provider_count("stream_chat") == before_stream + 1
+    assert _pre_provider_count("chat") == before_chat + 1

@@ -24,6 +24,7 @@ from app.kernel.commons.errors import (
 from app.kernel.commons.errors import TimeoutError as KernelTimeoutError
 from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
+from app.kernel.observe.metrics import PreProviderTimer
 from app.kernel.ports.common.api_key_admission import ApiKeyAdmission
 from app.kernel.ports.common.credit import CreditGuard, check_spend, check_unpriced
 from app.kernel.ports.common.policy import (
@@ -1297,6 +1298,7 @@ class LLMPolicyGateway(LLMPort):
         Returns:
             ChatResponse instance.
         """
+        pre_provider = PreProviderTimer("chat")
         await self._admit(model=model, family="chat", credit_operation="chat", run_id=resolve_run_id(kwargs, self.ctx))
 
         # Audit log
@@ -1375,7 +1377,7 @@ class LLMPolicyGateway(LLMPort):
                 route, response, attempts = await self._call_with_failover(
                     model,
                     required_capabilities,
-                    lambda route, target: route.port.chat(
+                    lambda route, target: pre_provider.mark() or route.port.chat(
                         messages=messages,
                         model=target,
                         temperature=temperature,
@@ -1523,6 +1525,7 @@ class LLMPolicyGateway(LLMPort):
         an estimate from the prompt and from what the provider generated,
         flagged as estimated.
         """
+        pre_provider = PreProviderTimer("stream_chat")
         await self._admit(model=model, family="chat", credit_operation="chat", run_id=resolve_run_id(kwargs, self.ctx))
 
         if not hasattr(self.gateway, "stream_chat"):
@@ -1781,6 +1784,7 @@ class LLMPolicyGateway(LLMPort):
                     )
                     continue
                 try:
+                    pre_provider.mark()
                     aiter, first_chunk = await self._open_stream(candidate, target, request)
                 except Exception as exc:
                     if last or not self._fails_over(exc, candidate):

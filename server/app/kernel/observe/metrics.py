@@ -3,6 +3,8 @@
 Metrics hooks (Prometheus/OTel).
 """
 
+import time
+
 from prometheus_client import Counter, Gauge, Histogram
 
 # Run metrics
@@ -85,6 +87,38 @@ outbox_delivery_latency = Histogram(
     "Time from event occurrence to successful outbox delivery",
     buckets=[0.1, 0.5, 1.0, 5.0, 15.0, 30.0, 60.0, 300.0, 1800.0],
 )
+
+# Model calls
+llm_pre_provider_seconds = Histogram(
+    "soit_llm_pre_provider_seconds",
+    "Time a model call spent in SOIT (admission, routing, credentials, pricing) before the provider request",
+    ["operation"],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5],
+)
+
+gateway_first_chunk_seconds = Histogram(
+    "soit_gateway_first_chunk_seconds",
+    "Time from a streamed gateway request to the provider's first chunk, model latency included",
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+)
+
+
+class PreProviderTimer:
+    """Observes, once, how long a call took to reach its provider."""
+
+    def __init__(self, operation: str) -> None:
+        self._operation = operation
+        self._entered = time.perf_counter()
+        self._observed = False
+
+    def mark(self) -> None:
+        if self._observed:
+            return
+        self._observed = True
+        llm_pre_provider_seconds.labels(operation=self._operation).observe(
+            time.perf_counter() - self._entered
+        )
+
 
 # Durable interaction worker (exported by the response-worker process, or by
 # the API when it hosts the worker loop)

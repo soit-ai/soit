@@ -62,6 +62,7 @@ from app.api.v1.permissions import (
 from app.infra.db.session import get_async_db
 from app.kernel.commons.errors import KernelError, ValidationError
 from app.kernel.contracts.context import RequestContext
+from app.kernel.observe.metrics import gateway_first_chunk_seconds
 from app.kernel.ports.llm.catalog import ModelCatalogPort
 from app.kernel.ports.llm.image_mask import (
     assert_mask_matches_image,
@@ -111,6 +112,7 @@ async def create_chat_completion(
 ):
     """Chat Completions, whole or streamed as ``chat.completion.chunk`` events."""
 
+    received_at = time.perf_counter()
     messages = to_chat_messages(payload.messages)
     max_tokens = payload.max_completion_tokens or payload.max_tokens
     container = get_container()
@@ -126,7 +128,7 @@ async def create_chat_completion(
 
     if payload.stream:
         return await _start_stream(
-            db, trace_writer, llm_port, run_id, payload, messages, max_tokens
+            db, trace_writer, llm_port, run_id, payload, messages, max_tokens, received_at
         )
 
     response.headers[RUN_ID_HEADER] = run_id
@@ -179,6 +181,7 @@ async def _start_stream(
     payload: ChatCompletionRequest,
     messages: list[ChatMessage],
     max_tokens: int | None,
+    received_at: float,
 ) -> StreamingResponse:
     stream = llm_port.stream_chat(
         messages,
@@ -197,6 +200,7 @@ async def _start_stream(
     except Exception as exc:
         await fail_run(trace_writer, db, run_id, exc, fallback_code="GATEWAY_CHAT_ERROR")
         raise
+    gateway_first_chunk_seconds.observe(time.perf_counter() - received_at)
     return _streaming_response(db, trace_writer, run_id, payload, stream, first)
 
 

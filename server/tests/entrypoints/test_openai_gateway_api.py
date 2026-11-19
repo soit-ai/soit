@@ -255,6 +255,23 @@ async def test_a_stream_sends_chunks_then_usage_then_done(async_client, async_db
 
 
 @pytest.mark.asyncio
+async def test_a_stream_records_the_time_to_its_first_chunk(async_client) -> None:
+    from prometheus_client import REGISTRY
+
+    def observed() -> float:
+        return REGISTRY.get_sample_value("soit_gateway_first_chunk_seconds_count") or 0.0
+
+    before = observed()
+    response = await async_client.post(
+        "/v1/chat/completions",
+        json={"model": MODEL, "messages": [{"role": "user", "content": "hi"}], "stream": True},
+    )
+
+    assert response.status_code == 200
+    assert observed() == before + 1
+
+
+@pytest.mark.asyncio
 async def test_a_stream_without_usage_option_sends_no_usage_chunk(async_client) -> None:
     response = await async_client.post(
         "/v1/chat/completions",

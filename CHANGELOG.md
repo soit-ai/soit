@@ -12,6 +12,14 @@ record for operators.
 
 ## [Unreleased]
 
+### Added
+
+- Two metrics for what SOIT adds to a model call:
+  `soit_llm_pre_provider_seconds` (by `operation`) is the time a call spends
+  in admission, routing, credentials and pricing before its provider request,
+  and `soit_gateway_first_chunk_seconds` is the time from a streamed
+  `/v1/chat/completions` request to the provider's first chunk.
+
 ### Changed
 
 - Model provider calls reuse pooled HTTP connections. The OpenAI, Anthropic
