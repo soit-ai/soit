@@ -106,6 +106,18 @@ dev = [
     "anthropic>=1.11.0",
 ]
 
+# torch from PyPI carries the CUDA runtime on Linux, several gigabytes the
+# knowledge worker image never uses: document OCR and local embeddings run on
+# CPU there. Install a CUDA build by hand where a GPU is wanted.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 

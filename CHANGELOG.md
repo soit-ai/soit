@@ -98,6 +98,11 @@ record for operators.
   (`.gitattributes`), so an image built from a Windows checkout no longer
   fails on its first `set -e`.
 
+- torch and torchvision install from PyTorch's CPU index. On Linux, PyPI's
+  torch carried the CUDA runtime, several gigabytes in the knowledge worker
+  image, which runs document OCR on CPU. Install a CUDA build by hand where
+  a GPU is wanted for `local-embedding`.
+
 ### Fixed
 
 - The production reference's `outbox-dispatcher` service set
