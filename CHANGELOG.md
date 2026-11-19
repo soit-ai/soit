@@ -74,6 +74,14 @@ record for operators.
   BuildKit, and a `--target runtime` build no longer builds the knowledge
   worker's dependencies first.
 
+- The web image serves the built app with Caddy and proxies `/api`, `/v1`,
+  `/mcp` and the MCP OAuth metadata to the API on the same origin, instead of
+  a Node process with the full `node_modules` (about 80 MB instead of
+  1.4 GB). The app calls the API at the relative `/api/v1`, so one published
+  image works under any hostname. `SOIT_SITE_ADDRESS` (`:5000`) sets what it
+  listens as; a hostname there serves HTTPS with a certificate Caddy obtains.
+  `SOIT_API_UPSTREAM` (`api:9200`) names the API.
+
 ### Removed
 
 - Celery, its OpenTelemetry instrumentation and the `operations` extra

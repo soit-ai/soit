@@ -5,19 +5,25 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+# Left empty, the app calls the API at the relative /api/v1, which the
+# runtime image proxies; the image then works under any hostname.
 ARG VITE_BASE_URL
 ENV VITE_BASE_URL=$VITE_BASE_URL
 RUN npm run build
 
-FROM node:24-alpine AS runtime
-WORKDIR /app
-ENV NODE_ENV=production
+# The build is a static single-page app: no Node and no node_modules at run
+# time. Caddy serves it and proxies the API on the same origin (Caddyfile).
+FROM caddy:2.8-alpine AS runtime
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN addgroup -S -g 10001 soit \
+    && adduser -S -D -H -u 10001 -G soit soit \
+    && mkdir -p /data /config \
+    && chown -R soit:soit /data /config
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/build/client /srv
 
-COPY scripts/serve-client.mjs ./scripts/serve-client.mjs
-COPY --from=build /app/build ./build
+ENV XDG_DATA_HOME=/data \
+    XDG_CONFIG_HOME=/config
 EXPOSE 5000
-USER node
-CMD ["npm", "run", "start"]
+USER soit
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

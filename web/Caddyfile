@@ -1,0 +1,47 @@
+# Serves the built single-page app and puts the API behind the same origin.
+#
+# The app calls the API at the relative /api/v1, so one published image works
+# for any hostname, and the API port need not be published at all.
+#
+#   SOIT_SITE_ADDRESS  what Caddy listens as. ":5000" (default) serves plain
+#                      HTTP; a hostname such as "soit.example.com" serves
+#                      HTTPS with a certificate Caddy obtains and renews,
+#                      which needs ports 80 and 443 published.
+#   SOIT_API_UPSTREAM  where the API listens (default "api:9200").
+
+{
+	admin off
+}
+
+{$SOIT_SITE_ADDRESS::5000} {
+	encode zstd gzip
+
+	# API, OpenAI-compatible gateway, MCP and its OAuth metadata. Responses
+	# are streamed unbuffered: chat, run and gateway streams are server-sent
+	# events that must reach the client as they are written.
+	@api path /api/* /v1/* /mcp /mcp/* /.well-known/oauth-protected-resource*
+	handle @api {
+		reverse_proxy {$SOIT_API_UPSTREAM:api:9200} {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		root * /srv
+		# Built assets carry a content hash in their name; everything else,
+		# index.html above all, is revalidated so a deploy shows at once.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@other not path /assets/*
+		header @other Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
