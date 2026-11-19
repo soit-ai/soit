@@ -205,9 +205,10 @@ services:
   outbox-dispatcher:
     build:
       context: ../server
+    # The script is the dispatcher. OUTBOX_DISPATCHER_ENABLED means "run one
+    # inside the API process", which production refuses, so it stays unset.
     environment:
       <<: *server_environment
-      OUTBOX_DISPATCHER_ENABLED: "true"
     command: ["python", "scripts/outbox_dispatcher.py"]
     depends_on:
       migrate:

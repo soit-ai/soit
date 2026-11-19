@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 import yaml
 
 from app.settings.settings import Settings
@@ -102,12 +101,16 @@ def test_the_dispatcher_runs_as_its_own_process() -> None:
     api_env = _service_env("api")
     dispatcher_env = _service_env("outbox-dispatcher")
 
-    # Production refuses an in-process dispatcher, so the API must leave it off
-    # and a dedicated service must turn it on.
+    # Production refuses an in-process dispatcher, so the API leaves it off.
+    # The dedicated service runs the dispatcher script, which validates the
+    # same settings at startup: it must pass them, or it exits before polling.
     assert api_env["OUTBOX_DISPATCHER_ENABLED"] == "false"
-    assert dispatcher_env["OUTBOX_DISPATCHER_ENABLED"] == "true"
-    with pytest.raises(ValueError, match="dedicated outbox dispatcher"):
-        _settings_from(dispatcher_env).validate_runtime_requirements()
+    assert dispatcher_env.get("OUTBOX_DISPATCHER_ENABLED", "false") == "false"
+    _settings_from(dispatcher_env).validate_runtime_requirements()
+    assert _load_compose()["services"]["outbox-dispatcher"]["command"] == [
+        "python",
+        "scripts/outbox_dispatcher.py",
+    ]
 
 
 def test_execution_never_runs_inside_the_api_request() -> None:

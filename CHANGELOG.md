@@ -82,6 +82,14 @@ record for operators.
   listens as; a hostname there serves HTTPS with a certificate Caddy obtains.
   `SOIT_API_UPSTREAM` (`api:9200`) names the API.
 
+### Fixed
+
+- The production reference's `outbox-dispatcher` service set
+  `OUTBOX_DISPATCHER_ENABLED=true`, which asks for a dispatcher inside the
+  API process and which production refuses, so the service exited at
+  startup and no outbox event was delivered. The flag is no longer set; the
+  service's script is the dispatcher.
+
 ### Removed
 
 - Celery, its OpenTelemetry instrumentation and the `operations` extra
