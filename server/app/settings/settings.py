@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     database_lock_timeout_ms: int = 30_000
     """Longest a statement waits for a row or table lock; 0 disables."""
 
+    # Secrets
+    secret_value_cache_seconds: float = 60.0
+    """How long a resolved secret value is reused in process; 0 disables.
+
+    Rotating or editing a secret takes effect at once whatever this is; it
+    bounds only how long a value stays in memory.
+    """
+
     # Model provider HTTP pool
     llm_http_max_connections: int = 200
     """Connections one process may hold open to model providers at once.

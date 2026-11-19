@@ -117,3 +117,73 @@ async def test_scoped_port_rejects_raw_locator_input_immediately(async_db, ctx, 
 
 def test_secret_api_response_does_not_expose_internal_locator():
     assert "secret_ref" not in SecretResponse.model_fields
+
+
+async def _seed_secret(async_db, ctx, secret_id: str) -> Secret:
+    secret = Secret(
+        id=secret_id,
+        tenant_id=ctx.tenant_id,
+        workspace_id=ctx.workspace_id,
+        name=f"Credential {secret_id}",
+        secret_ref=f"secret:{secret_id}",
+    )
+    async_db.add(secret)
+    await async_db.commit()
+    return secret
+
+
+async def _resolution_count(async_db, secret_id: str) -> int:
+    rows = (await async_db.exec(
+        select(AuditEvent).where(
+            AuditEvent.resource_id == secret_id,
+            AuditEvent.outcome == "allowed",
+        )
+    )).all()
+    return len(rows)
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_resolution_reuses_the_value_and_is_still_audited(async_db, ctx):
+    secret = await _seed_secret(async_db, ctx, "sec_cached")
+    store = RecordingSecretValueStore()
+    port = ScopedSecretsPort(ctx=ctx, value_store=store, db=async_db)
+
+    assert await port.get_secret(secret_id=secret.id) == "resolved-value"
+    assert await port.get_secret(secret_id=secret.id) == "resolved-value"
+
+    store.get_secret_value_mock.assert_awaited_once()
+    assert await _resolution_count(async_db, secret.id) == 2
+
+
+@pytest.mark.asyncio
+async def test_rotating_a_secret_skips_the_cached_value(async_db, ctx):
+    from datetime import timedelta
+
+    secret = await _seed_secret(async_db, ctx, "sec_rotated")
+    store = RecordingSecretValueStore()
+    port = ScopedSecretsPort(ctx=ctx, value_store=store, db=async_db)
+    await port.get_secret(secret_id=secret.id)
+
+    store.get_secret_value_mock.return_value = "rotated-value"
+    secret.last_rotated_at = secret.updated_at + timedelta(seconds=1)
+    secret.updated_at = secret.last_rotated_at
+    async_db.add(secret)
+    await async_db.commit()
+
+    assert await port.get_secret(secret_id=secret.id) == "rotated-value"
+    assert store.get_secret_value_mock.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_zero_ttl_reads_the_store_every_time(async_db, ctx, monkeypatch):
+    from app.modules.secrets.infra import scoped_port
+
+    monkeypatch.setattr(scoped_port.settings, "secret_value_cache_seconds", 0)
+    secret = await _seed_secret(async_db, ctx, "sec_uncached")
+    store = RecordingSecretValueStore()
+    port = ScopedSecretsPort(ctx=ctx, value_store=store, db=async_db)
+
+    await port.get_secret(secret_id=secret.id)
+    await port.get_secret(secret_id=secret.id)
+
+    assert store.get_secret_value_mock.await_count == 2

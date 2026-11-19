@@ -40,6 +40,10 @@ record for operators.
   `MILVUS_MODE=lite`, a local debugging switch, is now the optional
   `milvus-lite` extra (`uv sync --extra milvus-lite`) instead of being
   installed everywhere, which also drops pyarrow and faiss from the images.
+- A resolved secret value is reused in process for up to
+  `SECRET_VALUE_CACHE_SECONDS` (60; `0` disables), so a model call no longer
+  goes to Vault for its provider credential every time. Rotating or editing a
+  secret takes effect at once, and every resolution is still audited.
 
 ### Removed
 

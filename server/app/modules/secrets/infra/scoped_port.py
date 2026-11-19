@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import time
+import weakref
+from collections import OrderedDict
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import and_, select
@@ -19,6 +23,55 @@ from app.kernel.ports.secrets.interface import (
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.secrets.domain.models import Secret
 from app.modules.secrets.infra.repository import SECRET_RESOLVED_EVENT_TYPE
+from app.settings.settings import settings
+
+_MAX_CACHED_VALUES = 1024
+
+_ValueKey = tuple[str, str, datetime | None, datetime | None]
+
+
+class _ValueCache:
+    """Resolved values for a short while, keyed by the secret's rotation state.
+
+    Every model call resolves its provider credential, and each resolution
+    went to Vault. The key carries the row's rotation and update timestamps,
+    so rotating or editing a secret moves every process to a new key at once;
+    the TTL only bounds how long a value sits in memory. Deleted secrets never
+    reach the cache: the metadata lookup in front of it refuses them.
+    """
+
+    def __init__(self) -> None:
+        self._entries: OrderedDict[_ValueKey, tuple[float, str]] = OrderedDict()
+
+    def get(self, key: _ValueKey, now: float) -> str | None:
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        expires_at, value = entry
+        if expires_at <= now:
+            del self._entries[key]
+            return None
+        self._entries.move_to_end(key)
+        return value
+
+    def put(self, key: _ValueKey, value: str, expires_at: float) -> None:
+        self._entries[key] = (expires_at, value)
+        self._entries.move_to_end(key)
+        while len(self._entries) > _MAX_CACHED_VALUES:
+            self._entries.popitem(last=False)
+
+
+_value_caches: weakref.WeakKeyDictionary[SecretValueStore, _ValueCache] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _cache_for(store: SecretValueStore) -> _ValueCache:
+    cache = _value_caches.get(store)
+    if cache is None:
+        cache = _ValueCache()
+        _value_caches[store] = cache
+    return cache
 
 
 class ScopedSecretsPort(SecretsPort):
@@ -62,10 +115,9 @@ class ScopedSecretsPort(SecretsPort):
                     await db.commit()
                 raise NotFoundError("Secret not found")
 
-            value = await self.value_store.get_secret_value(
-                locator=SecretLocator(secret.secret_ref),
-                **kwargs,
-            )
+            value = await self._read_value(secret, **kwargs)
+            # Recorded on every resolution, cached or not: the count is a
+            # measurement of use, not of trips to the value store.
             await self._record_resolution(db, resource_id=normalized_id)
             if owns_session:
                 await db.commit()
@@ -73,6 +125,23 @@ class ScopedSecretsPort(SecretsPort):
         finally:
             if owns_session:
                 await db.close()
+
+    async def _read_value(self, secret: Secret, **kwargs: Any) -> str:
+        ttl = float(settings.secret_value_cache_seconds)
+        if ttl <= 0 or kwargs:
+            return await self.value_store.get_secret_value(
+                locator=SecretLocator(secret.secret_ref),
+                **kwargs,
+            )
+        key: _ValueKey = (secret.id, secret.secret_ref, secret.last_rotated_at, secret.updated_at)
+        cache = _cache_for(self.value_store)
+        now = time.monotonic()
+        cached = cache.get(key, now)
+        if cached is not None:
+            return cached
+        value = await self.value_store.get_secret_value(locator=SecretLocator(secret.secret_ref))
+        cache.put(key, value, now + ttl)
+        return value
 
     async def _find_secret(self, db: AsyncSession, secret_id: str) -> Secret | None:
         query = select(Secret).where(
