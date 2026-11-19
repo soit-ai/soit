@@ -98,7 +98,11 @@ uv run pytest tests/postgres/test_pgvector_backend.py
 ingestion and retrieval work without the `milvus`, `etcd`, and `minio`
 containers:
 
+The engine is an optional extra, left out of the published images; install
+it into the development environment first:
+
 ```powershell
+uv sync --extra milvus-lite
 $env:MILVUS_MODE = "lite"
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 9200
 ```

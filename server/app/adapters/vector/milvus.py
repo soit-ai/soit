@@ -87,6 +87,14 @@ class MilvusVectorPort(VectorPort):
                 "MILVUS_LITE_FILE must be a local file path ending in '.db'.",
                 {"lite_file": self.lite_file},
             )
+        try:
+            import milvus_lite  # noqa: F401  # pyright: ignore[reportMissingImports, reportUnusedImport]
+        except ImportError as exc:
+            raise KernelError(
+                "VECTOR_LITE_UNSUPPORTED",
+                "Milvus Lite is not installed. Run `uv sync --extra milvus-lite`, or set MILVUS_MODE=server.",
+                {"lite_file": self.lite_file},
+            ) from exc
         path.parent.mkdir(parents=True, exist_ok=True)
         return str(path)
 

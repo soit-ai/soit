@@ -1,5 +1,7 @@
 """MILVUS_MODE switches the vector adapter between a Milvus server and Milvus Lite."""
 
+import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -16,6 +18,8 @@ def _connected(monkeypatch) -> MagicMock:
     connect = MagicMock()
     monkeypatch.setattr(milvus_mod.connections, "connect", connect)
     monkeypatch.setattr(milvus_mod.connections, "has_connection", MagicMock(return_value=False))
+    # The engine is an optional extra; stand in for it being installed.
+    monkeypatch.setitem(sys.modules, "milvus_lite", types.ModuleType("milvus_lite"))
     return connect
 
 
@@ -59,6 +63,19 @@ def test_lite_mode_reports_that_windows_has_no_build(monkeypatch, tmp_path):
 
     assert excinfo.value.code == "VECTOR_LITE_UNSUPPORTED"
     assert "WSL" in excinfo.value.message
+
+
+def test_lite_mode_says_how_to_install_the_engine_when_it_is_missing(monkeypatch, tmp_path):
+    _connected(monkeypatch)
+    monkeypatch.setattr(milvus_mod.sys, "platform", "linux")
+    monkeypatch.setitem(sys.modules, "milvus_lite", None)
+    port = MilvusVectorPort(mode="lite", lite_file=str(tmp_path / "soit_lite.db"))
+
+    with pytest.raises(KernelError) as excinfo:
+        port._ensure_connected()
+
+    assert excinfo.value.code == "VECTOR_LITE_UNSUPPORTED"
+    assert "--extra milvus-lite" in excinfo.value.message
 
 
 def test_lite_mode_indexes_flat_because_milvus_lite_has_nothing_else():

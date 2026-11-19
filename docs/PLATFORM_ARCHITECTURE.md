@@ -77,7 +77,7 @@ flowchart TB
     Milvus["Milvus<br/>vector retrieval"]
     MinIO["MinIO<br/>object storage"]
     Vault["Vault<br/>secret management"]
-    Celery["Celery / workers<br/>async tasks · event dispatch"]
+    Workers["worker processes<br/>durable execution · outbox dispatch"]
   end
 
   subgraph External["external capabilities"]
@@ -92,7 +92,7 @@ flowchart TB
 
   Infra --> PostgreSQL
   Infra --> Redis
-  Infra --> Celery
+  Infra --> Workers
   Vector --> Milvus
   Storage --> MinIO
   Secrets --> Vault
@@ -114,7 +114,7 @@ sequenceDiagram
   participant Kernel as kernel runtime
   participant DB as PostgreSQL
   participant Outbox as outbox / events
-  participant Worker as Celery worker
+  participant Worker as worker process
   participant Adapter as governed adapter
   participant External as external model/tool/storage
 
@@ -175,11 +175,11 @@ flowchart TB
   Browser["Browser<br/>SOIT workspace"]
   WebApp["web app<br/>React Router · Vite build"]
   API["server/app<br/>FastAPI API"]
-  Worker["workers<br/>Celery · event dispatch"]
+  Worker["workers<br/>durable execution · outbox dispatch"]
 
   subgraph RuntimeInfra["runtime infrastructure"]
     Postgres["PostgreSQL<br/>business data · run ledger · outbox"]
-    Redis["Redis<br/>broker · cache"]
+    Redis["Redis<br/>event bus · cache · rate limits"]
     Milvus["Milvus<br/>vector collections"]
     MinIO["MinIO<br/>documents · artifacts"]
     Vault["Vault<br/>workspace secrets"]

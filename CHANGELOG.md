@@ -36,6 +36,16 @@ record for operators.
 - Rate limit checks send their Redis script by digest (`EVALSHA`) and fall
   back to the full text only when Redis has not cached it yet, instead of
   sending the whole script on every model and tool call.
+- pymilvus is 2.6.18. The embedded Milvus Lite engine behind
+  `MILVUS_MODE=lite`, a local debugging switch, is now the optional
+  `milvus-lite` extra (`uv sync --extra milvus-lite`) instead of being
+  installed everywhere, which also drops pyarrow and faiss from the images.
+
+### Removed
+
+- Celery, its OpenTelemetry instrumentation and the `operations` extra
+  (Flower). Nothing in SOIT ran on Celery: background work runs in the
+  asyncio worker processes.
 
 ## [1.8.0] - 2026-11-14
 

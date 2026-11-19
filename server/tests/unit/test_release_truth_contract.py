@@ -108,8 +108,8 @@ def test_readmes_do_not_claim_unused_components_or_stale_versions() -> None:
     english = (ROOT / "README.md").read_text(encoding="utf-8")
     chinese = (ROOT / "README-cn.md").read_text(encoding="utf-8")
 
-    # Celery and LangChain are declared dependencies nothing in the runtime
-    # imports; the web console runs React Router 8.
+    # SOIT runs no Celery and no LangChain adapter layer; the web console runs
+    # React Router 8.
     for stale_claim in ("Celery", "LangChain (adapter layer)", "React Router 7"):
         assert stale_claim not in english
         assert stale_claim not in chinese

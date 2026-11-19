@@ -10,9 +10,8 @@ asynchronous path hands back a run id immediately and finishes the work here.
 This follows the same shape as the workflow redrive worker: an asyncio task on
 its own session, a strong reference held until it finishes so the loop cannot
 garbage-collect it mid-flight, and the run closed on every exit path. There is
-no Celery broker in this deployment; the dependency is declared but nothing is
-wired to it, and adding one for this would be a second execution model to
-operate for no gain.
+no task broker in this deployment, and adding one for this would be a second
+execution model to operate for no gain.
 
 A job in progress, and a synchronous image call too, marks its run alive every
 ``image_job_heartbeat_seconds``. A run no process has marked alive for
