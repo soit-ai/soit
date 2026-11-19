@@ -17,6 +17,7 @@ from sqlalchemy import update
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.kernel.commons.background import spawn
 from app.kernel.commons.ids import (
     generate_artifact_id,
     generate_run_id,
@@ -255,8 +256,7 @@ class TraceWriter:
                 return
 
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self.event_bus.publish(event))
+                spawn(self.event_bus.publish(event))
                 return
             except RuntimeError:
                 asyncio.run(self.event_bus.publish(event))

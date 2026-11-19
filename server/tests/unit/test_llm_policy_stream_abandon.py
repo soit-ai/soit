@@ -137,11 +137,11 @@ def _writer() -> MagicMock:
     writer.costs = []
 
     async def update_step_status(step_id: str, status: str, **kwargs: Any) -> None:
-        await anyio.sleep(0)
+        await anyio.lowlevel.checkpoint()
         writer.status_updates.append((step_id, status, kwargs))
 
     async def record_cost(**kwargs: Any) -> None:
-        await anyio.sleep(0)
+        await anyio.lowlevel.checkpoint()
         writer.costs.append(kwargs)
 
     writer.update_step_status = update_step_status

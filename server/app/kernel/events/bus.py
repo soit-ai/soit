@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from app.kernel.commons.background import spawn
 from app.kernel.commons.ids import generate_ulid
 from app.kernel.commons.time import utc_now
 
@@ -184,7 +185,7 @@ class InMemoryEventBus(EventBus):
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                loop.create_task(self.publish(event))
+                spawn(self.publish(event), loop=loop)
                 return 0
             return loop.run_until_complete(self.publish(event))
         except RuntimeError:
