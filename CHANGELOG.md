@@ -52,6 +52,10 @@ record for operators.
   `SECRET_VALUE_CACHE_SECONDS` (60; `0` disables), so a model call no longer
   goes to Vault for its provider credential every time. Rotating or editing a
   secret takes effect at once, and every resolution is still audited.
+- A streamed chat reply checks for cancellation at most every 250 ms instead
+  of reading the response row on every provider chunk, and stores reasoning
+  in batched events the way it stores text, instead of one event row per
+  chunk. A cancel still stops reading the model within that interval.
 
 ### Removed
 

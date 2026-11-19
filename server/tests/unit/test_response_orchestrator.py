@@ -748,7 +748,13 @@ async def test_interaction_stream_emits_and_persists_enabled_reasoning(async_db,
 
     event_types = [item["data"]["type"] for item in streamed]
     assert event_types.index("REASONING_START") < event_types.index("TEXT_MESSAGE_START")
-    assert event_types.count("REASONING_MESSAGE_CONTENT") == 2
+    # The two provider deltas arrive within one flush window: one event row.
+    reasoning_deltas = [
+        item["data"]["delta"]
+        for item in streamed
+        if item["data"]["type"] == "REASONING_MESSAGE_CONTENT"
+    ]
+    assert reasoning_deltas == ["Checking constraints. Evidence is sufficient."]
     assert llm_port.stream_kwargs["reasoning_effort"] == "high"
     messages = await thread_service.thread_repo.list_messages(thread.id)
     assert messages[-1].content == "Final answer."
@@ -1000,6 +1006,9 @@ async def test_a_canceled_interaction_leaves_its_model_call_in_the_ledger(async_
         llm_port=gateway,
         thread_service=thread_service,
     )
+    # The stub's chunks arrive in the same instant; check on every one so the
+    # cancel lands between them, as it would on a provider's pace.
+    coordinator._CANCEL_CHECK_INTERVAL_SECONDS = 0
 
     await _collect_stream(
         coordinator,
@@ -1026,3 +1035,49 @@ async def test_a_canceled_interaction_leaves_its_model_call_in_the_ledger(async_
     assert cost.completion_tokens == estimate_text_tokens("first second ")
     assert cost.pricing_snapshot_json["usage_estimated"] is True
     assert cost.amount is not None and cost.amount > 0
+
+
+class ManyChunksLLMPort(StubLLMPort):
+    """A long reply that arrives in many small chunks at once."""
+
+    async def stream_chat(self, messages, model, **kwargs):
+        for index in range(200):
+            yield ChatStreamChunk(delta=f"w{index} ", model=model)
+        yield ChatStreamChunk(done=True, finish_reason="stop", model=model)
+
+
+@pytest.mark.asyncio
+async def test_a_long_stream_checks_for_cancellation_on_a_clock_not_per_chunk(async_db, ctx):
+    response_service = _service(async_db, ctx)
+    thread_service = ThreadService(async_db, ctx)
+    thread = await thread_service.create_thread(agent_id=None, title="Many chunks")
+    reads = 0
+    real_get_response = response_service.get_response
+
+    async def counting_get_response(response_id):
+        nonlocal reads
+        reads += 1
+        return await real_get_response(response_id)
+
+    response_service.get_response = counting_get_response  # type: ignore[method-assign]
+    coordinator = ResponseProjectionCoordinator(
+        response_service=response_service,
+        llm_port=ManyChunksLLMPort(),
+        thread_service=thread_service,
+    )
+
+    await _collect_stream(
+        coordinator,
+        ResponseCreateRequest(
+            model="model:openai:gpt-5.1",
+            thread_id=thread.id,
+            input={"messages": [{"role": "user", "content": "talk"}]},
+            metadata={"interaction_id": "interaction_many", "request_hash": "hash_many"},
+        ),
+        interaction_id="interaction_many",
+    )
+
+    messages = await thread_service.thread_repo.list_messages(thread.id)
+    assert messages[-1].content.startswith("w0 w1 ") and "w199" in messages[-1].content
+    # 200 chunks used to cost 200 reads; now a handful, however fast they come.
+    assert reads < 20

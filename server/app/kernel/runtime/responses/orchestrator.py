@@ -282,6 +282,9 @@ class ResponseProjectionCoordinator:
 
     _TEXT_FLUSH_INTERVAL_SECONDS = 0.05
     _TEXT_FLUSH_BYTES = 1024
+    # A cancel is a database read. Checked on every chunk, a reply of a few
+    # hundred chunks cost as many reads; this bounds how late a cancel lands.
+    _CANCEL_CHECK_INTERVAL_SECONDS = 0.25
 
     def __init__(
         self,
@@ -758,6 +761,9 @@ class ResponseProjectionCoordinator:
             return True
 
         stream: AsyncIterator[ChatStreamChunk] | None = None
+        # Reasoning deltas are batched like text deltas: one event row per
+        # flush, not per provider chunk.
+        reasoning_buffer: list[str] = []
         try:
             try:
                 stream = self.execution_service.stream_chat(response=response, messages=messages)
@@ -803,9 +809,15 @@ class ResponseProjectionCoordinator:
                 delta_parts: list[str] = []
                 delta_bytes = 0
                 last_delta_flush = time.monotonic()
+                reasoning_bytes = 0
+                last_reasoning_flush = last_delta_flush
+                last_cancel_check = float("-inf")
                 async for chunk in stream:
-                    if await interaction_was_canceled():
-                        return
+                    now = time.monotonic()
+                    if now - last_cancel_check >= self._CANCEL_CHECK_INTERVAL_SECONDS:
+                        last_cancel_check = now
+                        if await interaction_was_canceled():
+                            return
                     if show_reasoning and chunk.reasoning_delta and not reasoning_ended:
                         if not reasoning_started:
                             for reasoning_event in protocol.reasoning_started(
@@ -814,14 +826,31 @@ class ResponseProjectionCoordinator:
                                 yield await persist(reasoning_event)
                             reasoning_started = True
                         reasoning_parts.append(chunk.reasoning_delta)
-                        yield await persist(
-                            protocol.reasoning_content(
-                                message_id=reasoning_message_id,
-                                delta=chunk.reasoning_delta,
+                        reasoning_buffer.append(chunk.reasoning_delta)
+                        reasoning_bytes += len(chunk.reasoning_delta.encode("utf-8"))
+                        if (
+                            reasoning_bytes >= self._TEXT_FLUSH_BYTES
+                            or now - last_reasoning_flush >= self._TEXT_FLUSH_INTERVAL_SECONDS
+                        ):
+                            yield await persist(
+                                protocol.reasoning_content(
+                                    message_id=reasoning_message_id,
+                                    delta="".join(reasoning_buffer),
+                                )
                             )
-                        )
+                            reasoning_buffer = []
+                            reasoning_bytes = 0
+                            last_reasoning_flush = now
                     if chunk.delta:
                         if reasoning_started and not reasoning_ended:
+                            if reasoning_buffer:
+                                yield await persist(
+                                    protocol.reasoning_content(
+                                        message_id=reasoning_message_id,
+                                        delta="".join(reasoning_buffer),
+                                    )
+                                )
+                                reasoning_buffer = []
                             for reasoning_event in protocol.reasoning_ended(
                                 message_id=reasoning_message_id
                             ):
@@ -833,7 +862,6 @@ class ResponseProjectionCoordinator:
                         text_parts.append(chunk.delta)
                         delta_parts.append(chunk.delta)
                         delta_bytes += len(chunk.delta.encode("utf-8"))
-                        now = time.monotonic()
                         if (
                             delta_bytes >= self._TEXT_FLUSH_BYTES
                             or now - last_delta_flush >= self._TEXT_FLUSH_INTERVAL_SECONDS
@@ -869,6 +897,14 @@ class ResponseProjectionCoordinator:
                         )
                     )
 
+            if reasoning_buffer:
+                yield await persist(
+                    protocol.reasoning_content(
+                        message_id=reasoning_message_id,
+                        delta="".join(reasoning_buffer),
+                    )
+                )
+                reasoning_buffer = []
             if reasoning_started and not reasoning_ended:
                 for reasoning_event in protocol.reasoning_ended(
                     message_id=reasoning_message_id
