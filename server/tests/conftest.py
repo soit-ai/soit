@@ -9,7 +9,15 @@ Important:
 
 from __future__ import annotations
 
-import pytest
+import os
+
+# A developer's server/.env must not reach the tests. app.main, litellm and
+# pymilvus each copy it into os.environ on import, after which settings built
+# with `_env_file=None` still see its values, and production-validation tests
+# fail locally while passing in CI, which has no .env.
+os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
+
+import pytest  # noqa: E402
 import pytest_asyncio
 
 from app.kernel.commons.ids import generate_ulid

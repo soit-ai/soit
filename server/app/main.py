@@ -23,8 +23,15 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 
+def _dotenv_disabled() -> bool:
+    # The switch python-dotenv honours, so one variable keeps a .env out of
+    # the process whichever loader would read it.
+    value = os.environ.get("PYTHON_DOTENV_DISABLED", "").strip().casefold()
+    return value in {"1", "true", "t", "yes", "y"}
+
+
 def _load_env_file(env_path: Path) -> None:
-    if not env_path.exists():
+    if _dotenv_disabled() or not env_path.exists():
         return
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
