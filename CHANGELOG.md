@@ -67,6 +67,13 @@ record for operators.
   in batched events the way it stores text, instead of one event row per
   chunk. A cancel still stops reading the model within that interval.
 
+- The server and knowledge worker images resolve dependencies in a build
+  stage and run on `python:3.12-slim` with only the virtualenv and the
+  application, instead of the full Python image with its compilers. The
+  server image is about 250 MB compressed. The Dockerfile no longer needs
+  BuildKit, and a `--target runtime` build no longer builds the knowledge
+  worker's dependencies first.
+
 ### Removed
 
 - Celery, its OpenTelemetry instrumentation and the `operations` extra

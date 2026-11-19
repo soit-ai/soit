@@ -21,3 +21,8 @@ tests
 docs
 logs
 *.log
+.import_linter_cache
+.milvus
+.python-version
+Dockerfile*
+.dockerignore
