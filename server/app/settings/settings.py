@@ -461,6 +461,10 @@ class Settings(BaseSettings):
     knowledge_sync_max_items_ceiling: int = 20000
     """Highest per-run item cap a source may ask for."""
 
+    knowledge_upload_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
+    """Largest document accepted by a knowledge upload. An upload past it is
+    refused as it streams in, and whatever was already stored is removed."""
+
     knowledge_sync_default_max_item_bytes: int = 5 * 1024 * 1024
     """Per-item size cap for a source that sets none."""
 

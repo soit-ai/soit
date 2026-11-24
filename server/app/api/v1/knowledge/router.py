@@ -312,6 +312,17 @@ async def upload_knowledge_document(
     ctx: RequestContext = Depends(require_workspace_write_ctx),
     service: KnowledgeService = Depends(get_knowledge_service),
 ):
+    if file is not None and file.size is not None:
+        # Refused before a document is created for it. The service checks
+        # again as it streams the file, for callers that do not go through
+        # the multipart parser.
+        from app.settings.settings import settings
+
+        if file.size > settings.knowledge_upload_max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"The document exceeds the {settings.knowledge_upload_max_bytes} byte upload limit",
+            )
     if file and not filename:
         filename = file.filename
     if file and not mime_type:

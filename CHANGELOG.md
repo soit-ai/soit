@@ -157,6 +157,11 @@ record for operators.
   refused before anything is written, so a small compressed archive can no
   longer fill the disk. Unpacking and hashing a package run off the event
   loop, so an install no longer stalls other requests.
+- Knowledge uploads are bounded by `KNOWLEDGE_UPLOAD_MAX_BYTES` (100 MiB).
+  An upload over it is refused with 400 before a document is created for it,
+  and a stream that runs past it is cut off and its partial object removed.
+  Previously a text upload of any size was stored and later read whole into
+  memory by the ingest worker. An ingest task's `max_retries` is capped at 10.
 
 ## [1.8.0] - 2026-11-14
 

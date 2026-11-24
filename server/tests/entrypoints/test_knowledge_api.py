@@ -459,3 +459,54 @@ async def test_retrying_a_document_that_has_not_failed_answers_409_with_the_reas
     body = retry_resp.json()
     assert body["code"] == "INVALID_STATUS"
     assert body["message"] == "Only failed documents can be retried"
+
+
+async def _create_document_knowledge(async_client, name: str) -> str:
+    response = await async_client.post(
+        "/api/v1/knowledge",
+        json={
+            "name": name,
+            "knowledge_type": "document",
+            "visibility": "private",
+            "default_embedding_model_ref": "model:test:embedding",
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    return response.json()["data"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_an_upload_over_the_limit_is_refused_as_it_streams(async_client, monkeypatch):
+    from app.settings.settings import settings
+
+    monkeypatch.setattr(settings, "knowledge_upload_max_bytes", 16)
+    knowledge_id = await _create_document_knowledge(async_client, "knowledge-upload-limit")
+
+    response = await async_client.post(
+        f"/api/v1/knowledge/{knowledge_id}/documents",
+        data={"doc_key": "too-big", "source_kind": "upload", "async_ingest": "true"},
+        files={"file": ("big.txt", b"x" * 64, "text/plain")},
+        headers=_headers(),
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
+    assert "upload limit" in response.text
+    documents = await async_client.get(f"/api/v1/knowledge/{knowledge_id}/documents", headers=_headers())
+    # Refused before a document was created for it.
+    assert documents.json()["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_ingest_retries_are_capped(async_client):
+    knowledge_id = await _create_document_knowledge(async_client, "knowledge-retry-cap")
+
+    response = await async_client.post(
+        f"/api/v1/knowledge/{knowledge_id}/documents",
+        data={"doc_key": "retries", "source_kind": "upload", "async_ingest": "true", "max_retries": "1000000000"},
+        files={"file": ("retries.txt", b"retry cap", "text/plain")},
+        headers=_headers(),
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    tasks = (await async_client.get(f"/api/v1/knowledge/{knowledge_id}/ingest-tasks", headers=_headers())).json()["data"]
+    assert tasks[0]["max_retries"] == 10

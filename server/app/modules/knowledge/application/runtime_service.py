@@ -89,6 +89,22 @@ from app.modules.knowledge.runtime.retrieval import RetrievalService
 
 UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
 
+MAX_INGEST_RETRIES = 10
+"""Ceiling on a caller's ``max_retries`` for an ingest task."""
+
+
+def _upload_limit() -> int:
+    from app.settings.settings import settings
+
+    return settings.knowledge_upload_max_bytes
+
+
+def _upload_too_large(limit: int) -> ValidationError:
+    return ValidationError(
+        f"The document exceeds the {limit} byte upload limit",
+        {"max_bytes": limit},
+    )
+
 logger = logging.getLogger(__name__)
 
 # How long closing a canceled query's run may take; it runs shielded from
@@ -624,6 +640,8 @@ class KnowledgeRuntimeService:
             size_bytes = payload.get("size_bytes")
             checksum = payload.get("checksum")
         else:
+            if len(file_content) > _upload_limit():
+                raise _upload_too_large(_upload_limit())
             size_bytes = payload.get("size_bytes") or len(file_content)
             checksum = payload.get("checksum") or hashlib.sha256(file_content).hexdigest()
         content_hash = payload.get("content_hash") or checksum
@@ -682,6 +700,7 @@ class KnowledgeRuntimeService:
     ) -> tuple[int, str]:
         hasher = hashlib.sha256()
         size_bytes = 0
+        limit = _upload_limit()
 
         open_writer = getattr(self.storage_port, "open_writer", None)
         if open_writer:
@@ -696,9 +715,19 @@ class KnowledgeRuntimeService:
                         if not chunk:
                             break
                         size_bytes += len(chunk)
+                        if size_bytes > limit:
+                            raise _upload_too_large(limit)
                         hasher.update(chunk)
                         await writer.write(chunk)
                 return size_bytes, hasher.hexdigest()
+            except ValidationError:
+                # The part already written would otherwise stay in storage
+                # with no document pointing at it.
+                try:
+                    await self.storage_port.delete(key=storage_key, run_id=run_id)
+                except Exception:  # noqa: BLE001 — the refusal is what the caller needs
+                    logger.warning("Could not remove a refused upload", extra={"storage_key": storage_key})
+                raise
             except KernelError as exc:
                 if exc.code != "STORAGE_STREAMING_NOT_SUPPORTED":
                     raise
@@ -709,6 +738,8 @@ class KnowledgeRuntimeService:
             if not chunk:
                 break
             size_bytes += len(chunk)
+            if size_bytes > limit:
+                raise _upload_too_large(limit)
             hasher.update(chunk)
             chunks.append(chunk)
         await self.storage_port.put(
@@ -879,7 +910,7 @@ class KnowledgeRuntimeService:
             payload_json=payload,
             run_id=run_id,
             retry_count=0,
-            max_retries=max(0, max_retries),
+            max_retries=max(0, min(max_retries, MAX_INGEST_RETRIES)),
             created_by=self.ctx.user_id,
             updated_by=self.ctx.user_id,
         )
@@ -1134,7 +1165,7 @@ class KnowledgeRuntimeService:
             status="queued",
             payload_json=payload,
             retry_count=0,
-            max_retries=max(0, max_retries),
+            max_retries=max(0, min(max_retries, MAX_INGEST_RETRIES)),
             created_by=self.ctx.user_id,
             updated_by=self.ctx.user_id,
         )
