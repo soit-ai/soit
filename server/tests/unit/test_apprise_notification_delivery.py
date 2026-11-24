@@ -117,3 +117,23 @@ async def test_apprise_handler_stops_after_five_attempts(async_db, ctx):
     assert delivery.status == "failed"
     assert delivery.attempt_count == 5
     assert delivery.last_error == "RuntimeError"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "json://hooks.example.com/notify",
+        "json://hooks.example.com/notify?redirect=yes",
+        "form://hooks.example.com/notify?redirect=yes",
+    ],
+)
+def test_delivery_never_follows_a_redirect(url: str) -> None:
+    """The egress guard approved this URL, not wherever a 3xx points next."""
+    from app.modules.notification.handlers.apprise_delivery import build_notifier
+
+    notifier = build_notifier(url)
+
+    assert notifier is not None
+    services = list(notifier)
+    assert services
+    assert all(service.redirects is False for service in services)

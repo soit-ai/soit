@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from apprise import Apprise
+from apprise import Apprise, AppriseAsset
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
@@ -23,10 +23,27 @@ from app.modules.notification.domain.models import (
 AppriseSender = Callable[..., Awaitable[bool]]
 
 
+def build_notifier(url: str) -> Apprise | None:
+    """An Apprise notifier for ``url`` that never follows an HTTP redirect.
+
+    The egress guard approves the URL as configured. Apprise follows 3xx
+    responses by default, so an endpoint could answer with a redirect to an
+    address the guard would refuse, such as a private network or a cloud
+    metadata service. Redirects are off for the whole notifier and for each
+    service on it, which also overrides a ``redirect=yes`` in the URL.
+    """
+    notifier = Apprise(asset=AppriseAsset(http_redirects=False))
+    if not notifier.add(url):
+        return None
+    for service in notifier:
+        service.redirects = False
+    return notifier
+
+
 async def _send_apprise(url: str, *, title: str, body: str) -> bool:
     def send() -> bool:
-        notifier = Apprise()
-        if not notifier.add(url):
+        notifier = build_notifier(url)
+        if notifier is None:
             return False
         return bool(notifier.notify(title=title, body=body))
 

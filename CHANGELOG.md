@@ -141,6 +141,11 @@ record for operators.
   unknown address is checked against a password hash like a known one, so the
   response time does not differ, and a disabled account is reported only to a
   caller who gave its password.
+- Workspace notification endpoints no longer follow HTTP redirects. The
+  egress policy approved the configured URL, but Apprise followed a 3xx to
+  wherever it pointed, so an endpoint could forward a delivery to a private
+  address or a cloud metadata service. A `redirect=yes` in the URL no longer
+  turns it back on.
 
 ## [1.8.0] - 2026-11-14
 
