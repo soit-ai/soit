@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import secrets
 import struct
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 TIME_STEP_SECONDS = 30
@@ -60,14 +61,14 @@ def generate_code(secret: str, timestamp: int) -> str:
     return _hotp(secret, timestamp // TIME_STEP_SECONDS)
 
 
-def verify_code(
+def matching_step(
     secret: str,
     code: str,
     timestamp: int,
     *,
     drift_steps: int = DEFAULT_DRIFT_STEPS,
-) -> bool:
-    """Check a submitted code against the steps around ``timestamp``.
+) -> int | None:
+    """Return the time step whose code ``code`` is, or None if none matches.
 
     Every candidate is compared in constant time, and every candidate is
     compared even after a match, so the number of comparisons does not reveal
@@ -75,15 +76,38 @@ def verify_code(
     """
     submitted = (code or "").strip().replace(" ", "")
     if not submitted.isdigit() or len(submitted) != CODE_DIGITS:
-        return False
+        return None
 
     counter = timestamp // TIME_STEP_SECONDS
-    matched = False
+    matched: int | None = None
     for step in range(-drift_steps, drift_steps + 1):
         candidate = _hotp(secret, counter + step)
         if hmac.compare_digest(candidate, submitted):
-            matched = True
+            matched = counter + step
     return matched
+
+
+def verify_code(
+    secret: str,
+    code: str,
+    timestamp: int,
+    *,
+    drift_steps: int = DEFAULT_DRIFT_STEPS,
+) -> bool:
+    """Check a submitted code against the steps around ``timestamp``."""
+    return matching_step(secret, code, timestamp, drift_steps=drift_steps) is not None
+
+
+def step_at(moment: datetime) -> int:
+    """The time step ``moment`` falls in."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return int(moment.timestamp()) // TIME_STEP_SECONDS
+
+
+def step_start(step: int) -> datetime:
+    """The moment ``step`` begins, so that ``step_at(step_start(n)) == n``."""
+    return datetime.fromtimestamp(step * TIME_STEP_SECONDS, tz=UTC)
 
 
 def provisioning_uri(secret: str, *, account: str, issuer: str) -> str:

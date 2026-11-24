@@ -71,6 +71,7 @@ from app.modules.identity.application.schemas import (
     WorkspaceCreate,
     WorkspaceUpdate,
 )
+from app.modules.identity.application.sign_in_throttle import SignInThrottle
 from app.modules.identity.domain.models import (
     AccountDeletionRequest,
     ApiKey,
@@ -93,6 +94,26 @@ MFA_CHALLENGE_PURPOSE = "mfa_challenge"
 
 MFA_CHALLENGE_MINUTES = 5
 """How long the gap between password and code may stay open."""
+
+SIGN_IN_PASSWORD = "password"
+SIGN_IN_SECOND_FACTOR = "second_factor"
+PASSWORD_RESET_MAIL = "password_reset"
+"""Sign-in throttle scopes: a password guessed per email, a second factor per
+user, and reset mails per address."""
+
+_dummy_password_hash: str | None = None
+
+
+async def _absent_account_hash() -> str:
+    """A real hash to check against when no account has the address.
+
+    Without it a sign-in for an unknown address answers without hashing, and
+    the difference in response time tells a caller which addresses exist.
+    """
+    global _dummy_password_hash
+    if _dummy_password_hash is None:
+        _dummy_password_hash = await hash_password_async(secrets.token_urlsafe(16))
+    return _dummy_password_hash
 
 PASSWORD_RESET_MINUTES = 30
 """A reset link is short-lived: it is a password in the recipient's mailbox."""
@@ -147,6 +168,7 @@ class IdentityService:
         service_principal_repo_factory: (
             Callable[[RequestContext], ServicePrincipalRepositoryPort] | None
         ) = None,
+        sign_in_throttle: SignInThrottle | None = None,
     ):
         """Initialize identity service.
 
@@ -172,6 +194,14 @@ class IdentityService:
         self.token_repo = token_repo
         self.invitation_repo = invitation_repo
         self.mail_port = mail_port
+        if sign_in_throttle is None:
+            from app.settings.settings import settings
+
+            sign_in_throttle = SignInThrottle(
+                max_failures=settings.auth_max_failed_attempts,
+                window_seconds=settings.auth_lockout_seconds,
+            )
+        self.sign_in_throttle = sign_in_throttle
 
     def _normalize_actions(self, actions: list[str]) -> list[str]:
         normalized = []
@@ -329,15 +359,22 @@ class IdentityService:
         Raises:
             UnauthorizedError: If authentication fails.
         """
+        await self.sign_in_throttle.ensure_allowed(SIGN_IN_PASSWORD, email)
         user = await self.user_repo.get_by_email(email)
-        if not user:
+        if user is None:
+            await verify_password_async(password, await _absent_account_hash())
+            await self.sign_in_throttle.record_failure(SIGN_IN_PASSWORD, email)
             raise UnauthorizedError("Invalid email or password")
+
+        # The password is checked before the account's state, so only someone
+        # who knows the password learns that the account is disabled.
+        if not await verify_password_async(password, user.password_hash):
+            await self.sign_in_throttle.record_failure(SIGN_IN_PASSWORD, email)
+            raise UnauthorizedError("Invalid email or password")
+        await self.sign_in_throttle.reset(SIGN_IN_PASSWORD, email)
 
         if not user.is_active:
             raise UnauthorizedError("User account is inactive")
-
-        if not await verify_password_async(password, user.password_hash):
-            raise UnauthorizedError("Invalid email or password")
 
         # Get user's primary tenant (first membership)
         memberships = await self.tenant_membership_repo.get_by_user(user.id)
@@ -765,6 +802,12 @@ class IdentityService:
         if self.mail_port is None:
             raise ValidationError("This deployment cannot send mail")
 
+        # Counted per address whether or not it has an account, so the limit
+        # stops a mailbox being flooded without revealing which addresses
+        # exist.
+        await self.sign_in_throttle.ensure_allowed(PASSWORD_RESET_MAIL, email)
+        await self.sign_in_throttle.record_failure(PASSWORD_RESET_MAIL, email)
+
         user = await self.user_repo.get_by_email(email)
         if user is None or not user.is_active:
             return
@@ -1075,8 +1118,14 @@ class IdentityService:
             return False
 
         secret = sealing.unseal(enrolment.secret_sealed, secret_key=self._app_secret())
-        if totp.verify_code(secret, code, int(utc_now().timestamp())):
-            enrolment.last_used_at = utc_now()
+        now = utc_now()
+        step = totp.matching_step(secret, code, int(now.timestamp()))
+        if step is not None:
+            # A code is good once: one seen over a shoulder or a recorded
+            # request cannot sign in again within its validity window.
+            if enrolment.last_used_at is not None and step <= totp.step_at(enrolment.last_used_at):
+                return False
+            enrolment.last_used_at = totp.step_start(step)
             await self.mfa_repo.save(enrolment)
             return True
 
@@ -1148,11 +1197,16 @@ class IdentityService:
         if not user_id or not tenant_id:
             raise UnauthorizedError("Challenge is missing required claims")
 
+        # Counted per user, not per challenge: signing in again for a fresh
+        # challenge must not reset the guesses at a six-digit code.
+        await self.sign_in_throttle.ensure_allowed(SIGN_IN_SECOND_FACTOR, user_id)
         user = await self.user_repo.get_by_id(user_id)
         if user is None or not user.is_active:
             raise UnauthorizedError("User account is inactive")
         if not await self._verify_second_factor(user_id, code):
+            await self.sign_in_throttle.record_failure(SIGN_IN_SECOND_FACTOR, user_id)
             raise UnauthorizedError("That code is not valid")
+        await self.sign_in_throttle.reset(SIGN_IN_SECOND_FACTOR, user_id)
 
         membership = next(
             (

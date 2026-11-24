@@ -100,3 +100,23 @@ def test_recovery_codes_are_distinct_and_normalize_to_their_hash():
 
 def test_two_secrets_do_not_produce_the_same_code():
     assert generate_code(generate_secret(), 59) != generate_code(generate_secret(), 59)
+
+
+def test_matching_step_names_the_step_a_code_belongs_to():
+    from datetime import UTC, datetime
+
+    from app.kernel.identity.totp import (
+        generate_code,
+        matching_step,
+        step_at,
+        step_start,
+    )
+
+    secret = "JBSWY3DPEHPK3PXP"
+    now = 1_700_000_000
+    previous = generate_code(secret, now - 30)
+
+    assert matching_step(secret, previous, now) == (now - 30) // 30
+    assert matching_step(secret, "12345", now) is None
+    assert step_at(step_start(1234)) == 1234
+    assert step_at(datetime.fromtimestamp(now, tz=UTC).replace(tzinfo=None)) == now // 30

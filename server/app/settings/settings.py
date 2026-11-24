@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -148,6 +148,15 @@ class Settings(BaseSettings):
 
     refresh_token_expire_days: int = 14
     """How long a session can be renewed before the user signs in again."""
+
+    auth_max_failed_attempts: int = Field(default=10, ge=1)
+    """Failed password or second-factor attempts an account may make before
+    further attempts are refused for ``auth_lockout_seconds``. Also caps the
+    password reset mails one address can be sent in that window."""
+
+    auth_lockout_seconds: int = Field(default=900, ge=1)
+    """How long an account stays refused after ``auth_max_failed_attempts``,
+    counted from its first failure."""
 
     schedule_worker_enabled: bool = False
     """Fire due schedules from this process.

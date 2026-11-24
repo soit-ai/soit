@@ -245,3 +245,43 @@ async def test_confirming_an_address_records_when(auth_client, outbox):
 
     me = (await auth_client.get("/api/v1/me", headers=_headers(payload))).json()["data"]
     assert me["profile"]["email_verified_at"]
+
+
+@pytest.mark.asyncio
+async def test_reset_mails_to_one_address_are_capped(auth_client, outbox, monkeypatch):
+    """Otherwise the form can flood someone's mailbox; unknown addresses count
+    the same so the cap reveals nothing about which are registered."""
+    from app.modules.identity.application.sign_in_throttle import SignInThrottle
+    from app.settings.settings import settings
+
+    counts: dict[str, int] = {}
+
+    class _Counters:
+        async def get(self, name):
+            return counts.get(name)
+
+        async def incr(self, name):
+            counts[name] = counts.get(name, 0) + 1
+            return counts[name]
+
+        async def expire(self, name, time):
+            return True
+
+        async def ttl(self, name):
+            return 60
+
+        async def delete(self, *names):
+            return 0
+
+    monkeypatch.setattr(SignInThrottle, "_redis", lambda self: _Counters())
+    monkeypatch.setattr(settings, "auth_max_failed_attempts", 2)
+    await _register(auth_client, "reset-flood@example.com")
+
+    for email in ("reset-flood@example.com", "reset-nobody@example.com"):
+        for _ in range(2):
+            response = await auth_client.post("/api/v1/auth/password-reset", json={"email": email})
+            assert response.status_code == status.HTTP_204_NO_CONTENT
+        refused = await auth_client.post("/api/v1/auth/password-reset", json={"email": email})
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    assert len([m for m in outbox.sent if "reset-password" in m.body]) == 2

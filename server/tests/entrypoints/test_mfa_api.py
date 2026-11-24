@@ -266,3 +266,24 @@ async def test_a_workspace_can_require_a_second_factor(auth_client, async_db):
     # Distinguishable from "not a member", so the console can offer enrolment
     # rather than an access error nobody can act on.
     assert blocked.json()["details"]["reason"] == "mfa_required"
+
+
+@pytest.mark.asyncio
+async def test_an_authenticator_code_signs_in_once(auth_client):
+    """A code seen over a shoulder or in a recorded request is spent once used."""
+    payload = await _register(auth_client, "mfa-replay@example.com")
+    secret, _codes = await _enrol(auth_client, payload)
+    code = generate_code(secret, int(utc_now().timestamp()))
+
+    async def _sign_in_with(value: str):
+        challenge = (await auth_client.post(
+            "/api/v1/login",
+            json={"email": "mfa-replay@example.com", "password": PASSWORD},
+        )).json()["data"]
+        return await auth_client.post(
+            "/api/v1/login/mfa",
+            json={"mfa_token": challenge["mfa_token"], "code": value},
+        )
+
+    assert (await _sign_in_with(code)).status_code == status.HTTP_200_OK
+    assert (await _sign_in_with(code)).status_code == status.HTTP_401_UNAUTHORIZED

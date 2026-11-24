@@ -125,6 +125,23 @@ record for operators.
   (Flower). Nothing in SOIT ran on Celery: background work runs in the
   asyncio worker processes.
 
+### Security
+
+- Sign-in is rate limited. After `AUTH_MAX_FAILED_ATTEMPTS` (10) wrong
+  passwords for an address, or wrong second-factor codes for an account,
+  further attempts are refused with `429 RATE_LIMIT_EXCEEDED` for
+  `AUTH_LOCKOUT_SECONDS` (15 minutes) from the first failure, even with the
+  right password. Signing in again for a fresh challenge no longer resets the
+  guesses at a six-digit code. The same cap applies to password reset mails
+  per address. Counting needs Redis; without it attempts are let through and
+  a warning is logged.
+- An authenticator code signs in once; replaying it within its validity
+  window is refused.
+- Sign-in no longer reveals which addresses are registered or disabled: an
+  unknown address is checked against a password hash like a known one, so the
+  response time does not differ, and a disabled account is reported only to a
+  caller who gave its password.
+
 ## [1.8.0] - 2026-11-14
 
 ### Added
