@@ -3,7 +3,7 @@
 
 import builtins
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, delete, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.infra.db.repository import AsyncRepository
@@ -199,6 +199,18 @@ class PluginVersionRepository(AsyncRepository[PluginVersion]):
         )
         return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
 
+    async def delete_by_plugin(self, plugin_id: str) -> None:
+        """Stage the removal of every version of a plugin; the caller commits."""
+        await self.db.exec(
+            delete(PluginVersion).where(
+                and_(
+                    PluginVersion.tenant_id == self.ctx.tenant_id,
+                    PluginVersion.workspace_id == self.ctx.workspace_id,
+                    PluginVersion.plugin_id == plugin_id,
+                )
+            )
+        )
+
 
 class PluginReleaseRepository(AsyncRepository[PluginRelease]):
     """Repository for plugin release ledger entries."""
@@ -273,3 +285,15 @@ class PluginInstalledArtifactRepository(AsyncRepository[PluginInstalledArtifact]
             )
         )
         return self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
+
+    async def delete_by_plugin(self, plugin_id: str) -> None:
+        """Stage the removal of every artifact a plugin projected; the caller commits."""
+        await self.db.exec(
+            delete(PluginInstalledArtifact).where(
+                and_(
+                    PluginInstalledArtifact.tenant_id == self.ctx.tenant_id,
+                    PluginInstalledArtifact.workspace_id == self.ctx.workspace_id,
+                    PluginInstalledArtifact.plugin_id == plugin_id,
+                )
+            )
+        )

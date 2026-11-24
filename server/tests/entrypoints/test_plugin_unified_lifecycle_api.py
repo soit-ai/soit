@@ -528,3 +528,40 @@ async def test_uninstall_disables_all_plugin_owned_capabilities(isolated_plugins
     refs = {item["ref"] for item in capabilities_resp.json()["data"]["items"]}
     assert "skill:unified_triage" not in refs
     assert "mcp_tool:unified_mcp:search" not in refs
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_installed_plugin_removes_its_capabilities_and_rows(
+    isolated_plugins_dir, async_client, async_db
+):
+    """Deleting used to drop the installation row only, leaving the plugin's
+    projected MCP servers and skills enabled in the tool catalog."""
+    from sqlmodel import select
+
+    from app.modules.plugin.domain.models import PluginInstalledArtifact, PluginVersion
+
+    _ = isolated_plugins_dir
+    plugin_id = await _create_plugin(async_client)
+    install_resp = await async_client.post(
+        f"/api/v1/plugins/{plugin_id}/install-package",
+        files={"package": ("unified-mixed.zip", _mixed_plugin_package(), "application/zip")},
+        headers=_headers(),
+    )
+    assert install_resp.status_code == status.HTTP_200_OK
+    before = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
+    assert "mcp_tool:unified_mcp:search" in {item["ref"] for item in before.json()["data"]["items"]}
+
+    delete_resp = await async_client.delete(f"/api/v1/plugins/{plugin_id}", headers=_headers())
+    assert delete_resp.status_code == status.HTTP_204_NO_CONTENT
+
+    capabilities_resp = await async_client.get("/api/v1/plugins/capabilities", headers=_headers())
+    refs = {item["ref"] for item in capabilities_resp.json()["data"]["items"]}
+    assert "skill:unified_triage" not in refs
+    assert "mcp_tool:unified_mcp:search" not in refs
+
+    artifacts = (
+        await async_db.exec(select(PluginInstalledArtifact).where(PluginInstalledArtifact.plugin_id == plugin_id))
+    ).all()
+    versions = (await async_db.exec(select(PluginVersion).where(PluginVersion.plugin_id == plugin_id))).all()
+    assert artifacts == []
+    assert versions == []

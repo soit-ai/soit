@@ -875,14 +875,24 @@ class PluginService:
         """
         plugin = await self.get_plugin(plugin_id)
 
-        # Delete associated installations
-        installations = await self.installation_repo.list_by_workspace(limit=1000, offset=0)
-        for installation in installations:
-            if installation.plugin_id == plugin_id:
-                await self.db.delete(installation)
+        # Uninstall first, as uninstall_plugin does. Deleting the installation
+        # row alone left its projected artifacts enabled, so the deleted
+        # plugin's MCP servers and tools stayed in the tool catalog.
+        for installation in await self.installation_repo.list_by_plugin(plugin_id):
+            await self.projectors.uninstall(
+                await self._projection_context(plugin=plugin, installation=installation),
+                self.artifact_repo,
+            )
+            await self.db.delete(installation)
+        await self._disable_all_plugin_versions(plugin=plugin)
 
+        # With no foreign keys, nothing removes the plugin's dependent rows
+        # but this. The release ledger stays: it records what was published.
+        await self.artifact_repo.delete_by_plugin(plugin_id)
+        await self.version_repo.delete_by_plugin(plugin_id)
         await self.db.delete(plugin)
         await self.db.commit()
+        self._remove_all_plugin_files(plugin_name=plugin.name)
         logger.info(
             "plugin.delete",
             extra={
