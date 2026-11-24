@@ -110,6 +110,14 @@ record for operators.
   API process and which production refuses, so the service exited at
   startup and no outbox event was delivered. The flag is no longer set; the
   service's script is the dispatcher.
+- An outbox consumer that failed on a database error, such as a statement
+  timeout, on PostgreSQL no longer stalls event delivery. The error used to
+  abort the dispatcher's batch transaction, so the retry was never recorded
+  and the same event came back first on every tick, holding back every event
+  behind it. Each consumer now runs in a transaction of its own; a failed one
+  rolls back only its own writes before its retry is recorded, so a
+  notification whose delivery failed after it claimed its idempotency slot is
+  delivered on the retry instead of being skipped.
 
 ### Removed
 

@@ -36,7 +36,9 @@ logger = logging.getLogger(__name__)
 
 OutboxHandlerFn = Callable[[AsyncSession, EventOutbox], Any]
 """A consumer. It receives the dispatcher's session and may be sync or async;
-anything that touches the database must be async and await the session."""
+anything that touches the database must be async and await the session. The
+dispatcher commits after each consumer and rolls a failed one back, and the
+row it receives is a detached snapshot."""
 
 
 class OutboxDispatcher:
@@ -113,32 +115,52 @@ class OutboxDispatcher:
             return await self._dispatch_claimed_row(row)
 
     async def _dispatch_claimed_row(self, row: EventOutbox) -> bool:
-        """Process a row after its lease has been acquired."""
+        """Process a row after its lease has been acquired.
+
+        Every consumer gets a transaction of its own: its writes commit
+        together with its checkpoint, and a failure rolls back only its own
+        work before the retry is recorded and committed. A consumer's
+        database error therefore cannot leave the retry bookkeeping in an
+        aborted transaction (which wedged the row at the head of the queue
+        without counting the attempt), and a failed consumer's partial
+        writes, such as an idempotency slot claimed before delivery, cannot
+        survive to make the retry skip the work. A transaction is used
+        rather than a savepoint because some consumers commit themselves.
+        """
 
         try:
             validate_event_payload_version(row.event_type, row.event_version)
         except ValueError as exc:
             await self.repo.mark_failed(row.id, str(exc))
+            await self.db.commit()
             outbox_dispatch_attempts.labels(outcome="failed").inc()
             return True
 
         handlers = self.registry.get_handlers(row.event_type)
         if not handlers:
             await self.repo.mark_done(row.id)
+            await self.db.commit()
             self._record_success(row)
             return True
 
+        # The claim commits first, so the lease holds while consumers run and
+        # a crash leaves the row to be reclaimed once the lease expires.
+        await self.db.commit()
         for reg in handlers:
             if await self.checkpoints.is_processed(reg.consumer_name, row.event_id):
                 continue
             try:
                 await self._invoke(reg.handler, row)
             except Exception as exc:  # noqa: BLE001 — surface to outbox retry/DLQ
+                await self.db.rollback()
                 await self._on_handler_error(row.id, reg.consumer_name, exc)
+                await self.db.commit()
                 return True
             await self.checkpoints.try_record_success(reg.consumer_name, row.event_id)
+            await self.db.commit()
 
         await self.repo.mark_done(row.id)
+        await self.db.commit()
         self._record_success(row)
         return True
 
@@ -174,6 +196,10 @@ class OutboxDispatcher:
         """Process up to `batch_limit` due pending rows; returns how many were claimed for work."""
         cutoff = before if before is not None else utc_now()
         rows = await self.repo.list_pending_due(before=cutoff, limit=batch_limit)
+        # Detached snapshots: a consumer's rollback expires every instance in
+        # the session, and an expired row cannot be reloaded lazily here.
+        for row in rows:
+            self.db.expunge(row)
         attempted = 0
         for row in rows:
             if await self.dispatch_row(row):

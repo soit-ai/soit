@@ -124,6 +124,33 @@ async def test_outbox_dispatcher_service_commits_per_tick(async_db) -> None:
         await s2.close()
 
 
+@pytest.mark.asyncio
+async def test_failing_consumer_does_not_stop_the_rest_of_the_batch(async_db) -> None:
+    reg = OutboxHandlerRegistry()
+    delivered: list[str] = []
+
+    def handler(_s, row) -> None:
+        if row.event_id == "evt_poison":
+            raise ValueError("poison")
+        delivered.append(row.event_id)
+
+    reg.register("integration.demo", "batch", handler)
+    out = OutboxRepository(async_db)
+    poison = out.enqueue_from_envelope(_env("evt_poison"))
+    healthy = out.enqueue_from_envelope(_env("evt_healthy"))
+    await async_db.commit()
+
+    d = OutboxDispatcher(async_db, reg)
+    assert await d.run_once(batch_limit=10) == 2
+    await async_db.commit()
+
+    assert delivered == ["evt_healthy"]
+    assert (await out.get(healthy.id)).status == "done"
+    poisoned = await out.get(poison.id)
+    assert poisoned.status == "pending"
+    assert poisoned.attempt_count == 1
+
+
 def test_wiring_register_outbox_handlers_is_idempotent() -> None:
     from app.wiring.outbox_handlers import get_outbox_registry, register_outbox_handlers
 
