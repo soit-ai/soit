@@ -565,3 +565,17 @@ async def test_deleting_an_installed_plugin_removes_its_capabilities_and_rows(
     versions = (await async_db.exec(select(PluginVersion).where(PluginVersion.plugin_id == plugin_id))).all()
     assert artifacts == []
     assert versions == []
+
+
+@pytest.mark.asyncio
+async def test_an_oversized_package_upload_is_refused(isolated_plugins_dir, async_client, monkeypatch):
+    from app.settings.settings import settings
+
+    _ = isolated_plugins_dir
+    monkeypatch.setattr(settings, "plugin_package_max_bytes", 1024)
+    response = await async_client.post(
+        "/api/v1/plugins/package",
+        files={"package": ("big.zip", b"\0" * 2048, "application/zip")},
+        headers=_headers(),
+    )
+    assert response.status_code == status.HTTP_413_CONTENT_TOO_LARGE

@@ -1,5 +1,6 @@
 """Plugin application service."""
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -974,7 +975,8 @@ class PluginService:
             dict with install_dir, sha256, manifest, spec
         """
         plugin = await self.get_plugin(plugin_id)
-        manifest, spec = self.installer.inspect_package(package_bytes)
+        # Unpacking and hashing a package is blocking work; keep it off the loop.
+        manifest, spec = await asyncio.to_thread(self.installer.inspect_package, package_bytes)
         spec_name = spec.get("name")
         spec_version = spec.get("version")
         if spec_name and spec_name != plugin.name:
@@ -987,7 +989,8 @@ class PluginService:
         self._validate_runtime_manifest(manifest)
         self._check_conflicts(spec=spec, plugin_name=plugin.name)
 
-        paths = self.installer.install_from_bytes(
+        paths = await asyncio.to_thread(
+            self.installer.install_from_bytes,
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
             plugin_name=plugin.name,
@@ -1065,7 +1068,8 @@ class PluginService:
         if normalized_mode not in {"auto", "reinstall"}:
             raise ValidationError("Invalid plugin package upload mode")
 
-        manifest, spec = self.installer.inspect_package(package_bytes)
+        # Unpacking and hashing a package is blocking work; keep it off the loop.
+        manifest, spec = await asyncio.to_thread(self.installer.inspect_package, package_bytes)
         package_name = str(spec.get("name") or "").strip()
         package_version = str(spec.get("version") or "").strip()
         if not package_name:
@@ -1171,7 +1175,8 @@ class PluginService:
         """Upgrade an installed plugin by replacing its package/version."""
         plugin = await self.get_plugin(plugin_id)
 
-        manifest, spec = self.installer.inspect_package(package_bytes)
+        # Unpacking and hashing a package is blocking work; keep it off the loop.
+        manifest, spec = await asyncio.to_thread(self.installer.inspect_package, package_bytes)
         spec_name = spec.get("name")
         spec_version = spec.get("version")
         if spec_name and spec_name != plugin.name:
@@ -1192,7 +1197,8 @@ class PluginService:
         plugin.updated_at = utc_now()
         await self.db.commit()
 
-        paths = self.installer.install_from_bytes(
+        paths = await asyncio.to_thread(
+            self.installer.install_from_bytes,
             tenant_id=self.ctx.tenant_id,
             workspace_id=self.ctx.workspace_id,
             plugin_name=plugin.name,

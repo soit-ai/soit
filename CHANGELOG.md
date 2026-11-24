@@ -150,6 +150,13 @@ record for operators.
   wherever it pointed, so an endpoint could forward a delivery to a private
   address or a cloud metadata service. A `redirect=yes` in the URL no longer
   turns it back on.
+- Plugin packages are bounded: an upload over `PLUGIN_PACKAGE_MAX_BYTES`
+  (50 MiB) is refused with 413 without being read in full, and an archive
+  that would unpack to more than `PLUGIN_PACKAGE_MAX_EXTRACTED_BYTES`
+  (200 MiB) or hold more than `PLUGIN_PACKAGE_MAX_ENTRIES` (5000) entries is
+  refused before anything is written, so a small compressed archive can no
+  longer fill the disk. Unpacking and hashing a package run off the event
+  loop, so an install no longer stalls other requests.
 
 ## [1.8.0] - 2026-11-14
 

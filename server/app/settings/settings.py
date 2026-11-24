@@ -573,6 +573,16 @@ class Settings(BaseSettings):
     plugins_dir: str = "./var/plugins"
     """Filesystem directory for plugin packages and extracted installs."""
 
+    plugin_package_max_bytes: int = Field(default=50 * 1024 * 1024, ge=1)
+    """Largest plugin package (the uploaded zip) accepted."""
+
+    plugin_package_max_extracted_bytes: int = Field(default=200 * 1024 * 1024, ge=1)
+    """Largest total a plugin package may unpack to, so a small archive that
+    expands to fill the disk is refused before anything is written."""
+
+    plugin_package_max_entries: int = Field(default=5000, ge=1)
+    """Most files and directories a plugin package may contain."""
+
     plugin_runtime_allow_localhost: bool = False
     """Allow plugin runtime to run on localhost (development only)."""
 

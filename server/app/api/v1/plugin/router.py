@@ -1,7 +1,7 @@
 """Plugin API routes."""
 
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.api.v1.permissions import (
     require_workspace_governance_ctx,
@@ -35,6 +35,24 @@ from app.modules.plugin.application.schemas import (
 from app.modules.plugin.application.service import PluginService
 
 router = APIRouter()
+
+
+async def _read_package(package: UploadFile) -> bytes:
+    """Read an uploaded package, stopping one byte past the size limit.
+
+    Reading everything first would hold an arbitrarily large upload in
+    memory before the installer could refuse it.
+    """
+    from app.settings.settings import settings
+
+    limit = settings.plugin_package_max_bytes
+    data = await package.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"Plugin package exceeds the {limit} byte limit",
+        )
+    return data
 
 
 @router.post("", response_model=PluginResponse, status_code=status.HTTP_201_CREATED)
@@ -104,7 +122,7 @@ async def upload_plugin_package(
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
-    package_bytes = await package.read()
+    package_bytes = await _read_package(package)
     return await handlers.upload_plugin_package(
         ctx,
         package_bytes,
@@ -247,7 +265,7 @@ async def install_plugin_package(
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
-    package_bytes = await package.read()
+    package_bytes = await _read_package(package)
     return await handlers.install_plugin_package(ctx, plugin_id, package_bytes, expected_sha256)
 
 
@@ -260,7 +278,7 @@ async def upgrade_plugin_package(
     service: PluginService = Depends(get_plugin_service),
 ):
     handlers = PluginHandlers(service)
-    package_bytes = await package.read()
+    package_bytes = await _read_package(package)
     return await handlers.upgrade_plugin_package(ctx, plugin_id, package_bytes, expected_sha256)
 
 

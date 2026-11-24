@@ -46,8 +46,27 @@ def _safe_join(root: Path, *parts: str) -> Path:
     return p
 
 
+def check_package_size(package_bytes: bytes) -> None:
+    """Refuse a package larger than ``plugin_package_max_bytes``."""
+    limit = get_settings().plugin_package_max_bytes
+    if len(package_bytes) > limit:
+        raise ValidationError(f"Plugin package exceeds the {limit} byte limit.")
+
+
 def _safe_extract_zip(zf: zipfile.ZipFile, dest: Path) -> None:
-    for member in zf.infolist():
+    settings = get_settings()
+    members = zf.infolist()
+    if len(members) > settings.plugin_package_max_entries:
+        raise ValidationError(
+            f"Plugin package has more than {settings.plugin_package_max_entries} entries."
+        )
+    # The sizes are the archive's own claims, but zipfile never inflates an
+    # entry past its declared size, so their sum bounds what is written.
+    if sum(member.file_size for member in members) > settings.plugin_package_max_extracted_bytes:
+        raise ValidationError(
+            f"Plugin package unpacks to more than {settings.plugin_package_max_extracted_bytes} bytes."
+        )
+    for member in members:
         name = member.filename
         # block absolute paths and traversal
         if name.startswith("/") or name.startswith("\\") or ".." in Path(name).parts:
@@ -145,6 +164,7 @@ class PluginInstaller:
 
     def inspect_package(self, package_bytes: bytes) -> tuple[dict[str, Any], dict[str, Any]]:
         """Inspect plugin package and return manifest/spec without installing."""
+        check_package_size(package_bytes)
         digest = sha256_hex(package_bytes)
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
@@ -185,6 +205,7 @@ class PluginInstaller:
         expected_sha256: str | None = None,
     ) -> InstalledPluginPaths:
         """Install a plugin package (zip bytes) into filesystem and register it."""
+        check_package_size(package_bytes)
 
         if expected_sha256:
             if not verify_sha256(package_bytes, expected_sha256):
