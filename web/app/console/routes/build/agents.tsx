@@ -232,7 +232,7 @@ export default function ConsoleAgents() {
             label={t('console.agents.tiles.runs')}
             value={summary ? compactNumber(summary.today_calls) : '—'}
             na={!summary}
-            sub={<span className="mono dimmer">today</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.today')}</span>}
           />
           <StatTile
             label={t('console.agents.tiles.pass')}
@@ -244,7 +244,7 @@ export default function ConsoleAgents() {
             label={t('console.agents.tiles.attention')}
             value={summary ? String(summary.pending_exceptions) : '—'}
             na={!summary}
-            sub={<span className="mono dimmer">pending exceptions</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.pendingExceptions')}</span>}
           />
         </StatTileGrid>
       }

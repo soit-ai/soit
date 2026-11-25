@@ -213,7 +213,7 @@ export default function ConsoleTraces() {
             label={t('console.traces.tiles.p95')}
             value={p95}
             na={durations.length === 0}
-            sub={<span className="mono dimmer">run duration</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.runDuration')}</span>}
           />
           <StatTile
             label={t('console.traces.tiles.slowest')}

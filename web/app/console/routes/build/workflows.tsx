@@ -216,7 +216,7 @@ export default function ConsoleWorkflows() {
             label={t('console.workflows.tiles.runs')}
             value={summary ? compactNumber(summary.today_runs) : '—'}
             na={!summary}
-            sub={<span className="mono dimmer">today</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.today')}</span>}
           />
           <StatTile
             label={t('console.workflows.tiles.success')}
@@ -228,7 +228,7 @@ export default function ConsoleWorkflows() {
             label={t('console.workflows.tiles.attention')}
             value={summary ? String(summary.recent_exceptions) : '—'}
             na={!summary}
-            sub={<span className="mono dimmer">recent exceptions</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.recentExceptions')}</span>}
           />
         </StatTileGrid>
       }

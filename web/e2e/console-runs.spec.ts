@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import zhConsole from '../app/i18n/zh-CN/console'
 import { mockShellApi } from './helpers'
 
 const ok = (data: unknown) =>
@@ -156,6 +157,17 @@ test('console runs renders the prototype workbench with live data', async ({ pag
   const firstRow = page.locator('[data-slot=table-row]', { hasText: 'run_01J9KD84QF' })
   await expect(firstRow.getByText('Running')).toBeVisible()
   await expect(page.getByText('3 runs on this page')).toBeVisible()
+})
+
+test('the console renders in Simplified Chinese when that is the chosen language', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('i18nextLng', 'zh-CN'))
+  await page.goto('/observe/runs', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByRole('heading', { name: zhConsole.runs.title, exact: true })).toBeVisible()
+  await expect(
+    page.getByText(zhConsole.runs.pageSummary.replace('{{count}}', '3')),
+  ).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
 })
 
 test('console runs quick status filter narrows the query', async ({ page }) => {

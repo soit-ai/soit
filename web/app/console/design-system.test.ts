@@ -245,7 +245,8 @@ describe('console v2 design system', () => {
     expect(read('app/i18n/types.ts')).toContain("console: typeof import('./en-US/console').default")
     expect(read('app/i18n/i18next-config.ts')).toContain("'console',")
     expect(read('app/i18n/en-US/console.ts')).toContain('status')
-    expect(read('app/i18n/zh-CN/console.ts')).toContain("from '../en-US/console'")
+    // zh-CN carries its own copy; locale-parity.test.ts checks it has every key.
+    expect(read('app/i18n/zh-CN/console.ts')).not.toContain("from '../en-US/console'")
 
     // Console screens call t('console.…') rather than hardcoding copy.
     for (const { file, content } of readConsoleFiles(/\.tsx$/)) {

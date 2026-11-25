@@ -298,13 +298,13 @@ export default function ConsoleAccess() {
             label={t('console.access.tiles.resources')}
             value={grantsQuery.data ? String(byResource.length) : '—'}
             na={!grantsQuery.data}
-            sub={<span className="mono dimmer">rest inherit workspace role</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.restInherit')}</span>}
           />
           <StatTile
             label={t('console.access.tiles.writeCapable')}
             value={grantsQuery.data ? String(grants.filter(isWrite).length) : '—'}
             na={!grantsQuery.data}
-            sub={<span className="mono dimmer">update or delete on a resource</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.updateOrDelete')}</span>}
           />
         </StatTileGrid>
       }

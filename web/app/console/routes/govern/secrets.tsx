@@ -182,7 +182,7 @@ export default function ConsoleSecrets() {
             label={t('console.secrets.tiles.secrets')}
             value={secretsQuery.data ? String(secrets.length) : '—'}
             na={!secretsQuery.data}
-            sub={<span className="mono dimmer">referenced, never inlined</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.referencedNeverInlined')}</span>}
           />
           <StatTile
             label={t('console.secrets.tiles.resolutions')}
@@ -210,12 +210,12 @@ export default function ConsoleSecrets() {
                 : '—'
             }
             na={!secrets.some((row) => row.last_rotated_at)}
-            sub={<span className="mono dimmer">most recent rotation</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.latestRotation')}</span>}
           />
           <StatTile
             label={t('console.secrets.tiles.attention')}
             value={String(secrets.filter((row) => !row.last_rotated_at).length)}
-            sub={<span className="mono dimmer">never rotated</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.neverRotated')}</span>}
           />
         </StatTileGrid>
       }

@@ -83,7 +83,7 @@ export default function ConsoleKnowledgeNew() {
         <div className="stack">
           <div className="panel">
             <div className="panel-head">
-              <span className="stepno">STEP 1</span>
+              <span className="stepno">{t('console.knowNew.step', { n: 1 })}</span>
               <h2>{t('console.knowNew.step1')}</h2>
               <span className="hint">{t('console.knowNew.step1Hint')}</span>
             </div>
@@ -147,7 +147,7 @@ export default function ConsoleKnowledgeNew() {
 
           <div className="panel">
             <div className="panel-head">
-              <span className="stepno">STEP 2</span>
+              <span className="stepno">{t('console.knowNew.step', { n: 2 })}</span>
               <h2>{t('console.knowNew.step2')}</h2>
               <span className="hint">{t('console.knowNew.step2Hint')}</span>
             </div>
@@ -202,7 +202,7 @@ export default function ConsoleKnowledgeNew() {
 
           <div className="panel">
             <div className="panel-head">
-              <span className="stepno">STEP 3</span>
+              <span className="stepno">{t('console.knowNew.step', { n: 3 })}</span>
               <h2>{t('console.knowNew.step3')}</h2>
               <span className="hint">{t('console.knowNew.step3Hint')}</span>
             </div>

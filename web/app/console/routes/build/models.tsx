@@ -371,7 +371,7 @@ export default function ConsoleModels() {
             label={t('console.models.tiles.tokens')}
             value={summary ? compactNumber(summary.month_tokens) : '—'}
             na={!summary}
-            sub={<span className="mono dimmer">month to date</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.monthToDate')}</span>}
           />
           <StatTile
             label={t('console.models.tiles.spend')}

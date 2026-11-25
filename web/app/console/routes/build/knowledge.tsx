@@ -251,7 +251,7 @@ export default function ConsoleKnowledge() {
             label={t('console.knowledge.tiles.p95')}
             value={summary ? latency(summary.avg_latency_ms) : '—'}
             na={!summary || summary.avg_latency_ms == null}
-            sub={<span className="mono dimmer">avg · all retrieval runs</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.avgAllRetrievals')}</span>}
           />
         </StatTileGrid>
       }

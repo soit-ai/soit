@@ -1138,7 +1138,7 @@ export default function ConsoleKnowledgeDetail() {
               label="Queries · 24h"
               value={cost ? compactNumber(cost.request_count) : '—'}
               na={!cost || cost.request_count == null}
-              sub="all retrieval runs"
+              sub={t('console.tileSubs.allRetrievals')}
             />
             <StatTile
               label="Hit rate"

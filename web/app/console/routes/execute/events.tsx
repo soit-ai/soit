@@ -106,7 +106,7 @@ export default function ConsoleEvents() {
             label={t('console.deadLetters.tiles.total')}
             value={deadLettersQuery.data ? String(all.length) : '—'}
             na={!deadLettersQuery.data}
-            sub={<span className="mono dimmer">after retry policy exhausted</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.afterRetries')}</span>}
           />
           <StatTile
             label={t('console.deadLetters.tiles.redrivable')}
@@ -114,7 +114,7 @@ export default function ConsoleEvents() {
               deadLettersQuery.data ? String(all.filter((row) => row.redrivable).length) : '—'
             }
             na={!deadLettersQuery.data}
-            sub={<span className="mono dimmer">can re-enter the pipeline</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.canReenter')}</span>}
           />
           <StatTile
             label={t('console.deadLetters.tiles.kinds')}
@@ -122,13 +122,13 @@ export default function ConsoleEvents() {
               deadLettersQuery.data ? String(new Set(all.map((row) => row.kind)).size) : '—'
             }
             na={!deadLettersQuery.data}
-            sub={<span className="mono dimmer">distinct failure sources</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.failureSources')}</span>}
           />
           <StatTile
             label={t('console.deadLetters.tiles.newest')}
             value={newest ? relativeTime(newest) : '—'}
             na={!newest}
-            sub={<span className="mono dimmer">most recent terminal failure</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.latestTerminalFailure')}</span>}
           />
         </StatTileGrid>
       }

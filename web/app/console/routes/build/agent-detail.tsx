@@ -829,7 +829,7 @@ export default function ConsoleAgentDetail() {
               label="Runs · 24h"
               value={workbenchRow ? compactNumber(workbenchRow.today_calls) : '—'}
               na={!workbenchRow}
-              sub={<span className="mono dimmer">today</span>}
+              sub={<span className="mono dimmer">{t('console.tileSubs.today')}</span>}
             />
             <StatTile
               label="Pass rate"

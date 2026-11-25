@@ -355,7 +355,7 @@ export default function ConsolePolicies() {
           <StatTile
             label={t('console.policies.tiles.attention')}
             value={String(egressQuery.data?.blocklist.length ?? 0)}
-            sub={<span className="mono dimmer">blocked destinations</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.blockedDestinations')}</span>}
           />
         </StatTileGrid>
       }

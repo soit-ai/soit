@@ -206,25 +206,25 @@ export default function ConsoleAudit() {
             label={t('console.audit.tiles.entries')}
             value={matched == null ? '—' : String(matched)}
             na={matched == null}
-            sub={<span className="mono dimmer">in the last {range}</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.inTheLast', { range })}</span>}
           />
           <StatTile
             label={t('console.audit.tiles.blocks')}
             value={auditsQuery.data ? String(blocks.length) : '—'}
             na={!auditsQuery.data}
-            sub={<span className="mono dimmer">non-success outcomes</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.nonSuccess')}</span>}
           />
           <StatTile
             label={t('console.audit.tiles.changes')}
             value={changesQuery.data ? String(changes.length) : '—'}
             na={!changesQuery.data}
-            sub={<span className="mono dimmer">policy edits</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.policyEdits')}</span>}
           />
           <StatTile
             label={t('console.audit.tiles.review')}
             value={decisionsQuery.data ? String(decisions.length) : '—'}
             na={!decisionsQuery.data}
-            sub={<span className="mono dimmer">human decisions</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.humanDecisions')}</span>}
           />
         </StatTileGrid>
       }

@@ -212,7 +212,7 @@ export default function ConsoleApprovals() {
             label={t('console.approvals.tiles.median')}
             value={median(turnarounds)}
             na={turnarounds.length === 0}
-            sub={<span className="mono dimmer">request → decision</span>}
+            sub={<span className="mono dimmer">{t('console.tileSubs.requestToDecision')}</span>}
           />
           <StatTile
             label={t('console.approvals.tiles.escalations')}
