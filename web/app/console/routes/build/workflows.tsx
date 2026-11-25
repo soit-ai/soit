@@ -31,6 +31,7 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { usePageCursor } from '../../adapters/use-page-cursor'
 import { readDocumentFile } from '../../adapters/read-document-file'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
@@ -68,9 +69,10 @@ export default function ConsoleWorkflows() {
   const [filter, setFilter] = useState<WfFilter>('all')
   const [search, setSearch] = useState('')
 
+  const cursor = usePageCursor()
   const workbenchQuery = useQuery({
-    queryKey: ['console', 'workflows', 'workbench'],
-    queryFn: () => getWorkflowWorkbench({ page_size: PAGE_SIZE }),
+    queryKey: ['console', 'workflows', 'workbench', cursor.pageToken],
+    queryFn: () => getWorkflowWorkbench({ page_token: cursor.pageToken, page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
 
@@ -319,6 +321,19 @@ export default function ConsoleWorkflows() {
             </TableBody>
           </Table>
         </WorkbenchPanel>
+      )}
+
+      {tab === 'all' && (cursor.hasPrevious || workbenchQuery.data?.next_page_token) && (
+        <Pager
+          className="mt-3.5"
+          summary={t('console.common.pageFilterNote')}
+          onPrev={cursor.prev}
+          onNext={() => cursor.next(workbenchQuery.data?.next_page_token)}
+          prevDisabled={!cursor.hasPrevious}
+          nextDisabled={!workbenchQuery.data?.next_page_token}
+          prevLabel={t('console.runs.prev')}
+          nextLabel={t('console.runs.next')}
+        />
       )}
 
       {tab === 'publish' && (

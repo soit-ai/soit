@@ -29,6 +29,7 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { relativeTime } from '../../adapters/palette'
+import { usePageCursor } from '../../adapters/use-page-cursor'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import {
@@ -72,11 +73,14 @@ export default function ConsoleApprovals() {
   const [filter, setFilter] = useState<'all' | 'mine'>('all')
   const [opened, setOpened] = useState<ApprovalResponse | null>(null)
 
+  const pendingCursor = usePageCursor()
   const pendingQuery = useQuery({
-    queryKey: ['console', 'approvals', 'pending'],
-    queryFn: () => listApprovals({ status: 'pending', page_size: PAGE_SIZE }),
+    queryKey: ['console', 'approvals', 'pending', pendingCursor.pageToken],
+    queryFn: () =>
+      listApprovals({ status: 'pending', page_token: pendingCursor.pageToken, page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
+  const nextPendingToken = pendingQuery.data?.next_page_token || null
   // The API filters by a single status, so the decided view merges the four
   // terminal states rather than asking for "everything that is not pending".
   const decidedQuery = useQuery({
@@ -346,7 +350,15 @@ export default function ConsoleApprovals() {
               )}
             </TableBody>
           </Table>
-          <Pager summary={t('console.approvals.pendingNote')} />
+          <Pager
+            summary={t('console.approvals.pendingNote')}
+            onPrev={pendingCursor.prev}
+            onNext={() => pendingCursor.next(nextPendingToken)}
+            prevDisabled={!pendingCursor.hasPrevious}
+            nextDisabled={!nextPendingToken}
+            prevLabel={t('console.runs.prev')}
+            nextLabel={t('console.runs.next')}
+          />
         </WorkbenchPanel>
       ) : (
         <WorkbenchPanel className="mt-3.5">

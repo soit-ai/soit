@@ -38,6 +38,7 @@ const translation = {
     exportForbidden: 'Exports take a workspace owner or admin: they take the ledger out of SOIT.',
     exportFailed: 'The export failed. Try a shorter window.',
     notAvailable: 'Not available in this version',
+    pageFilterNote: 'Filters and search apply to this page',
   },
   nav: {
     overview: 'Overview',
@@ -684,7 +685,6 @@ const translation = {
     tiles: { total: 'Events · 24h', accepted: 'Accepted → runs', deduped: 'Deduped / rate-limited', rejected: 'Rejected' },
     filters: { all: 'All', webhook: 'Webhook', schedule: 'Schedule', api: 'API', chat: 'Chat', rejectedOnly: 'Rejected only' },
     columns: { event: 'Event', source: 'Source', type: 'Type', target: 'Target', decision: 'Decision', run: 'Run', received: 'Received' },
-    pageSummary: '1–{{count}} of 892 · rejections are also written to the audit log',
     unresolved: 'unresolved',
   },
   approvals: {

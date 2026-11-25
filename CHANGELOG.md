@@ -144,6 +144,11 @@ record for operators.
 - A run or task page refreshes itself while the run or task is still going,
   polling from every 2 seconds back to every 15, and stops once it ends.
   Before, it kept the snapshot it opened with.
+- The audit log, pending approvals and the agent, workflow and knowledge
+  lists page past their first 50 entries. They showed the first page and
+  nothing beyond it; the audit log even reported how many entries matched
+  while showing only the first 50. Filters and search on the agent, workflow
+  and knowledge lists apply to the page shown.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are

@@ -29,6 +29,7 @@ import {
 import { SharedKnowledgePanel } from '../../components/shared-knowledge-panel'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { usePageCursor } from '../../adapters/use-page-cursor'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import {
@@ -85,9 +86,10 @@ export default function ConsoleKnowledge() {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
   const [busyLibraryId, setBusyLibraryId] = useState<string | null>(null)
 
+  const cursor = usePageCursor()
   const workbenchQuery = useQuery({
-    queryKey: ['console', 'knowledge', 'workbench'],
-    queryFn: () => getKnowledgeWorkbench({ page_size: PAGE_SIZE }),
+    queryKey: ['console', 'knowledge', 'workbench', cursor.pageToken],
+    queryFn: () => getKnowledgeWorkbench({ page_token: cursor.pageToken, page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
 
@@ -360,6 +362,19 @@ export default function ConsoleKnowledge() {
             </TableBody>
           </Table>
         </WorkbenchPanel>
+      )}
+
+      {tab === 'libraries' && (cursor.hasPrevious || workbenchQuery.data?.next_page_token) && (
+        <Pager
+          className="mt-3.5"
+          summary={t('console.common.pageFilterNote')}
+          onPrev={cursor.prev}
+          onNext={() => cursor.next(workbenchQuery.data?.next_page_token)}
+          prevDisabled={!cursor.hasPrevious}
+          nextDisabled={!workbenchQuery.data?.next_page_token}
+          prevLabel={t('console.runs.prev')}
+          nextLabel={t('console.runs.next')}
+        />
       )}
 
       {tab === 'shared' && <SharedKnowledgePanel />}

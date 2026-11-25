@@ -30,6 +30,7 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { usePageCursor } from '../../adapters/use-page-cursor'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
@@ -77,9 +78,12 @@ export default function ConsoleAgents() {
     visibility: 'private',
   })
 
+  // The workbench pages its agents; the summary tiles cover the whole
+  // workspace whichever page is shown.
+  const cursor = usePageCursor()
   const workbenchQuery = useQuery({
-    queryKey: ['console', 'agents', 'workbench'],
-    queryFn: () => getAgentWorkbench({ page_size: PAGE_SIZE }),
+    queryKey: ['console', 'agents', 'workbench', cursor.pageToken],
+    queryFn: () => getAgentWorkbench({ page_token: cursor.pageToken, page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
 
@@ -411,6 +415,20 @@ export default function ConsoleAgents() {
           </Table>
         </WorkbenchPanel>
       )}
+
+      {(tab === 'workbench' || tab === 'library') &&
+        (cursor.hasPrevious || workbenchQuery.data?.next_page_token) && (
+          <Pager
+            className="mt-3.5"
+            summary={t('console.common.pageFilterNote')}
+            onPrev={cursor.prev}
+            onNext={() => cursor.next(workbenchQuery.data?.next_page_token)}
+            prevDisabled={!cursor.hasPrevious}
+            nextDisabled={!workbenchQuery.data?.next_page_token}
+            prevLabel={t('console.runs.prev')}
+            nextLabel={t('console.runs.next')}
+          />
+        )}
 
       {tab === 'review' && (
         <WorkbenchPanel className="mt-3.5">

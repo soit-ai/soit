@@ -374,6 +374,55 @@ test('the audit explorer asks the ledger by actor, object and window', async ({
     .toBe(true)
 })
 
+test('the audit log pages through the ledger with the next-page token', async ({ page }) => {
+  const queries: string[] = []
+  const row = (id: string, actor: string) => ({
+    audit_id: id,
+    run_id: `run_${id}`,
+    step_id: `step_${id}`,
+    step_type: 'tool',
+    trace_id: `trace_${id}`,
+    outcome: 'allowed',
+    gateway_type: 'tool',
+    truncated: false,
+    preview: 'ok',
+    actor_user_id: actor,
+    operation: 'invoke',
+    resource_type: 'tool',
+    resource_id: `tool:${id}`,
+    created_at: NOW,
+    timestamp: NOW,
+  })
+
+  await page.route('**/api/v1/runs/audits**', (route) => {
+    const url = route.request().url()
+    queries.push(url)
+    const second = url.includes('page_token=tok_2')
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok({
+        items: [second ? row('aud_2', 'u_second') : row('aud_1', 'u_first')],
+        next_page_token: second ? null : 'tok_2',
+        page_size: 50,
+        total: 2,
+      }),
+    })
+  })
+
+  await page.goto('/govern/audit', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('tbody tr').filter({ hasText: 'u_first' })).toBeVisible()
+
+  const pager = page.locator('.pager').filter({ hasText: 'every entry carries' })
+  await pager.getByRole('button', { name: /Next/ }).click()
+  await expect(page.locator('tbody tr').filter({ hasText: 'u_second' })).toBeVisible()
+  expect(queries.some((url) => url.includes('page_token=tok_2'))).toBe(true)
+  await expect(pager.getByRole('button', { name: /Next/ })).toBeDisabled()
+
+  await pager.getByRole('button', { name: /Prev/ }).click()
+  await expect(page.locator('tbody tr').filter({ hasText: 'u_first' })).toBeVisible()
+})
+
 const budgetStatus = {
   budget: {
     id: 'bud_1',

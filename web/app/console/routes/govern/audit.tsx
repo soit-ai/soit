@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { toast } from 'sonner'
 
@@ -26,6 +26,7 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { relativeTime } from '../../adapters/palette'
+import { usePageCursor } from '../../adapters/use-page-cursor'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { listApprovals } from '@/services/observe-service'
@@ -110,11 +111,22 @@ export default function ConsoleAudit() {
 
   // Gateway audits derived from run steps — the platform's append-only record
   // of every governed call.
+  const cursor = usePageCursor()
+  const { reset: resetCursor } = cursor
+  // A page token belongs to the filters that produced it.
+  useEffect(() => resetCursor(), [filters, resetCursor])
   const auditsQuery = useQuery({
-    queryKey: ['console', 'audit', 'runs', filters],
-    queryFn: () => listRunAudits({ ...filters, page_size: PAGE_SIZE, with_total: true }),
+    queryKey: ['console', 'audit', 'runs', filters, cursor.pageToken],
+    queryFn: () =>
+      listRunAudits({
+        ...filters,
+        page_token: cursor.pageToken,
+        page_size: PAGE_SIZE,
+        with_total: true,
+      }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
+  const nextAuditToken = auditsQuery.data?.next_page_token || null
   // Policy configuration changes.
   const changesQuery = useQuery({
     queryKey: ['console', 'audit', 'changes'],
@@ -294,7 +306,15 @@ export default function ConsoleAudit() {
               )}
             </TableBody>
           </Table>
-          <Pager summary={t('console.audit.allNote')} />
+          <Pager
+            summary={t('console.audit.allNote')}
+            onPrev={cursor.prev}
+            onNext={() => cursor.next(nextAuditToken)}
+            prevDisabled={!cursor.hasPrevious}
+            nextDisabled={!nextAuditToken}
+            prevLabel={t('console.runs.prev')}
+            nextLabel={t('console.runs.next')}
+          />
         </WorkbenchPanel>
       )}
 
