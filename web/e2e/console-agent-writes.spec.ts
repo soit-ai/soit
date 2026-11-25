@@ -371,6 +371,33 @@ test('pausing from Settings flips the agent status', async ({ page }) => {
   expect(put).toEqual({ status: 'disabled' })
 })
 
+test('a write refreshes the navigation counts instead of waiting out their stale time', async ({
+  page,
+}) => {
+  // The rail's agent count reads the workbench with page_size=20.
+  let countReads = 0
+  await page.route('**/api/v1/agents/workbench?**', (route) => {
+    if (route.request().url().includes('page_size=20')) countReads += 1
+    return route.fulfill({ status: 200, contentType: 'application/json', body: ok(agentWorkbench) })
+  })
+  await page.route('**/api/v1/agents/ag_1', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok(route.request().method() === 'PUT' ? { ...agent, status: 'disabled' } : agent),
+    }),
+  )
+
+  await page.goto('/build/agents/ag_1', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => countReads).toBeGreaterThan(0)
+  const before = countReads
+
+  await page.locator('.tabs button', { hasText: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Pause agent' }).click()
+
+  await expect.poll(() => countReads).toBeGreaterThan(before)
+})
+
 test('archiving from Settings deletes the agent and returns to the list', async ({ page }) => {
   let deleted = false
   await page.route('**/api/v1/agents/ag_1', (route) => {

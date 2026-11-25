@@ -153,6 +153,8 @@ record for operators.
   in Settings → Appearance used to change little beyond a few legacy screens,
   because the console's copy had no Chinese version. Stat tile subtitles that
   were written into the pages in English are translated as well.
+- The navigation counts and the context panel refresh after any change made
+  in the console, instead of up to a minute later.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are
