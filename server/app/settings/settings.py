@@ -730,6 +730,14 @@ class Settings(BaseSettings):
     lists none, and MCP clients authenticate with SOIT API keys.
     """
 
+    cors_allowed_origins: list[str] = ["*"]
+    """Browser origins that may call the API from another origin. ``*``, the
+    default, allows any origin but without credentials: SOIT authenticates
+    with an ``Authorization`` header, which needs none, and the console is
+    served on the API's own origin. Naming origins lets those origins send
+    credentials as well. Use ``[]`` to refuse every cross-origin browser call.
+    """
+
     mcp_allowed_origins: list[str] = []
     """Browser origins, besides the endpoint's own, that may call the MCP
     endpoint. Clients that are not browsers send no Origin and are unaffected.

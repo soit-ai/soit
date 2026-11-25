@@ -9,6 +9,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -430,15 +431,23 @@ app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(ResponseEnvelopeMiddleware)
 app.add_middleware(RequestIdMiddleware)
 
-# Configure CORS
-cors_origins = getattr(app_settings, "CORS_ORIGINS", ["*"])
-if isinstance(cors_origins, str):
-    cors_origins = [cors_origins]
+def cors_origin_options(origins: list[str]) -> dict[str, Any]:
+    """CORS origin options for ``CORS_ALLOWED_ORIGINS``.
+
+    A wildcard never comes with credentials. Starlette answers ``*`` with
+    credentials by echoing whatever Origin asked, which would let any site
+    make credentialed calls; this used to be the only behavior, because the
+    setting it read did not exist.
+    """
+    cleaned = [origin.strip().rstrip("/") for origin in origins if origin.strip()]
+    if "*" in cleaned:
+        return {"allow_origins": ["*"], "allow_credentials": False}
+    return {"allow_origins": cleaned, "allow_credentials": bool(cleaned)}
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
+    **cors_origin_options(app_settings.cors_allowed_origins),
     allow_methods=["*"],
     allow_headers=["*"],
     # A browser only reads the headers named here from a cross-origin

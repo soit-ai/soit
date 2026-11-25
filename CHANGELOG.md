@@ -167,6 +167,11 @@ record for operators.
   the whole body into memory. A tool pointed at a very large or endless
   response, for example by a prompt-injected URL, could exhaust the API or
   worker process.
+- CORS is configurable with `CORS_ALLOWED_ORIGINS`. The API read a setting
+  that did not exist, so every origin was allowed with credentials and
+  Starlette echoed back whatever Origin asked. The default `["*"]` now
+  allows any origin without credentials, which the console and API clients
+  do not use; naming origins restricts cross-origin calls to them.
 
 ## [1.8.0] - 2026-11-14
 
