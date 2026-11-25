@@ -449,8 +449,9 @@ export function KnowledgeSourcesPanel({ knowledgeId }: { knowledgeId: string }) 
         {form && (
           <>
             <div className="mrow">
-              <label>{t('console.knowDetail.sources.fields.name')}</label>
+              <label htmlFor="knowledge-sources-panel-field-1">{t('console.knowDetail.sources.fields.name')}</label>
               <input
+                id="knowledge-sources-panel-field-1"
                 className="input"
                 aria-label={t('console.knowDetail.sources.fields.name')}
                 value={form.name}
@@ -571,11 +572,12 @@ export function KnowledgeSourcesPanel({ knowledgeId }: { knowledgeId: string }) 
             </div>
             {form.preset !== 'manual' && (
               <div className="mrow">
-                <label>
+                <label htmlFor="knowledge-sources-panel-field-2">
                   {t('console.knowDetail.sources.fields.timezone')}
                   <small>{t('console.knowDetail.sources.fields.timezoneHint')}</small>
                 </label>
                 <input
+                  id="knowledge-sources-panel-field-2"
                   className="input"
                   aria-label={t('console.knowDetail.sources.fields.timezone')}
                   value={form.timezone}
@@ -642,7 +644,7 @@ export function KnowledgeSourcesPanel({ knowledgeId }: { knowledgeId: string }) 
             </div>
 
             <div className="mrow">
-              <label />
+              <span />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <ConsoleButton
                   style={{ alignSelf: 'flex-start' }}

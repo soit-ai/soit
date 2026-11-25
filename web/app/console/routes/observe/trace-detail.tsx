@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { downloadTraceOtlp } from '@/services/ledger-service'
 import { listRunSteps, listRunsByTrace, type RunStepResponse } from '@/services/run-service'
 import { requestErrorMessage } from '@/utils/request'
+import { pressable } from '@/lib/pressable'
 
 const STEP_PAGE_SIZE = 400
 
@@ -368,7 +369,8 @@ export default function ConsoleTraceDetail() {
               <li
                 key={span.id}
                 className={cn(span.id === selected && 'sel')}
-                onClick={() => setSelectedSpanId(span.id)}
+                aria-current={span.id === selected ? 'true' : undefined}
+                {...pressable(() => setSelectedSpanId(span.id))}
               >
                 <span
                   className={cn('sname', span.child && 'child')}

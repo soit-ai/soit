@@ -587,10 +587,8 @@ test('a deployment with no mail outlet still adds an existing account by id', as
 }) => {
   await json(page, '**/api/v1/auth/capabilities', { mail_enabled: false })
 
-  let added: unknown = null
   await page.route('**/api/v1/workspaces/workspace-1/members', async (route) => {
     if (route.request().method() !== 'POST') return route.fallback()
-    added = JSON.parse(route.request().postData() || '{}')
     return route.fulfill({
       status: 200,
       contentType: 'application/json',

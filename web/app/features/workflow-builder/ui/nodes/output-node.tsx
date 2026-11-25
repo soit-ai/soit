@@ -1,5 +1,5 @@
 import React, { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, type NodeProps } from '@xyflow/react'
 import { BotMessageSquare } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'

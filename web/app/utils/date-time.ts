@@ -1,5 +1,5 @@
-import { format, formatInTimeZone, toZonedTime } from 'date-fns-tz'
-import { format as formatDate, isToday, isYesterday, subDays, differenceInDays, parse } from 'date-fns'
+import { formatInTimeZone, toZonedTime } from 'date-fns-tz'
+import { isToday, isYesterday, differenceInDays, parse } from 'date-fns'
 
 // Get user's timezone
 export const getUserTimeZone = (): string => {

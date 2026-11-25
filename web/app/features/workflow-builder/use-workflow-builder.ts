@@ -87,7 +87,7 @@ export function useWorkflowBuilder({ workflowId: id, navigation }: UseWorkflowBu
   const [invalidDraftNodeIds, setInvalidDraftNodeIds] = useState<Set<string>>(() => new Set())
 
   // History state.
-  const [history, setHistory] = useState<{ nodes: Node[][], edges: Edge[][], currentIndex: number }>({
+  const [, setHistory] = useState<{ nodes: Node[][], edges: Edge[][], currentIndex: number }>({
     nodes: [],
     edges: [],
     currentIndex: -1,

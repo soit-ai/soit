@@ -284,8 +284,9 @@ export default function ConsoleChat() {
         onConfirm={() => createThreadMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.chat.threadName')}</label>
+          <label htmlFor="chat-field-1">{t('console.chat.threadName')}</label>
           <input
+            id="chat-field-1"
             className="input"
             value={newThread.title}
             onChange={(event) =>
@@ -294,8 +295,9 @@ export default function ConsoleChat() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.chat.threadAgent')}</label>
+          <label htmlFor="chat-field-2">{t('console.chat.threadAgent')}</label>
           <input
+            id="chat-field-2"
             className="input"
             placeholder={agentLabel}
             value={newThread.agent}
@@ -317,8 +319,9 @@ export default function ConsoleChat() {
         onConfirm={() => renameMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.chat.threadName')}</label>
+          <label htmlFor="chat-field-3">{t('console.chat.threadName')}</label>
           <input
+            id="chat-field-3"
             className="input"
             value={renameValue}
             onChange={(event) => setRenameValue(event.target.value)}

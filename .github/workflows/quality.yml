@@ -390,6 +390,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       - name: Design-system tests
         run: npm test
 

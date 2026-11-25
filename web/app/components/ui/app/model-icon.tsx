@@ -85,7 +85,7 @@ function FallbackProviderIcon({
 export const ModelIcon = (props: ModelIconProps): ReactElement => {
   const { name, type, className, size, shape } = props
   const [ProviderIcon, setProviderIcon] = useState<ProviderIconComponent | null>(null)
-  let _name = name
+  const _name = name
 
   useEffect(() => {
     let active = true

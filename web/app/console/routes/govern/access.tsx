@@ -494,11 +494,12 @@ export default function ConsoleAccess() {
         onConfirm={() => grantMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="access-field-1">
             {t('console.access.fields.person')}
             <small>{t('console.access.fields.personHint')}</small>
           </label>
           <select
+            id="access-field-1"
             className="input"
             value={effectiveUserId}
             onChange={(event) => setForm((state) => ({ ...state, user_id: event.target.value }))}
@@ -531,8 +532,9 @@ export default function ConsoleAccess() {
           </div>
         </div>
         <div className="mrow">
-          <label>{t('console.access.fields.resource')}</label>
+          <label htmlFor="access-field-2">{t('console.access.fields.resource')}</label>
           <select
+            id="access-field-2"
             className="input"
             value={effectiveResourceId}
             onChange={(event) => setForm((state) => ({ ...state, resource_id: event.target.value }))}

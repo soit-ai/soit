@@ -9,6 +9,7 @@ import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { createTicketTriageWorkflow, createWorkflow } from '@/services/workflow-service'
 import { requestErrorMessage } from '@/utils/request'
+import { pressable } from '@/lib/pressable'
 
 const TEMPLATES = [
   { id: 'blank', name: 'Blank canvas', description: 'Start from an empty graph. Input and output nodes are placed for you.', nodes: 2, colors: ['var(--cat-amber)', 'var(--cat-teal)'] },
@@ -52,8 +53,9 @@ export default function ConsoleWorkflowNew() {
 
       <div className="panel" style={{ marginBottom: 12 }}>
         <div className="frow">
-          <label>{t('console.wfNew.name')}</label>
+          <label htmlFor="workflow-new-field-1">{t('console.wfNew.name')}</label>
           <input
+            id="workflow-new-field-1"
             className="input"
             placeholder="my-workflow"
             value={name}
@@ -61,8 +63,9 @@ export default function ConsoleWorkflowNew() {
           />
         </div>
         <div className="frow">
-          <label>{t('console.wfNew.description')}</label>
+          <label htmlFor="workflow-new-field-2">{t('console.wfNew.description')}</label>
           <input
+            id="workflow-new-field-2"
             className="input"
             placeholder="What this workflow does"
             value={description}
@@ -76,7 +79,8 @@ export default function ConsoleWorkflowNew() {
           <div
             key={template.id}
             className={cn('acard tplcard', selected === template.id && 'sel')}
-            onClick={() => setSelected(template.id)}
+            aria-pressed={selected === template.id}
+            {...pressable(() => setSelected(template.id))}
           >
             <b style={{ fontWeight: 600 }}>{template.name}</b>
             <p>{template.description}</p>

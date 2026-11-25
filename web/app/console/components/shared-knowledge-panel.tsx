@@ -116,8 +116,9 @@ export function SharedKnowledgePanel() {
         onConfirm={() => queryMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.knowledge.shared.question')}</label>
+          <label htmlFor="shared-knowledge-panel-field-1">{t('console.knowledge.shared.question')}</label>
           <input
+            id="shared-knowledge-panel-field-1"
             className="input"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}

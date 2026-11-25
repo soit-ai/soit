@@ -79,7 +79,8 @@ export default function NotificationsPage() {
     async ({ append }: { append: boolean }) => {
       if (append && !nextPageToken) return
       try {
-        append ? setLoadingMore(true) : setLoading(true)
+        if (append) setLoadingMore(true)
+        else setLoading(true)
         const response = await listNotifications({
           ...requestParams,
           page_token: append ? nextPageToken || undefined : undefined,

@@ -638,8 +638,9 @@ export default function ConsoleModels() {
         }
       >
         <div className="mrow">
-          <label>{t('console.models.providerFields.name')}</label>
+          <label htmlFor="models-field-1">{t('console.models.providerFields.name')}</label>
           <input
+            id="models-field-1"
             className="input"
             value={providerForm.name}
             onChange={(event) =>
@@ -681,8 +682,9 @@ export default function ConsoleModels() {
           )}
         </div>
         <div className="mrow">
-          <label>{t('console.models.providerFields.adapter')}</label>
+          <label htmlFor="models-field-2">{t('console.models.providerFields.adapter')}</label>
           <select
+            id="models-field-2"
             className="input"
             value={providerForm.adapterBackend}
             onChange={(event) =>
@@ -697,7 +699,7 @@ export default function ConsoleModels() {
           </select>
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="models-field-3">
             {t('console.models.providerFields.baseUrl')}
             <small>
               {providerForm.kind.trim() === 'ollama'
@@ -706,6 +708,7 @@ export default function ConsoleModels() {
             </small>
           </label>
           <input
+            id="models-field-3"
             className="input"
             value={providerForm.baseUrl}
             onChange={(event) =>
@@ -715,11 +718,12 @@ export default function ConsoleModels() {
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="models-field-4">
             {t('console.models.providerFields.credential')}
             <small>{t('console.models.providerFields.credentialHint')}</small>
           </label>
           <input
+            id="models-field-4"
             className="input"
             value={providerForm.credentialSecretId}
             onChange={(event) =>
@@ -755,8 +759,9 @@ export default function ConsoleModels() {
         onConfirm={() => createModelMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.models.modelFields.provider')}</label>
+          <label htmlFor="models-field-5">{t('console.models.modelFields.provider')}</label>
           <select
+            id="models-field-5"
             className="input"
             value={modelForm.providerId}
             onChange={(event) =>
@@ -772,11 +777,12 @@ export default function ConsoleModels() {
           </select>
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="models-field-6">
             {t('console.models.modelFields.modelId')}
             <small>{t('console.models.modelFields.modelIdHint')}</small>
           </label>
           <input
+            id="models-field-6"
             className="input"
             value={modelForm.modelId}
             onChange={(event) =>
@@ -786,8 +792,9 @@ export default function ConsoleModels() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.models.modelFields.displayName')}</label>
+          <label htmlFor="models-field-7">{t('console.models.modelFields.displayName')}</label>
           <input
+            id="models-field-7"
             className="input"
             value={modelForm.displayName}
             onChange={(event) =>
@@ -796,8 +803,9 @@ export default function ConsoleModels() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.models.modelFields.context')}</label>
+          <label htmlFor="models-field-8">{t('console.models.modelFields.context')}</label>
           <input
+            id="models-field-8"
             className="input"
             value={modelForm.contextWindow}
             onChange={(event) =>
@@ -817,10 +825,11 @@ export default function ConsoleModels() {
         onConfirm={() => updateModelMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.models.modelFields.modelId')}</label>
+          <label htmlFor="models-field-9">{t('console.models.modelFields.modelId')}</label>
           {/* The provider's own id for the model is the record key — it is not
               patchable, so it is shown read-only. */}
           <input
+            id="models-field-9"
             className="input"
             value={modelForm.modelId}
             disabled
@@ -828,8 +837,9 @@ export default function ConsoleModels() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.models.modelFields.displayName')}</label>
+          <label htmlFor="models-field-10">{t('console.models.modelFields.displayName')}</label>
           <input
+            id="models-field-10"
             className="input"
             value={modelForm.displayName}
             onChange={(event) =>
@@ -838,8 +848,9 @@ export default function ConsoleModels() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.models.modelFields.description')}</label>
+          <label htmlFor="models-field-11">{t('console.models.modelFields.description')}</label>
           <input
+            id="models-field-11"
             className="input"
             value={modelForm.description}
             onChange={(event) =>
@@ -848,8 +859,9 @@ export default function ConsoleModels() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.models.modelFields.context')}</label>
+          <label htmlFor="models-field-12">{t('console.models.modelFields.context')}</label>
           <input
+            id="models-field-12"
             className="input"
             value={modelForm.contextWindow}
             onChange={(event) =>
@@ -858,8 +870,9 @@ export default function ConsoleModels() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.models.modelFields.maxOutput')}</label>
+          <label htmlFor="models-field-13">{t('console.models.modelFields.maxOutput')}</label>
           <input
+            id="models-field-13"
             className="input"
             value={modelForm.maxOutputTokens}
             onChange={(event) =>

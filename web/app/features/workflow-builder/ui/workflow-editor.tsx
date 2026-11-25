@@ -1,7 +1,6 @@
-import React, { forwardRef, useCallback, useState } from 'react'
+import React, { forwardRef, useState } from 'react'
 import { ReactFlow, Background, Controls, MiniMap, Panel, useReactFlow } from '@xyflow/react'
 import type { Node, Edge, Connection, ReactFlowInstance } from '@xyflow/react'
-import { useLayoutStore, type LayoutDirection } from './layout-store'
 import dagre from '@dagrejs/dagre'
 import { Play, Trash2, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -122,8 +121,6 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
       onSave,
       onExport,
       onImport,
-      onNodesSet,
-      onEdgesSet,
       leftPanel,
       rightPanel,
       workflowId = '',
@@ -134,7 +131,6 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
     const { t } = useTranslation()
     const { fitView, zoomIn, zoomOut } = useReactFlow()
     const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
-    const { setDirection } = useLayoutStore()
     const [showCallConfigPanel, setShowCallConfigPanel] = useState(false)
     const resolvedWorkflowName = workflowName || t('workflow.build.defaultName')
 
@@ -156,29 +152,6 @@ const WorkflowEditor = forwardRef<HTMLDivElement, WorkflowEditorProps>(
     const handleResetView = () => {
       fitView(FIT_VIEW_OPTIONS)
     }
-
-    const handleLayoutChange = useCallback(
-      (direction: LayoutDirection) => {
-        if (!reactFlowInstance) return
-
-        setDirection(direction)
-
-        const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(reactFlowInstance.getNodes(), reactFlowInstance.getEdges(), direction)
-
-        if (onNodesSet) {
-          onNodesSet(layoutedNodes)
-        }
-
-        if (onEdgesSet) {
-          onEdgesSet(layoutedEdges)
-        }
-
-        window.requestAnimationFrame(() => {
-          fitView(FIT_VIEW_OPTIONS)
-        })
-      },
-      [reactFlowInstance, setDirection, onNodesSet, onEdgesSet, fitView]
-    )
 
     const handleShowCallConfig = () => {
       setShowCallConfigPanel(true)

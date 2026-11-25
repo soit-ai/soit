@@ -88,8 +88,9 @@ export default function ConsoleKnowledgeNew() {
               <span className="hint">{t('console.knowNew.step1Hint')}</span>
             </div>
             <div className="frow">
-              <label>{t('console.knowNew.fields.name')}</label>
+              <label htmlFor="knowledge-new-field-1">{t('console.knowNew.fields.name')}</label>
               <input
+                id="knowledge-new-field-1"
                 className="input"
                 placeholder="product-docs"
                 value={name}
@@ -107,11 +108,12 @@ export default function ConsoleKnowledgeNew() {
               </div>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="knowledge-new-field-2">
                 {t('console.knowNew.fields.startUrl')}
                 <small>{t('console.knowNew.fields.startUrlHint')}</small>
               </label>
               <input
+                id="knowledge-new-field-2"
                 className="input"
                 placeholder="https://docs.acme.io"
                 style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5 }}
@@ -120,8 +122,9 @@ export default function ConsoleKnowledgeNew() {
               />
             </div>
             <div className="frow">
-              <label>{t('console.knowNew.fields.depth')}</label>
+              <label htmlFor="knowledge-new-field-3">{t('console.knowNew.fields.depth')}</label>
               <select
+                id="knowledge-new-field-3"
                 className="input"
                 style={{ maxWidth: 140 }}
                 value={depth}
@@ -133,11 +136,12 @@ export default function ConsoleKnowledgeNew() {
               </select>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="knowledge-new-field-4">
                 {t('console.knowNew.fields.include')}
                 <small>{t('console.knowNew.fields.includeHint')}</small>
               </label>
               <textarea
+                id="knowledge-new-field-4"
                 className="input"
                 value={patterns}
                 onChange={(event) => setPatterns(event.target.value)}
@@ -152,8 +156,9 @@ export default function ConsoleKnowledgeNew() {
               <span className="hint">{t('console.knowNew.step2Hint')}</span>
             </div>
             <div className="frow">
-              <label>{t('console.knowNew.fields.chunking')}</label>
+              <label htmlFor="knowledge-new-field-5">{t('console.knowNew.fields.chunking')}</label>
               <select
+                id="knowledge-new-field-5"
                 className="input"
                 value={chunking}
                 onChange={(event) => setChunking(event.target.value as ChunkingPreset)}
@@ -166,11 +171,12 @@ export default function ConsoleKnowledgeNew() {
               </select>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="knowledge-new-field-6">
                 {t('console.knowNew.fields.embedding')}
                 <small>{t('console.knowNew.fields.embeddingHint')}</small>
               </label>
               <select
+                id="knowledge-new-field-6"
                 className="input"
                 value={embedding}
                 onChange={(event) => setEmbedding(event.target.value)}
@@ -184,11 +190,12 @@ export default function ConsoleKnowledgeNew() {
               </select>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="knowledge-new-field-7">
                 {t('console.knowNew.fields.rerank')}
                 <small>{t('console.knowNew.fields.rerankHint')}</small>
               </label>
               <select
+                id="knowledge-new-field-7"
                 className="input"
                 style={{ maxWidth: 200 }}
                 value={rerank ? 'on' : 'off'}
@@ -227,8 +234,9 @@ export default function ConsoleKnowledgeNew() {
               </div>
             </div>
             <div className="frow">
-              <label>{t('console.knowNew.fields.visibility')}</label>
+              <label htmlFor="knowledge-new-field-8">{t('console.knowNew.fields.visibility')}</label>
               <select
+                id="knowledge-new-field-8"
                 className="input"
                 style={{ maxWidth: 320 }}
                 value={visibility}

@@ -806,7 +806,7 @@ const translation = {
       },
       rebuildDialog: {
         title: 'Rebuild Index',
-        description: 'Rebuild \"{{name}}\" now? Search quality may be unstable during rebuild.',
+        description: 'Rebuild "{{name}}" now? Search quality may be unstable during rebuild.',
         cancel: 'Cancel',
         confirm: 'Confirm Rebuild',
       },

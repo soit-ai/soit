@@ -175,16 +175,18 @@ export function VirtualModelsPanel({ options }: { options: VirtualModelTargetOpt
         </div>
       </div>
       <div className="mrow">
-        <label>{t('console.virtualModels.fields.name')}</label>
+        <label htmlFor="virtual-models-panel-field-1">{t('console.virtualModels.fields.name')}</label>
         <input
+          id="virtual-models-panel-field-1"
           className="input"
           value={form.name}
           onChange={(event) => setForm((state) => ({ ...state, name: event.target.value }))}
         />
       </div>
       <div className="mrow">
-        <label>{t('console.virtualModels.fields.description')}</label>
+        <label htmlFor="virtual-models-panel-field-2">{t('console.virtualModels.fields.description')}</label>
         <input
+          id="virtual-models-panel-field-2"
           className="input"
           value={form.description}
           onChange={(event) => setForm((state) => ({ ...state, description: event.target.value }))}

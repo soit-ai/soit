@@ -247,7 +247,7 @@ export function ApprovalModal({
       </div>
       {canDecide && approval.can_approve === false && (
         <div className="mrow">
-          <label />
+          <span />
           <span className="dimmer">{t('console.approvals.modal.noSelfApproval')}</span>
         </div>
       )}
@@ -284,7 +284,7 @@ export function ApprovalModal({
       )}
       {canCancel && (
         <div className="mrow">
-          <label />
+          <span />
           <div>
             <ConsoleButton
               variant="ghost"

@@ -451,11 +451,12 @@ export default function ConsolePlugins() {
         onConfirm={() => uploadMutation.mutate('auto')}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="plugins-field-1">
             {t('console.plugins.uploadFields.package')}
             <small>{t('console.plugins.uploadFields.packageHint')}</small>
           </label>
           <input
+            id="plugins-field-1"
             className="input"
             type="file"
             accept=".zip,application/zip"

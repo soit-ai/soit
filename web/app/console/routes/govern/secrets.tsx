@@ -359,11 +359,12 @@ export default function ConsoleSecrets() {
         onConfirm={() => createMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="secrets-field-1">
             {t('console.secrets.fields.name')}
             <small>{t('console.secrets.fields.nameHint')}</small>
           </label>
           <input
+            id="secrets-field-1"
             className="input"
             value={form.name}
             onChange={(event) => setForm((state) => ({ ...state, name: event.target.value }))}
@@ -371,8 +372,9 @@ export default function ConsoleSecrets() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.secrets.fields.description')}</label>
+          <label htmlFor="secrets-field-2">{t('console.secrets.fields.description')}</label>
           <input
+            id="secrets-field-2"
             className="input"
             value={form.description}
             onChange={(event) =>
@@ -381,11 +383,12 @@ export default function ConsoleSecrets() {
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="secrets-field-3">
             {t('console.secrets.fields.value')}
             <small>{t('console.secrets.fields.valueHint')}</small>
           </label>
           <textarea
+            id="secrets-field-3"
             className="input"
             value={form.value}
             onChange={(event) => setForm((state) => ({ ...state, value: event.target.value }))}
@@ -403,8 +406,9 @@ export default function ConsoleSecrets() {
         onConfirm={() => rotateMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.secrets.fields.name')}</label>
+          <label htmlFor="secrets-field-4">{t('console.secrets.fields.name')}</label>
           <input
+            id="secrets-field-4"
             className="input"
             value={`vault:${rotating?.name ?? ''}`}
             disabled
@@ -412,8 +416,9 @@ export default function ConsoleSecrets() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.secrets.fields.description')}</label>
+          <label htmlFor="secrets-field-5">{t('console.secrets.fields.description')}</label>
           <input
+            id="secrets-field-5"
             className="input"
             value={form.description}
             onChange={(event) =>
@@ -422,11 +427,12 @@ export default function ConsoleSecrets() {
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="secrets-field-6">
             {t('console.secrets.fields.value')}
             <small>{t('console.secrets.fields.valueRotateHint')}</small>
           </label>
           <textarea
+            id="secrets-field-6"
             className="input"
             value={form.value}
             onChange={(event) => setForm((state) => ({ ...state, value: event.target.value }))}

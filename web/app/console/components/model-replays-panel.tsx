@@ -316,11 +316,12 @@ export function ModelReplaysPanel({ options }: { options: VirtualModelTargetOpti
         onConfirm={() => createMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="model-replays-panel-field-1">
             {t('console.modelReplays.fields.model')}
             <small>{t('console.modelReplays.fields.modelHint')}</small>
           </label>
           <input
+            id="model-replays-panel-field-1"
             className="input"
             list="model-replay-options"
             value={form.modelRef}
@@ -337,11 +338,12 @@ export function ModelReplaysPanel({ options }: { options: VirtualModelTargetOpti
           </datalist>
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="model-replays-panel-field-2">
             {t('console.modelReplays.fields.dataset')}
             <small>{t('console.modelReplays.fields.datasetHint')}</small>
           </label>
           <input
+            id="model-replays-panel-field-2"
             className="input"
             value={form.dataset}
             placeholder={t('console.modelReplays.fields.datasetAll')}
@@ -349,11 +351,12 @@ export function ModelReplaysPanel({ options }: { options: VirtualModelTargetOpti
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="model-replays-panel-field-3">
             {t('console.modelReplays.fields.maxCases')}
             <small>{t('console.modelReplays.fields.maxCasesHint')}</small>
           </label>
           <input
+            id="model-replays-panel-field-3"
             className="input"
             inputMode="numeric"
             value={form.maxCases}

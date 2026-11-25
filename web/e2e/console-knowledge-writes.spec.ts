@@ -257,7 +257,8 @@ test('adding documents uploads each file as multipart', async ({ page }) => {
   await page.getByRole('button', { name: 'Add documents' }).click()
 
   await expect(page.getByRole('heading', { name: 'Add documents' })).toBeVisible()
-  const confirm = page.locator('.console-modal').getByRole('button', { name: 'Upload' })
+  // Exact: the labelled file input is a button too, and its hint says "upload".
+  const confirm = page.locator('.console-modal').getByRole('button', { name: 'Upload', exact: true })
   // Upload stays disabled until a file is picked.
   await expect(confirm).toBeDisabled()
 

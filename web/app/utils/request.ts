@@ -79,7 +79,8 @@ function unwrapApiEnvelope<T>(payload: ApiEnvelope<T> | null | undefined | ''): 
 }
 // Add request interceptors
 request.interceptors.request.use(
-  // @ts-ignore
+  // @ts-expect-error -- the handler returns AxiosRequestConfig, which axios's
+  // interceptor type narrows to its internal config.
   function (config) {
     const headers = buildAuthHeaders({
       'Content-Type': ContentType.json,
@@ -90,8 +91,8 @@ request.interceptors.request.use(
   },
   function (error) {
     debugLog('Request ErrorHandler error:', error)
-    let _key = uuidv4()
-    let msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
+    const _key = uuidv4()
+    const msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
     toast.error(msg, { id: _key, richColors: true, closeButton: true, position: 'top-center' })
     return Promise.reject(error)
   }
@@ -116,7 +117,7 @@ request.interceptors.response.use(
     const msg = resolveResponseError(response?.data)
     if (msg) {
       let _key = uuidv4()
-      isUnauthorizedError(response?.data?.code, response?.status) && (_key = 'nologin_notice')
+      if (isUnauthorizedError(response?.data?.code, response?.status)) _key = 'nologin_notice'
       debugLog('response.use msg', msg, _key)
       const suppressErrorToast = Boolean((response?.config as RequestConfigWithToast | undefined)?.suppressErrorToast)
       if (!suppressErrorToast) {
@@ -131,8 +132,8 @@ request.interceptors.response.use(
     const retried = await retryWithRefreshedToken(error)
     if (retried) return retried
     let _key = uuidv4()
-    let msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
-    isUnauthorizedError(error?.response?.data?.code, error?.response?.status) && (_key = 'nologin_notice')
+    const msg = error?.response?.data?.message || error?.message || 'Response ErrorHandler Error'
+    if (isUnauthorizedError(error?.response?.data?.code, error?.response?.status)) _key = 'nologin_notice'
     debugLog('Response ErrorHandler resolved message:', msg, _key)
     const suppressErrorToast = Boolean((error?.config as RequestConfigWithToast | undefined)?.suppressErrorToast)
     if (!suppressErrorToast) {

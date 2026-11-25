@@ -101,6 +101,7 @@ Frontend checks from `web/`:
 
 ```powershell
 npm run typecheck
+npm run lint
 npm run build
 npm run test:e2e
 ```

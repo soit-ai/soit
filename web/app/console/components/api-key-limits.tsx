@@ -96,11 +96,12 @@ export function ApiKeyLimitFields({
     hint: string,
   ) => (
     <div className="mrow">
-      <label>
+      <label htmlFor="api-key-limits-field-1">
         {label}
         <small>{hint}</small>
       </label>
       <input
+        id="api-key-limits-field-1"
         className="input"
         inputMode="numeric"
         value={draft[field]}
@@ -130,11 +131,12 @@ export function ApiKeyLimitFields({
         t('console.settings.apiPane.limits.dailyTokensHint'),
       )}
       <div className="mrow">
-        <label>
+        <label htmlFor="api-key-limits-field-2">
           {t('console.settings.apiPane.limits.ipAllowlist')}
           <small>{t('console.settings.apiPane.limits.ipAllowlistHint')}</small>
         </label>
         <textarea
+          id="api-key-limits-field-2"
           className="input"
           value={draft.ipAllowlist}
           placeholder={'203.0.113.7\n198.51.100.0/24'}
@@ -142,11 +144,12 @@ export function ApiKeyLimitFields({
         />
       </div>
       <div className="mrow">
-        <label>
+        <label htmlFor="api-key-limits-field-3">
           {t('console.settings.apiPane.limits.allowedModels')}
           <small>{t('console.settings.apiPane.limits.allowedModelsHint')}</small>
         </label>
         <textarea
+          id="api-key-limits-field-3"
           className="input"
           value={draft.allowedModels}
           placeholder={'model:openai:gpt-5.5\nvmodel:support'}
@@ -154,11 +157,12 @@ export function ApiKeyLimitFields({
         />
       </div>
       <div className="mrow">
-        <label>
+        <label htmlFor="api-key-limits-field-4">
           {t('console.settings.apiPane.limits.allowedTools')}
           <small>{t('console.settings.apiPane.limits.allowedToolsHint')}</small>
         </label>
         <textarea
+          id="api-key-limits-field-4"
           className="input"
           value={draft.allowedTools}
           placeholder={'tool:function:time_now\nmcp_tool:github:create_issue'}
@@ -166,11 +170,12 @@ export function ApiKeyLimitFields({
         />
       </div>
       <div className="mrow">
-        <label>
+        <label htmlFor="api-key-limits-field-5">
           {t('console.settings.apiPane.limits.content')}
           <small>{t('console.settings.apiPane.limits.contentHint')}</small>
         </label>
         <select
+          id="api-key-limits-field-5"
           className="input"
           value={draft.metadataOnly ? 'metadata_only' : 'workspace'}
           onChange={(event) => set({ metadataOnly: event.target.value === 'metadata_only' })}

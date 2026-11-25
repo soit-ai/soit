@@ -45,6 +45,7 @@ import {
   type AgentWorkbenchRow,
 } from '@/services/agent-service'
 import { requestErrorMessage } from '@/utils/request'
+import { pressable } from '@/lib/pressable'
 
 /** The four values `AgentCreate.visibility` accepts server-side. */
 const VISIBILITY_LABELS = {
@@ -315,7 +316,7 @@ export default function ConsoleAgents() {
                   <span>
                     <b
                       className="cursor-pointer"
-                      onClick={() => navigate(`/build/agents/${card.id}`)}
+                      {...pressable(() => navigate(`/build/agents/${card.id}`))}
                     >
                       {card.name}
                     </b>
@@ -589,19 +590,21 @@ export default function ConsoleAgents() {
         onConfirm={() => createMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="agents-field-1">
             {t('console.agents.fields.name')}
             <small>{t('console.agents.fields.nameHint')}</small>
           </label>
           <input
+            id="agents-field-1"
             className="input"
             value={form.name}
             onChange={(event) => setForm((state) => ({ ...state, name: event.target.value }))}
           />
         </div>
         <div className="mrow">
-          <label>{t('console.agents.fields.description')}</label>
+          <label htmlFor="agents-field-2">{t('console.agents.fields.description')}</label>
           <input
+            id="agents-field-2"
             className="input"
             value={form.description}
             onChange={(event) =>
@@ -610,11 +613,12 @@ export default function ConsoleAgents() {
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="agents-field-3">
             {t('console.agents.fields.visibility')}
             <small>{t('console.agents.fields.visibilityHint')}</small>
           </label>
           <select
+            id="agents-field-3"
             className="input"
             value={form.visibility}
             onChange={(event) =>

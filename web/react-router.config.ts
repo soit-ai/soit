@@ -5,9 +5,6 @@ export default {
   appDirectory: "app",
   basename: "/",
   buildDirectory: "build",
-  buildEnd: async ({ buildManifest }) => {
-    // Custom build end logic...
-  },
   // Server-side render by default, to enable SPA mode set this to `false`
   ssr: false,
 } satisfies Config;

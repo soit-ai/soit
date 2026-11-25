@@ -1191,8 +1191,9 @@ export default function ConsoleKnowledgeDetail() {
           }
         >
           <div className="frow">
-            <label>{t('console.knowDetail.fields.name')}</label>
+            <label htmlFor="knowledge-detail-field-1">{t('console.knowDetail.fields.name')}</label>
             <input
+              id="knowledge-detail-field-1"
               className="input"
               value={settingsForm.name}
               onChange={(event) =>
@@ -1201,11 +1202,12 @@ export default function ConsoleKnowledgeDetail() {
             />
           </div>
           <div className="frow">
-            <label>
+            <label htmlFor="knowledge-detail-field-2">
               {t('console.knowDetail.fields.source')}
               <small>{t('console.knowDetail.fields.sourceHint')}</small>
             </label>
             <input
+              id="knowledge-detail-field-2"
               className="input"
               value={settingsForm.source}
               onChange={(event) =>
@@ -1215,11 +1217,12 @@ export default function ConsoleKnowledgeDetail() {
             />
           </div>
           <div className="frow">
-            <label>
+            <label htmlFor="knowledge-detail-field-3">
               {t('console.knowDetail.fields.chunking')}
               <small>{t('console.knowDetail.fields.chunkingHint')}</small>
             </label>
             <select
+              id="knowledge-detail-field-3"
               className="input"
               value={settingsForm.chunking}
               onChange={(event) =>
@@ -1245,11 +1248,12 @@ export default function ConsoleKnowledgeDetail() {
             </select>
           </div>
           <div className="frow">
-            <label>
+            <label htmlFor="knowledge-detail-field-4">
               {t('console.knowDetail.fields.embedding')}
               <small>{t('console.knowDetail.fields.embeddingHint')}</small>
             </label>
             <select
+              id="knowledge-detail-field-4"
               className="input"
               value={settingsForm.embedding}
               onChange={(event) =>
@@ -1269,11 +1273,12 @@ export default function ConsoleKnowledgeDetail() {
             </select>
           </div>
           <div className="frow">
-            <label>
+            <label htmlFor="knowledge-detail-field-5">
               {t('console.knowDetail.fields.visibility')}
               <small>{t('console.knowDetail.fields.visibilityHint')}</small>
             </label>
             <select
+              id="knowledge-detail-field-5"
               className="input"
               style={{ maxWidth: 320 }}
               value={settingsForm.visibility}
@@ -1290,8 +1295,9 @@ export default function ConsoleKnowledgeDetail() {
             </select>
           </div>
           <div className="frow">
-            <label>{t('console.knowDetail.fields.threshold')}</label>
+            <label htmlFor="knowledge-detail-field-6">{t('console.knowDetail.fields.threshold')}</label>
             <input
+              id="knowledge-detail-field-6"
               className="input"
               value={settingsForm.threshold}
               onChange={(event) =>
@@ -1348,11 +1354,12 @@ export default function ConsoleKnowledgeDetail() {
         onConfirm={() => uploadMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="knowledge-detail-field-7">
             {t('console.knowDetail.uploadFields.files')}
             <small>{t('console.knowDetail.uploadFields.filesHint')}</small>
           </label>
           <input
+            id="knowledge-detail-field-7"
             className="input"
             type="file"
             multiple
@@ -1361,7 +1368,7 @@ export default function ConsoleKnowledgeDetail() {
         </div>
         {uploadFiles.length > 0 && (
           <div className="mrow">
-            <label />
+            <span />
             <span className="mono dim">
               {t('console.knowDetail.uploadFields.selected', { count: uploadFiles.length })}
             </span>
@@ -1396,11 +1403,12 @@ export default function ConsoleKnowledgeDetail() {
         onConfirm={() => chunkMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="knowledge-detail-field-8">
             {t('console.knowDetail.chunkFields.content')}
             <small>{t('console.knowDetail.chunkFields.contentHint')}</small>
           </label>
           <textarea
+            id="knowledge-detail-field-8"
             className="input"
             value={chunkForm.content}
             onChange={(event) =>
@@ -1409,8 +1417,9 @@ export default function ConsoleKnowledgeDetail() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.knowDetail.chunkFields.status')}</label>
+          <label htmlFor="knowledge-detail-field-9">{t('console.knowDetail.chunkFields.status')}</label>
           <select
+            id="knowledge-detail-field-9"
             className="input"
             value={chunkForm.indexStatus}
             onChange={(event) =>
@@ -1465,19 +1474,21 @@ export default function ConsoleKnowledgeDetail() {
         }
       >
         <div className="mrow">
-          <label>{t('console.knowDetail.indexes.fields.name')}</label>
+          <label htmlFor="knowledge-detail-field-10">{t('console.knowDetail.indexes.fields.name')}</label>
           <input
+            id="knowledge-detail-field-10"
             className="input"
             value={indexForm.name}
             onChange={(event) => setIndexForm((state) => ({ ...state, name: event.target.value }))}
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="knowledge-detail-field-11">
             {t('console.knowDetail.indexes.fields.embedding')}
             <small>{t('console.knowDetail.indexes.fields.embeddingHint')}</small>
           </label>
           <input
+            id="knowledge-detail-field-11"
             className="input"
             value={indexForm.embedding_model_ref}
             onChange={(event) =>
@@ -1487,8 +1498,9 @@ export default function ConsoleKnowledgeDetail() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.knowDetail.indexes.fields.metric')}</label>
+          <label htmlFor="knowledge-detail-field-12">{t('console.knowDetail.indexes.fields.metric')}</label>
           <select
+            id="knowledge-detail-field-12"
             className="input"
             style={{ maxWidth: 160 }}
             value={indexForm.metric_type}

@@ -20,23 +20,14 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
-  Globe,
   PencilIcon,
   RefreshCwIcon,
   SendHorizontalIcon,
   StopCircleIcon,
-  Webhook,
   Loader2Icon,
-  AlertCircleIcon,
-  ClockIcon,
-  CheckCircle2Icon,
   Sparkles,
-  ImageIcon,
-  FileIcon,
-  MicIcon,
   ThumbsUpIcon,
   ThumbsDownIcon,
-  Share2Icon,
   MoreHorizontalIcon,
   LightbulbIcon,
   CodeIcon,
@@ -46,7 +37,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
+import { ChevronDownIcon } from 'lucide-react'
 import { useEffect, useState, useRef } from 'react'
 
 import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
@@ -54,18 +45,15 @@ import { Button } from '@/components/ui/button'
 import { MarkdownText } from '@/components/ui/chat/markdown-text'
 import { TooltipIconButton } from '@/components/ui/chat/tooltip-icon-button'
 import { ScrollBar } from '@/components/ui/scroll-area'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Card, CardContent } from '@/components/ui/card'
 import { ToolFallback } from '@/components/ui/chat/tool-fallback'
 import { Reasoning, ReasoningGroup } from '@/components/ui/chat/reasoning'
 import { ApprovalInterrupts } from '@/components/ui/chat/approval-interrupts'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
-import { Bold, Italic, Underline } from 'lucide-react'
 import { ModelIcon } from '@/components/ui/app/model-icon'
 import { ComposerAddAttachment, ComposerAttachments, UserMessageAttachments } from './attachment'
 import { Toggle } from '../toggle'
@@ -90,24 +78,9 @@ export type ThreadProps = ThreadPrimitive.Root.Props & {
   isInModal?: boolean
 }
 
-export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }> = ({ onSend, initInputPosition = 'center', className = '', ref, title = '', isInModal = false }) => {
+export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }> = ({ initInputPosition = 'center', className = '' }) => {
   const aui = useAui()
-  const threadMessages = useAuiState(({ thread }) => thread.messages)
-  const [inputPosition, setInputPosition] = useState<'center' | 'bottom'>(initInputPosition)
-  const [topTitle, setTopTitle] = useState(title)
-  const { t } = useTranslation()
-
-  useEffect(() => {
-    if (threadMessages.length >= 1) {
-      const message = threadMessages[0]
-      if (message?.content?.[0]?.type === 'text') {
-        const _text = message.content[0].text
-        if (_text) {
-          setTopTitle(_text)
-        }
-      }
-    }
-  }, [threadMessages])
+  const [inputPosition] = useState<'center' | 'bottom'>(initInputPosition)
 
   useEffect(() => {
     debugLog('ThreadBox aui state:', {
@@ -140,7 +113,6 @@ export const Thread: FC<ThreadProps & { ref?: React.RefObject<HTMLDivElement> }>
               <div className={cn('flex h-full flex-col w-full  max-w-[var(--thread-max-width)] items-center justify-center mt-[0px]')}>
                 <ThreadWelcome />
                 {inputPosition === 'center' && <Composer className="bottom-0 mb-5 w-full max-w-[var(--thread-max-width)]" />}
-                {/* {!isInModal && <ThreadWelcomeSuggestions />} */}
               </div>
             </ThreadPrimitive.Empty>
             <ThreadPrimitive.Messages
@@ -253,56 +225,6 @@ const ThreadWelcome: FC = () => {
           {t('chat.thread.assistant.suggestions.title')}
         </h3>
       </div>
-    </div>
-  )
-}
-
-const ThreadWelcomeSuggestions: FC = () => {
-  const { t } = useTranslation()
-  const suggestions = [
-    {
-      icon: <CodeIcon className="h-4 w-4" />,
-      title: t('chat.thread.assistant.suggestions.items.reactComponent.title'),
-      prompt: t('chat.thread.assistant.suggestions.items.reactComponent.prompt'),
-      color: 'from-cat-blue/20 to-cat-cyan/20',
-    },
-    {
-      icon: <ImageIcon className="h-4 w-4" />,
-      title: t('chat.thread.assistant.suggestions.items.imageDescription.title'),
-      prompt: t('chat.thread.assistant.suggestions.items.imageDescription.prompt'),
-      color: 'from-cat-purple/20 to-cat-pink/20',
-    },
-    {
-      icon: <SearchIcon className="h-4 w-4" />,
-      title: t('chat.thread.assistant.suggestions.items.aiResearch.title'),
-      prompt: t('chat.thread.assistant.suggestions.items.aiResearch.prompt'),
-      color: 'from-cat-amber/20 to-cat-amber/20',
-    },
-    {
-      icon: <Sparkles className="h-4 w-4" />,
-      title: t('chat.thread.assistant.suggestions.items.creativeWriting.title'),
-      prompt: t('chat.thread.assistant.suggestions.items.creativeWriting.prompt'),
-      color: 'from-cat-green/20 to-cat-green/20',
-    },
-  ]
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-2xl px-4 mt-4">
-      {suggestions.map((suggestion, index) => (
-        <ThreadPrimitive.Suggestion
-          key={index}
-          className={`bg-gradient-to-br ${suggestion.color} hover:opacity-90 flex flex-col items-start rounded-xl border border-border/40 p-4 transition-all duration-200 ease-in-out cursor-pointer shadow-sm hover:shadow-md`}
-          prompt={suggestion.prompt}
-          method="replace"
-          autoSend
-        >
-          <div className="flex items-center gap-3 mb-1">
-            <div className="bg-background/80 p-1.5 rounded-md">{suggestion.icon}</div>
-            <span className="font-medium">{suggestion.title}</span>
-          </div>
-          <p className="text-xs text-muted-foreground line-clamp-2 pl-9">{suggestion.prompt}</p>
-        </ThreadPrimitive.Suggestion>
-      ))}
     </div>
   )
 }

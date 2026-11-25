@@ -34,16 +34,6 @@ export interface ChatLedgerMessage {
   created_at: string
 }
 
-type ExportedMessageRepositoryItem = {
-  message: ThreadMessage
-  parentId: string | null
-}
-
-type ExportedMessageRepository = {
-  headId?: string | null
-  messages: ExportedMessageRepositoryItem[]
-}
-
 type NormalizedRole = 'system' | 'user' | 'assistant' | 'tool'
 
 class MessageAdapterError extends Error {

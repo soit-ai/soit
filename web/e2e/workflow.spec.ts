@@ -81,19 +81,6 @@ const mockWorkflow = {
   deleted_at: null,
 }
 
-const mockWorkflowGrant = (workflowId: string, userId: string) => ({
-  id: `grant-${workflowId}-${userId}`,
-  tenant_id: 'tenant-1',
-  workspace_id: 'workspace-1',
-  resource_type: 'workflow',
-  resource_id: workflowId,
-  user_id: userId,
-  actions: ['read'],
-  created_by: 'user-1',
-  created_at: '2026-07-19T00:00:00.000Z',
-  updated_at: '2026-07-19T00:00:00.000Z',
-})
-
 const mockWorkflowVersion = {
   id: 'workflow-version-1',
   tenant_id: 'tenant-1',
@@ -1582,6 +1569,7 @@ test('Builder suppresses stale import load and parse results after the workflow 
       pendingReads.splice(0).forEach((release) => release())
     }
     FileReader.prototype.readAsText = function (blob: Blob, encoding?: string) {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias -- the patched method runs later, outside this call
       const reader = this
       pendingReads.push(() => {
         reader.addEventListener('loadend', () => {

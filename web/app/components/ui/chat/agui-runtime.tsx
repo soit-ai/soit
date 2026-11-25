@@ -235,7 +235,7 @@ const withAgUiReconnect = (
                 controller.enqueue(encoder.encode(completeFrames))
               }
             }
-          } catch (error) {
+          } catch {
             if (signal?.aborted) {
               controller.close()
               return
@@ -329,7 +329,6 @@ export const useSoitAgUiRuntime = ({
   selectionRef.current = { agentId, threadId: threadId || '', modelRef }
 
   const agent = useMemo(() => {
-    let instance: HttpAgent
     const pendingThreadId = `pending-${globalThis.crypto?.randomUUID?.() || Date.now()}`
 
     const transport = async (url: string, requestInit: RequestInit): Promise<Response> => {
@@ -384,7 +383,9 @@ export const useSoitAgUiRuntime = ({
       return lastResponse
     }
 
-    instance = new HttpAgent({
+    // Declared after the transport that refers to it; the transport only
+    // runs once a request is made, by which time it is assigned.
+    const instance: HttpAgent = new HttpAgent({
       agentId: agentId !== 'default' ? agentId : undefined,
       threadId: threadId || pendingThreadId,
       url: `${API_BASE_URL}/responses`,

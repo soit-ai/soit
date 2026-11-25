@@ -53,6 +53,7 @@ import {
 } from '@/services/capability-service'
 import { getRunCostSummary, listRuns } from '@/services/run-service'
 import { requestErrorMessage } from '@/utils/request'
+import { pressable } from '@/lib/pressable'
 
 type AgentTab = 'build' | 'monitor' | 'publish' | 'settings'
 
@@ -626,8 +627,9 @@ export default function ConsoleAgentDetail() {
           <div className="stack">
             <WorkbenchPanel title={t('console.agentDetail.definition')}>
               <div className="frow">
-                <label>{t('console.agentDetail.fields.name')}</label>
+                <label htmlFor="agent-detail-field-1">{t('console.agentDetail.fields.name')}</label>
                 <input
+                  id="agent-detail-field-1"
                   className="input"
                   value={draft.name}
                   onChange={(event) =>
@@ -636,8 +638,9 @@ export default function ConsoleAgentDetail() {
                 />
               </div>
               <div className="frow">
-                <label>{t('console.agentDetail.fields.description')}</label>
+                <label htmlFor="agent-detail-field-2">{t('console.agentDetail.fields.description')}</label>
                 <input
+                  id="agent-detail-field-2"
                   className="input"
                   value={draft.description}
                   onChange={(event) =>
@@ -691,11 +694,12 @@ export default function ConsoleAgentDetail() {
                 </div>
               </div>
               <div className="frow">
-                <label>
+                <label htmlFor="agent-detail-field-3">
                   {t('console.agentDetail.fields.systemPrompt')}
                   <small>{t('console.agentDetail.fields.systemPromptHint')}</small>
                 </label>
                 <textarea
+                  id="agent-detail-field-3"
                   className="input"
                   style={{ minHeight: 120 }}
                   value={draft.systemPrompt}
@@ -791,10 +795,11 @@ export default function ConsoleAgentDetail() {
           <div className="rail">
             <WorkbenchPanel title={t('console.agentDetail.budget')}>
               <div className="frow" style={{ gridTemplateColumns: '1fr', gap: 5 }}>
-                <label>{t('console.agentDetail.dailyCap')}</label>
+                <label htmlFor="agent-detail-field-4">{t('console.agentDetail.dailyCap')}</label>
                 {/* spec.limits.budget is the per-run cost ceiling — the only
                     budget number the spec carries; there is no daily window. */}
                 <input
+                  id="agent-detail-field-4"
                   className="input"
                   value={draft.budget}
                   onChange={(event) =>
@@ -951,10 +956,10 @@ export default function ConsoleAgentDetail() {
               const isCurrent = version.id === currentVersionId
               const wasRolledBack = rolledBackVersionIds.has(version.id)
               return (
-                <a
+                <div
                   key={version.id}
                   className={cn('bundle', isPublished && 'on')}
-                  onClick={() => !isPublished && setPublishTarget(version)}
+                  {...(isPublished ? {} : pressable(() => setPublishTarget(version)))}
                 >
                   <b>
                     v{version.version}{' '}
@@ -990,8 +995,10 @@ export default function ConsoleAgentDetail() {
                   </small>
                   {!isPublished && (
                     <span
+                      role="presentation"
                       style={{ display: 'inline-flex', gap: 6, marginTop: 6 }}
                       onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
                     >
                       {version.review_status === 'in_review' ||
                       version.review_status === 'changes_requested' ? (
@@ -1040,7 +1047,7 @@ export default function ConsoleAgentDetail() {
                       )}
                     </span>
                   )}
-                </a>
+                </div>
               )
             })
           )}
@@ -1125,10 +1132,11 @@ export default function ConsoleAgentDetail() {
       {tab === 'settings' && (
         <WorkbenchPanel title={t('console.agentDetail.settingsTitle')}>
           <div className="frow">
-            <label>{t('console.agentDetail.settingsFields.owner')}</label>
+            <label htmlFor="agent-detail-field-5">{t('console.agentDetail.settingsFields.owner')}</label>
             {/* `created_by` / `updated_by` are server-stamped audit columns and
                 are not on `AgentUpdate`; this box cannot be saved. */}
             <input
+              id="agent-detail-field-5"
               key={`owner-${agent?.id}`}
               className="input"
               defaultValue={agent?.updated_by || agent?.created_by || ''}
@@ -1136,13 +1144,14 @@ export default function ConsoleAgentDetail() {
             />
           </div>
           <div className="frow">
-            <label>
+            <label htmlFor="agent-detail-field-6">
               {t('console.agentDetail.settingsFields.channel')}
               <small>{t('console.agentDetail.settingsFields.channelHint')}</small>
             </label>
             {/* There is no channel column; an agent is callable in production
                 exactly when it has a published version. */}
             <select
+              id="agent-detail-field-6"
               key={`channel-${agent?.id}`}
               className="input"
               style={{ maxWidth: 240 }}
@@ -1153,10 +1162,11 @@ export default function ConsoleAgentDetail() {
             </select>
           </div>
           <div className="frow">
-            <label>{t('console.agentDetail.settingsFields.timeout')}</label>
+            <label htmlFor="agent-detail-field-7">{t('console.agentDetail.settingsFields.timeout')}</label>
             {/* This one is real: spec.limits.timeout_ms. It is part of the
                 version spec, so it ships with "Save draft" like the rest. */}
             <input
+              id="agent-detail-field-7"
               className="input"
               value={draft.timeout}
               onChange={(event) =>

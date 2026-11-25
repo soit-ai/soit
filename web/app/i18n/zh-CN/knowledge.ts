@@ -806,7 +806,7 @@ const translation = {
       },
       rebuildDialog: {
         title: '重建索引',
-        description: '确认立即重建 \"{{name}}\" 吗？重建期间检索结果可能受影响。',
+        description: '确认立即重建 "{{name}}" 吗？重建期间检索结果可能受影响。',
         cancel: '取消',
         confirm: '确认重建',
       },

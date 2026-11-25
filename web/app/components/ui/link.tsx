@@ -2,8 +2,7 @@ import * as React from 'react'
 import { Link as LinkBase, type LinkProps} from 'react-router'
 import { cn } from "@/lib/utils"
 
-// @ts-ignore
-export const Link = React.forwardRef((props: LinkProps, ref) => {
+export const Link = React.forwardRef<HTMLAnchorElement, LinkProps>((props, ref) => {
   const { to, ..._props } = props as LinkProps
   const search = new URLSearchParams(window.location.search)
   let _to = to
@@ -14,5 +13,5 @@ export const Link = React.forwardRef((props: LinkProps, ref) => {
     }
   }
 
-  return <LinkBase to={_to} {..._props} className={cn('cursor-pointer', props?.className)} />
+  return <LinkBase ref={ref} to={_to} {..._props} className={cn('cursor-pointer', props?.className)} />
 })

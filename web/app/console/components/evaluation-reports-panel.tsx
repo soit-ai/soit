@@ -48,7 +48,7 @@ function TrendBars({
   if (!points.length) return null
   return (
     <div
-      role="list"
+      role="group"
       aria-label={t('console.evaluations.reports.trend')}
       style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 64, padding: '4px 14px 0' }}
     >
@@ -58,7 +58,7 @@ function TrendBars({
           <button
             key={point.report_id}
             type="button"
-            role="listitem"
+            aria-pressed={selectedId === point.report_id}
             title={t('console.evaluations.reports.trendPoint', {
               rate: percent(point.pass_rate),
               revision: point.dataset_revision,

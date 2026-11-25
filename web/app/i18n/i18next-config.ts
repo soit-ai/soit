@@ -62,7 +62,7 @@ const initResources = async (): Promise<ResourcesType> => {
   const resources: ResourcesType = {}
   
   // Get user-selected language.
-  let userLang = localStorage.getItem('i18nextLng') || localStorage.getItem('locale')
+  const userLang = localStorage.getItem('i18nextLng') || localStorage.getItem('locale')
   
   // Load both user language and default language when they differ.
   const wantsUserLang =

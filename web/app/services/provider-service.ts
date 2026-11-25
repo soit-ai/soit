@@ -3,19 +3,6 @@ import type { ModelConfig } from '@/features/model-config/types'
 import type { ProviderConfig } from '@/features/model-config/types'
 import type { PaginatedResponse } from '@/types/api'
 
-interface ModelResponse {
-  id: string
-  name: string
-  provider: string
-  model_ref: string
-  description?: string | null
-  capabilities_json?: Record<string, any> | null
-  config_json?: Record<string, any> | null
-  metadata_json?: Record<string, any> | null
-  created_at: string
-  updated_at: string
-}
-
 interface ProviderResponse {
   id: string
   adapter_backend: 'native' | 'litellm'
@@ -355,25 +342,6 @@ export type ModelLibraryItem = {
   isActive: boolean
   createdAt: string
   updatedAt: string
-}
-
-const mapLibraryModel = (model: ModelResponse): ModelLibraryItem => {
-  const capabilities = model.capabilities_json || {}
-  const config = model.config_json || {}
-  const metadata = model.metadata_json || {}
-  return {
-    id: model.id,
-    name: model.name,
-    modelName: model.model_ref,
-    modelType: (capabilities.model_type as string) || 'llm',
-    provider: model.provider,
-    description: model.description || undefined,
-    contextLength: config.contextLength,
-    capabilities: (capabilities.capabilities as string[]) || [],
-    isActive: metadata.isActive !== false,
-    createdAt: model.created_at,
-    updatedAt: model.updated_at,
-  }
 }
 
 const mapProviderToConfig = (provider: ProviderResponse): ProviderConfig => {

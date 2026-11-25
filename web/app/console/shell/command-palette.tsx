@@ -82,8 +82,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   }
 
   return (
-    <div className="cmdk open" onClick={onClose}>
-      <div className="cmdk-box" onClick={(event) => event.stopPropagation()}>
+    // The backdrop closes on a click and the input handles Escape, so neither
+    // wrapper is a control of its own.
+    <div className="cmdk open" role="presentation" onClick={onClose}>
+      <div className="cmdk-box" role="presentation" onClick={(event) => event.stopPropagation()}>
         <Command shouldFilter={results.length === 0}>
           <div className="cmdk-in">
             <IconSearch style={{ color: 'var(--faint)' }} />

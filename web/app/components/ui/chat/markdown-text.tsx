@@ -1,3 +1,5 @@
+/* eslint-disable jsx-a11y/heading-has-content, jsx-a11y/anchor-has-content --
+   the markdown renderer passes each element its children through props. */
 "use client";
 
 import "@assistant-ui/react-markdown/styles/dot.css";

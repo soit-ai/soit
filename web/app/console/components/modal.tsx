@@ -58,6 +58,7 @@ export function ConsoleModal({
         showCloseButton={false}
       >
         <div className="modal-head">
+          {/* eslint-disable-next-line jsx-a11y/heading-has-content -- DialogTitle renders the title into it */}
           <DialogTitle render={<h2 />}>{title}</DialogTitle>
         </div>
         <DialogDescription className="sr-only">

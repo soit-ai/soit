@@ -45,6 +45,7 @@ import {
 } from '@/services/security-service'
 import { listRunAudits } from '@/services/run-service'
 import { requestErrorMessage } from '@/utils/request'
+import { pressable } from '@/lib/pressable'
 
 type PolicyTab = 'rules' | 'bundles' | 'staged'
 type RuleFilter = 'all' | 'grants' | 'intents' | 'egress' | 'budget' | 'approval'
@@ -457,14 +458,14 @@ export default function ConsolePolicies() {
         >
           {revisions.length ? (
             revisions.map((entry) => (
-              <a
+              <div
                 key={entry.id}
                 className={cn(
                   'bundle',
                   entry.active && 'on',
                   selected?.id === entry.id && 'sel',
                 )}
-                onClick={() => setSelected(selected?.id === entry.id ? null : entry)}
+                {...pressable(() => setSelected(selected?.id === entry.id ? null : entry))}
               >
                 <b>
                   r{entry.revision}{' '}
@@ -540,7 +541,7 @@ export default function ConsolePolicies() {
                     )}
                   </div>
                 )}
-              </a>
+              </div>
             ))
           ) : (
             <DataStateNote
@@ -599,22 +600,24 @@ export default function ConsolePolicies() {
         onConfirm={() => saveMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="policies-field-1">
             {t('console.policies.fields.allowlist')}
             <small>{t('console.policies.fields.allowlistHint')}</small>
           </label>
           <textarea
+            id="policies-field-1"
             className="input"
             value={draft.allowlist}
             onChange={(event) => setDraft((state) => ({ ...state, allowlist: event.target.value }))}
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="policies-field-2">
             {t('console.policies.fields.blocklist')}
             <small>{t('console.policies.fields.blocklistHint')}</small>
           </label>
           <textarea
+            id="policies-field-2"
             className="input"
             value={draft.blocklist}
             onChange={(event) => setDraft((state) => ({ ...state, blocklist: event.target.value }))}
@@ -629,11 +632,12 @@ export default function ConsolePolicies() {
           ] as const
         ).map(([key, label], index) => (
           <div className="mrow" key={key}>
-            <label>
+            <label htmlFor={`policies-limit-${key}`}>
               {label}
               {index === 0 && <small>{t('console.policies.fields.limitsHint')}</small>}
             </label>
             <input
+              id={`policies-limit-${key}`}
               className="input"
               inputMode="numeric"
               style={{ maxWidth: 140 }}

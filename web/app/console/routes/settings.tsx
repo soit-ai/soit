@@ -997,11 +997,12 @@ export default function ConsoleSettings() {
               <h2>{t('console.settings.account')}</h2>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="settings-field-1">
                 {t('console.settings.accountPane.displayName')}
                 <small>{t('console.settings.accountPane.displayNameHint')}</small>
               </label>
               <input
+                id="settings-field-1"
                 className="input"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
@@ -1009,8 +1010,8 @@ export default function ConsoleSettings() {
               />
             </div>
             <div className="frow">
-              <label>{t('console.settings.accountPane.email')}</label>
-              <input className="input" value={currentUser?.email || ''} disabled />
+              <label htmlFor="settings-field-2">{t('console.settings.accountPane.email')}</label>
+              <input id="settings-field-2" className="input" value={currentUser?.email || ''} disabled />
             </div>
             <div className="frow">
               <label>{t('console.settings.accountPane.role')}</label>
@@ -1022,11 +1023,12 @@ export default function ConsoleSettings() {
               </div>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="settings-field-3">
                 {t('console.settings.accountPane.workspaceName')}
                 <small>{t('console.settings.accountPane.workspaceNameHint')}</small>
               </label>
               <input
+                id="settings-field-3"
                 className="input"
                 value={workspaceName}
                 disabled={!workspaceQuery.data}
@@ -1519,7 +1521,7 @@ export default function ConsoleSettings() {
               <h2>{t('console.settings.security')}</h2>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="settings-field-4">
                 {t('console.settings.securityPane.twoFactorPolicy')}
                 <small>{t('console.settings.securityPane.twoFactorPolicyHint')}</small>
               </label>
@@ -1528,6 +1530,7 @@ export default function ConsoleSettings() {
                   policy object that does not exist, and offering it here would
                   be a control that quietly does nothing. */}
               <select
+                id="settings-field-4"
                 className="input"
                 style={{ maxWidth: 280 }}
                 value={workspaceQuery.data?.require_mfa ? 'required' : 'optional'}
@@ -1543,11 +1546,12 @@ export default function ConsoleSettings() {
               </select>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="settings-field-5">
                 {t('console.settings.securityPane.contentCapture')}
                 <small>{t('console.settings.securityPane.contentCaptureHint')}</small>
               </label>
               <select
+                id="settings-field-5"
                 className="input"
                 style={{ maxWidth: 280 }}
                 value={workspaceQuery.data?.content_capture ?? 'full'}
@@ -1577,14 +1581,14 @@ export default function ConsoleSettings() {
               ] as const
             ).map(([field, label, hint]) => (
               <div className="frow" key={field}>
-                <label>
+                <label htmlFor={`settings-pii-${field}`}>
                   {label}
                   <small>{hint}</small>
                 </label>
                 <select
+                  id={`settings-pii-${field}`}
                   className="input"
                   style={{ maxWidth: 280 }}
-                  aria-label={label}
                   value={workspaceQuery.data?.[field] ?? ''}
                   disabled={!workspaceQuery.data || piiMutation.isPending}
                   onChange={(event) =>
@@ -1606,11 +1610,12 @@ export default function ConsoleSettings() {
               </div>
             ))}
             <div className="frow">
-              <label>
+              <label htmlFor="settings-field-6">
                 {t('console.settings.securityPane.unpriced')}
                 <small>{t('console.settings.securityPane.unpricedHint')}</small>
               </label>
               <select
+                id="settings-field-6"
                 className="input"
                 style={{ maxWidth: 280 }}
                 aria-label={t('console.settings.securityPane.unpriced')}
@@ -1626,11 +1631,12 @@ export default function ConsoleSettings() {
               </select>
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="settings-field-7">
                 {t('console.settings.securityPane.selfApproval')}
                 <small>{t('console.settings.securityPane.selfApprovalHint')}</small>
               </label>
               <select
+                id="settings-field-7"
                 className="input"
                 style={{ maxWidth: 280 }}
                 aria-label={t('console.settings.securityPane.selfApproval')}
@@ -1660,7 +1666,7 @@ export default function ConsoleSettings() {
               />
             </div>
             <div className="frow">
-              <label>
+              <label htmlFor="settings-field-8">
                 {t('console.settings.securityPane.ipAllowlist')}
                 <small>{t('console.settings.securityPane.ipAllowlistHint')}</small>
               </label>
@@ -1669,6 +1675,7 @@ export default function ConsoleSettings() {
                   inbound console/API access. Edits are local: this pane has no
                   save control, so updateWorkspaceEgressPolicy stays unwired. */}
               <textarea
+                id="settings-field-8"
                 className="input"
                 value={ipAllowlist}
                 onChange={(event) => setIpAllowlist(event.target.value)}
@@ -2256,8 +2263,9 @@ export default function ConsoleSettings() {
         onConfirm={() => passwordMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.settings.accountPane.currentPassword')}</label>
+          <label htmlFor="settings-field-9">{t('console.settings.accountPane.currentPassword')}</label>
           <input
+            id="settings-field-9"
             className="input"
             type="password"
             autoComplete="current-password"
@@ -2268,8 +2276,9 @@ export default function ConsoleSettings() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.settings.accountPane.newPassword')}</label>
+          <label htmlFor="settings-field-10">{t('console.settings.accountPane.newPassword')}</label>
           <input
+            id="settings-field-10"
             className="input"
             type="password"
             autoComplete="new-password"
@@ -2342,11 +2351,12 @@ export default function ConsoleSettings() {
           </div>
         ) : (
           <div className="mrow">
-            <label>
+            <label htmlFor="settings-field-11">
               {t('console.settings.teamPane.memberId')}
               <small>{t('console.settings.teamPane.memberIdHint')}</small>
             </label>
             <input
+              id="settings-field-11"
               className="input"
               value={inviteForm.userId}
               onChange={(event) =>
@@ -2357,8 +2367,9 @@ export default function ConsoleSettings() {
           </div>
         )}
         <div className="mrow">
-          <label>{t('console.settings.teamPane.columns.role')}</label>
+          <label htmlFor="settings-field-12">{t('console.settings.teamPane.columns.role')}</label>
           <select
+            id="settings-field-12"
             className="input"
             value={inviteForm.role}
             onChange={(event) =>
@@ -2385,16 +2396,18 @@ export default function ConsoleSettings() {
         onConfirm={() => roleMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.settings.teamPane.columns.member')}</label>
+          <label htmlFor="settings-field-13">{t('console.settings.teamPane.columns.member')}</label>
           <input
+            id="settings-field-13"
             className="input"
             value={roleTarget?.name || roleTarget?.email || ''}
             disabled
           />
         </div>
         <div className="mrow">
-          <label>{t('console.settings.teamPane.columns.role')}</label>
+          <label htmlFor="settings-field-14">{t('console.settings.teamPane.columns.role')}</label>
           <select
+            id="settings-field-14"
             className="input"
             value={roleDraft}
             onChange={(event) => setRoleDraft(event.target.value)}
@@ -2436,11 +2449,12 @@ export default function ConsoleSettings() {
       >
         {principals.length > 0 && (
           <div className="mrow">
-            <label>
+            <label htmlFor="settings-field-15">
               {t('console.settings.apiPane.fields.issuedTo')}
               <small>{t('console.settings.apiPane.fields.issuedToHint')}</small>
             </label>
             <select
+              id="settings-field-15"
               className="input"
               value={keyForm.principalId}
               onChange={(event) =>
@@ -2459,22 +2473,24 @@ export default function ConsoleSettings() {
           </div>
         )}
         <div className="mrow">
-          <label>
+          <label htmlFor="settings-field-16">
             {t('console.settings.apiPane.fields.name')}
             <small>{t('console.settings.apiPane.fields.nameHint')}</small>
           </label>
           <input
+            id="settings-field-16"
             className="input"
             value={keyForm.name}
             onChange={(event) => setKeyForm((state) => ({ ...state, name: event.target.value }))}
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="settings-field-17">
             {t('console.settings.apiPane.fields.scope')}
             <small>{t('console.settings.apiPane.fields.scopeHint')}</small>
           </label>
           <select
+            id="settings-field-17"
             className="input"
             value={keyForm.scope}
             onChange={(event) =>
@@ -2489,8 +2505,9 @@ export default function ConsoleSettings() {
           </select>
         </div>
         <div className="mrow">
-          <label>{t('console.settings.apiPane.fields.expires')}</label>
+          <label htmlFor="settings-field-18">{t('console.settings.apiPane.fields.expires')}</label>
           <select
+            id="settings-field-18"
             className="input"
             value={String(keyForm.expiresInDays)}
             onChange={(event) =>
@@ -2534,11 +2551,12 @@ export default function ConsoleSettings() {
         onConfirm={() => createPrincipalMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>
+          <label htmlFor="settings-field-19">
             {t('console.settings.principalsPane.fields.name')}
             <small>{t('console.settings.principalsPane.fields.nameHint')}</small>
           </label>
           <input
+            id="settings-field-19"
             className="input"
             value={principalForm.name}
             onChange={(event) =>
@@ -2547,8 +2565,9 @@ export default function ConsoleSettings() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.settings.principalsPane.fields.description')}</label>
+          <label htmlFor="settings-field-20">{t('console.settings.principalsPane.fields.description')}</label>
           <input
+            id="settings-field-20"
             className="input"
             value={principalForm.description}
             onChange={(event) =>
@@ -2557,11 +2576,12 @@ export default function ConsoleSettings() {
           />
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="settings-field-21">
             {t('console.settings.principalsPane.fields.role')}
             <small>{t('console.settings.principalsPane.fields.roleHint')}</small>
           </label>
           <select
+            id="settings-field-21"
             className="input"
             value={principalForm.role}
             onChange={(event) =>
@@ -2630,8 +2650,8 @@ export default function ConsoleSettings() {
         }}
       >
         <div className="mrow">
-          <label>{t('console.settings.apiPane.fields.name')}</label>
-          <input className="input" value={revealed?.name ?? ''} disabled />
+          <label htmlFor="settings-field-22">{t('console.settings.apiPane.fields.name')}</label>
+          <input id="settings-field-22" className="input" value={revealed?.name ?? ''} disabled />
         </div>
         <div className="mrow">
           <label>{t('console.settings.apiPane.columns.key')}</label>
@@ -2676,16 +2696,18 @@ export default function ConsoleSettings() {
         onConfirm={() => createChannelMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.settings.notificationsPane.endpointFields.name')}</label>
+          <label htmlFor="settings-field-23">{t('console.settings.notificationsPane.endpointFields.name')}</label>
           <input
+            id="settings-field-23"
             className="input"
             value={channelForm.name}
             onChange={(event) => setChannelForm((state) => ({ ...state, name: event.target.value }))}
           />
         </div>
         <div className="mrow">
-          <label>{t('console.settings.notificationsPane.endpointFields.kind')}</label>
+          <label htmlFor="settings-field-24">{t('console.settings.notificationsPane.endpointFields.kind')}</label>
           <select
+            id="settings-field-24"
             className="input"
             value={channelForm.kind}
             onChange={(event) =>
@@ -2703,11 +2725,12 @@ export default function ConsoleSettings() {
           </select>
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="settings-field-25">
             {t('console.settings.notificationsPane.endpointFields.url')}
             <small>{t('console.settings.teamChannels.urlHint')}</small>
           </label>
           <input
+            id="settings-field-25"
             className="input"
             value={channelForm.url}
             onChange={(event) => setChannelForm((state) => ({ ...state, url: event.target.value }))}
@@ -2768,8 +2791,9 @@ export default function ConsoleSettings() {
         onConfirm={() => createEndpointMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.settings.notificationsPane.endpointFields.name')}</label>
+          <label htmlFor="settings-field-26">{t('console.settings.notificationsPane.endpointFields.name')}</label>
           <input
+            id="settings-field-26"
             className="input"
             value={endpointForm.name}
             onChange={(event) =>
@@ -2778,8 +2802,9 @@ export default function ConsoleSettings() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.settings.notificationsPane.endpointFields.kind')}</label>
+          <label htmlFor="settings-field-27">{t('console.settings.notificationsPane.endpointFields.kind')}</label>
           <select
+            id="settings-field-27"
             className="input"
             value={endpointForm.kind}
             onChange={(event) =>
@@ -2797,11 +2822,12 @@ export default function ConsoleSettings() {
           </select>
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="settings-field-28">
             {t('console.settings.notificationsPane.endpointFields.url')}
             <small>{t('console.settings.notificationsPane.endpointFields.urlHint')}</small>
           </label>
           <input
+            id="settings-field-28"
             className="input"
             type="password"
             autoComplete="off"
@@ -2823,8 +2849,9 @@ export default function ConsoleSettings() {
         onConfirm={() => updateEndpointMutation.mutate(undefined)}
       >
         <div className="mrow">
-          <label>{t('console.settings.notificationsPane.endpointFields.name')}</label>
+          <label htmlFor="settings-field-29">{t('console.settings.notificationsPane.endpointFields.name')}</label>
           <input
+            id="settings-field-29"
             className="input"
             value={endpointForm.name}
             onChange={(event) =>
@@ -2833,8 +2860,9 @@ export default function ConsoleSettings() {
           />
         </div>
         <div className="mrow">
-          <label>{t('console.settings.notificationsPane.endpointFields.kind')}</label>
+          <label htmlFor="settings-field-30">{t('console.settings.notificationsPane.endpointFields.kind')}</label>
           <select
+            id="settings-field-30"
             className="input"
             value={endpointForm.kind}
             onChange={(event) =>
@@ -2852,8 +2880,9 @@ export default function ConsoleSettings() {
           </select>
         </div>
         <div className="mrow">
-          <label>{t('console.settings.notificationsPane.endpointFields.status')}</label>
+          <label htmlFor="settings-field-31">{t('console.settings.notificationsPane.endpointFields.status')}</label>
           <select
+            id="settings-field-31"
             className="input"
             value={endpointForm.status}
             onChange={(event) =>
@@ -2872,11 +2901,12 @@ export default function ConsoleSettings() {
           </select>
         </div>
         <div className="mrow">
-          <label>
+          <label htmlFor="settings-field-32">
             {t('console.settings.notificationsPane.endpointFields.url')}
             <small>{t('console.settings.notificationsPane.endpointFields.urlEditHint')}</small>
           </label>
           <input
+            id="settings-field-32"
             className="input"
             type="password"
             autoComplete="off"

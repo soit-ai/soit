@@ -25,7 +25,7 @@ const uuidv7 = () => {
 }
 
 // return a random string
-const getAppid = (type?: string) => {
+const getAppid = (_type?: string) => {
   const nanoida = customAlphabet('1234567890', 10)
   const _ext = nanoida(3)
   // Append current timestamp.

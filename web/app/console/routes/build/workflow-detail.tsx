@@ -551,7 +551,7 @@ export default function ConsoleWorkflowDetail() {
               const isPublished = version.id === publishedVersionId
               const isCurrent = version.id === currentVersionId
               return (
-                <a key={version.id} className={cn('bundle', isPublished && 'on')}>
+                <div key={version.id} className={cn('bundle', isPublished && 'on')}>
                   <b>
                     v{ordinalById.get(version.id)}{' '}
                     <StatusChip status={isPublished ? 'published' : isCurrent ? 'draft' : 'info'} />
@@ -559,7 +559,7 @@ export default function ConsoleWorkflowDetail() {
                   <small>
                     {version.created_by || '—'} · {relativeTime(version.created_at)} · {version.id}
                   </small>
-                </a>
+                </div>
               )
             })
           )}
@@ -596,7 +596,7 @@ export default function ConsoleWorkflowDetail() {
             />
           </div>
           <div className="frow">
-            <label />
+            <span />
             <div>
               <ConsoleButton
                 variant="primary"

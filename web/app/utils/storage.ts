@@ -1,7 +1,7 @@
 import { debugLog } from './debug'
 
 // data storage
-let _storage = {
+const _storage = {
   // get
   get: async (key: string): Promise<any> => {
     if (!key) {
@@ -10,7 +10,7 @@ let _storage = {
     let val = null
     if (typeof window !== 'undefined') {
       // Resolve stored data type.
-      let type = window.localStorage.getItem(key + '_typeof')
+      const type = window.localStorage.getItem(key + '_typeof')
       switch (type) {
         case 'boolean':
           val = window.localStorage.getItem(key)

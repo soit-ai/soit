@@ -73,6 +73,7 @@ From `web/`:
 ```bash
 npm ci
 npm run typecheck
+npm run lint
 npm run build
 npm run budget
 npx playwright install chromium

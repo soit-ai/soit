@@ -10,7 +10,7 @@ const packageVersion = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'),
 ).version as string
 
-export default defineConfig(({ command, mode }) => ({
+export default defineConfig(({ mode }) => ({
   // Stamped at build time so a support conversation can start with the
   // version the person is actually running, rather than a dash.
   define: {

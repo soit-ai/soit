@@ -161,6 +161,11 @@ record for operators.
   were written into the pages in English are translated as well.
 - The navigation counts and the context panel refresh after any change made
   in the console, instead of up to a minute later.
+- Form fields in the console are labelled for assistive technology: 110
+  labels are now tied to their input, select or text area, so a screen
+  reader names the field and clicking a label focuses it. Clickable rows,
+  cards and version lists can be reached with Tab and activated with Enter
+  or Space.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are

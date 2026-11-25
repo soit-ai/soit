@@ -272,8 +272,9 @@ export default function ConsoleBudgets() {
   const formRows = (editable: boolean) => (
     <>
       <div className="mrow">
-        <label>{t('console.budgets.fields.name')}</label>
+        <label htmlFor="budgets-field-1">{t('console.budgets.fields.name')}</label>
         <input
+          id="budgets-field-1"
           className="input"
           value={form.name}
           onChange={(event) => setForm((state) => ({ ...state, name: event.target.value }))}
@@ -326,8 +327,9 @@ export default function ConsoleBudgets() {
         </div>
       </div>
       <div className="mrow">
-        <label>{t('console.budgets.fields.period')}</label>
+        <label htmlFor="budgets-field-2">{t('console.budgets.fields.period')}</label>
         <select
+          id="budgets-field-2"
           className="input"
           value={form.period}
           disabled={!editable}
@@ -369,11 +371,12 @@ export default function ConsoleBudgets() {
         </div>
       </div>
       <div className="mrow">
-        <label>
+        <label htmlFor="budgets-field-3">
           {t('console.budgets.fields.thresholds')}
           <small>{t('console.budgets.fields.thresholdsHint')}</small>
         </label>
         <input
+          id="budgets-field-3"
           className="input"
           value={form.thresholds}
           onChange={(event) => setForm((state) => ({ ...state, thresholds: event.target.value }))}
@@ -381,11 +384,12 @@ export default function ConsoleBudgets() {
         />
       </div>
       <div className="mrow">
-        <label>
+        <label htmlFor="budgets-field-4">
           {t('console.budgets.fields.hardStop')}
           <small>{t('console.budgets.fields.hardStopHint')}</small>
         </label>
         <select
+          id="budgets-field-4"
           className="input"
           value={form.hardStop ? 'stop' : 'warn'}
           onChange={(event) =>
