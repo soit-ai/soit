@@ -141,6 +141,9 @@ record for operators.
   attempts says how long to wait instead of calling the password wrong.
   Sign-up asks for at least 8 characters, as the server does, rather than 6
   and a generic refusal for 6 or 7.
+- A run or task page refreshes itself while the run or task is still going,
+  polling from every 2 seconds back to every 15, and stops once it ends.
+  Before, it kept the snapshot it opened with.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are

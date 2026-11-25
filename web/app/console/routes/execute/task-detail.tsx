@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import { requestErrorMessage } from '@/utils/request'
 import { listApprovals, resolveApproval } from '@/services/observe-service'
 import { relativeTime } from '../../adapters/palette'
+import { liveRefetchInterval } from '../../adapters/live-refetch'
 import { approverNames, useApprovalMembers, useDeadlineLabel } from '../../components'
 import {
   cancelTask,
@@ -131,7 +132,14 @@ export default function ConsoleTaskDetail() {
   const detailQuery = useQuery({
     queryKey: ['console', 'task-detail', id],
     queryFn: () => getTask(id as string),
-    options: { enabled: Boolean(id), retry: false, refetchOnWindowFocus: false },
+    options: {
+      enabled: Boolean(id),
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchInterval: liveRefetchInterval(
+        (detail: Awaited<ReturnType<typeof getTask>>) => detail.task.status,
+      ),
+    },
   })
 
   const refetchDetail = () => {

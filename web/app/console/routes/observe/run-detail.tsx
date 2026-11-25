@@ -17,6 +17,7 @@ import {
 } from '../../components'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { toRunDetailView, formatDurationMs } from '../../adapters/run-detail'
+import { liveRefetchInterval } from '../../adapters/live-refetch'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useSubjectNames } from '../../adapters/subject-names'
 import { useTranslation } from '@/i18n'
@@ -89,7 +90,14 @@ export default function ConsoleRunDetail() {
         include_artifacts: true,
         include_cost: true,
       }),
-    options: { enabled: Boolean(id), retry: false, refetchOnWindowFocus: false },
+    options: {
+      enabled: Boolean(id),
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchInterval: liveRefetchInterval(
+        (detail: Awaited<ReturnType<typeof getRunDetail>>) => detail.run.status,
+      ),
+    },
   })
 
   if (!detailQuery.data) {
