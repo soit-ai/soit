@@ -91,8 +91,7 @@ What stops working:
   because `MILVUS_HOST=milvus` does not resolve. `/health/ready` still answers
   `200` with `"vector": "unavailable"`.
 - Document ingestion, since `knowledge-ingest-worker` is not started either.
-- Schedules, since `scheduler` is not started (the quickstart does not start it
-  either).
+- Schedules, since `scheduler` is not started.
 
 pgvector is not an option for the full files: the bundled `postgres:15` image
 does not ship the `vector` extension. A demo that needs knowledge retrieval

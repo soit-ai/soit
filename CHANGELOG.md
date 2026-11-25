@@ -118,6 +118,10 @@ record for operators.
   rolls back only its own writes before its retry is recorded, so a
   notification whose delivery failed after it claimed its idempotency slot is
   delivered on the retry instead of being skipped.
+- Schedules fire when the full topology runs from released images. The images
+  overlay had no `scheduler` image, so `up --no-build` could not start it,
+  and the quickstart, README and bootstrap commands did not name the service.
+  Both are fixed; `scheduler` is now in every full-topology command.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are

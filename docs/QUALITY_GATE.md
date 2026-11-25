@@ -203,7 +203,7 @@ The Run Explorer entry must remain clickable from the Observe dashboard. The run
 For the full local Compose acceptance path when the infrastructure stack is available:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher scheduler
 curl http://localhost:9200/health/ready
 curl http://localhost:5000/
 docker compose -f docker/docker-compose.yml ps knowledge-ingest-worker

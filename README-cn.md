@@ -152,7 +152,7 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis
 
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml pull
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher scheduler
 ```
 
 用 `SOIT_IMAGE_TAG` 固定版本（默认 `v1.8.0`）。镜像可用 `gh attestation verify` 校验。发布的 `web` 镜像在自身域名下以 `/api/v1` 访问 API，并反向代理到 `api` 服务，因此任何宿主端口都可以使用。
@@ -168,7 +168,7 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 在仓库根目录启动完整的本地演示栈：
 
 ```bash
-docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher scheduler
 ```
 
 然后打开 `http://localhost:5000`，用 `.env` 里的 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` 登录（默认 `admin@example.com` / `changeme123`）。API 在 `http://localhost:9200/api/v1`。

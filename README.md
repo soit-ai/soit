@@ -163,7 +163,7 @@ digests and attestations):
 
 ```bash
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml pull
-docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.images.yml up -d --no-build postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher scheduler
 ```
 
 Pin a version with `SOIT_IMAGE_TAG` (defaults to `v1.8.0`). Images can be
@@ -184,7 +184,7 @@ For the Phase 1 bilingual quickstart, demo seed, and smoke evidence path, see [d
 From the repository root, start the full local demo stack:
 
 ```bash
-docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher
+docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis minio etcd milvus vault migrate bootstrap api web knowledge-ingest-worker outbox-dispatcher scheduler
 ```
 
 Then open `http://localhost:5000` and sign in with `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` from `.env` (defaults: `admin@example.com` / `changeme123`). The API is available at `http://localhost:9200/api/v1`.
