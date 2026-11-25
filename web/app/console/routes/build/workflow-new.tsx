@@ -9,7 +9,6 @@ import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { createTicketTriageWorkflow, createWorkflow } from '@/services/workflow-service'
 import { requestErrorMessage } from '@/utils/request'
-import { pressable } from '@/lib/pressable'
 
 const TEMPLATES = [
   { id: 'blank', name: 'Blank canvas', description: 'Start from an empty graph. Input and output nodes are placed for you.', nodes: 2, colors: ['var(--cat-amber)', 'var(--cat-teal)'] },
@@ -79,8 +78,11 @@ export default function ConsoleWorkflowNew() {
           <div
             key={template.id}
             className={cn('acard tplcard', selected === template.id && 'sel')}
-            aria-pressed={selected === template.id}
-            {...pressable(() => setSelected(template.id))}
+            // A larger mouse target only: the card's own Use template button
+            // selects it too and is how the keyboard reaches it, so the card
+            // is not a second control wrapped around the first.
+            role="presentation"
+            onClick={() => setSelected(template.id)}
           >
             <b style={{ fontWeight: 600 }}>{template.name}</b>
             <p>{template.description}</p>
