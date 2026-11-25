@@ -1,3 +1,5 @@
+import { useTranslation } from '@/i18n'
+
 /**
  * The right-hand column of the auth screens (v13 prototype).
  *
@@ -52,21 +54,18 @@ function Notes({ notes }: { notes: { text: string; color?: string }[] }) {
 }
 
 export function SignInAside() {
+  const { t } = useTranslation()
   return (
     <>
       <div className="auth-claim">
-        <h2>Every reply is a governed run.</h2>
-        <p>
-          Nothing an agent does here is off the record. A request becomes a run,
-          the run is checked against the workspace&apos;s policy before it acts,
-          and what it did is kept as evidence you can replay.
-        </p>
+        <h2>{t('auth.aside.signIn.claim')}</h2>
+        <p>{t('auth.aside.signIn.body')}</p>
       </div>
 
       <div className="panel auth-evidence">
         <div className="panel-head">
-          <h2>What one run leaves behind</h2>
-          <span className="hint">run detail</span>
+          <h2>{t('auth.aside.signIn.evidenceTitle')}</h2>
+          <span className="hint">{t('auth.aside.signIn.evidenceHint')}</span>
         </div>
         <div className="auth-ev-run">
           <span className="runid">run_01J9KD84QF</span>
@@ -77,10 +76,27 @@ export function SignInAside() {
           </span>
         </div>
         {[
-          { title: 'Policy verdict', detail: '2/2 gates · egress allowlist', note: 'before it acted', tone: 'pri' as const },
-          { title: 'Tool call', detail: 'helpdesk-api · tickets.write', note: 'arguments kept' },
-          { title: 'Citations', detail: 'product-docs · 2 sources', note: 'quoted spans' },
-          { title: 'Audit entry', detail: 'aud_8811 · retained', note: 'exportable' },
+          {
+            title: t('auth.aside.signIn.policy'),
+            detail: t('auth.aside.signIn.policyDetail'),
+            note: t('auth.aside.signIn.policyNote'),
+            tone: 'pri' as const,
+          },
+          {
+            title: t('auth.aside.signIn.tool'),
+            detail: 'helpdesk-api · tickets.write',
+            note: t('auth.aside.signIn.toolNote'),
+          },
+          {
+            title: t('auth.aside.signIn.citations'),
+            detail: t('auth.aside.signIn.citationsDetail'),
+            note: t('auth.aside.signIn.citationsNote'),
+          },
+          {
+            title: t('auth.aside.signIn.audit'),
+            detail: 'aud_8811 · retained',
+            note: t('auth.aside.signIn.auditNote'),
+          },
         ].map((step) => (
           <div className="auth-ev-step" key={step.title}>
             <span className="auth-ev-rail">
@@ -97,9 +113,9 @@ export function SignInAside() {
 
       <Notes
         notes={[
-          { text: 'Your access is scoped to the workspaces you were granted.' },
-          { text: 'Secrets are referenced, never shown back to an agent.', color: 'var(--cat-teal)' },
-          { text: 'Actions above your role stop at an approval, not a failure.', color: 'var(--cat-amber)' },
+          { text: t('auth.aside.signIn.noteScope') },
+          { text: t('auth.aside.signIn.noteSecrets'), color: 'var(--cat-teal)' },
+          { text: t('auth.aside.signIn.noteApprovals'), color: 'var(--cat-amber)' },
         ]}
       />
     </>
@@ -107,32 +123,46 @@ export function SignInAside() {
 }
 
 export function SignUpAside() {
+  const { t } = useTranslation()
   return (
     <>
       <div className="auth-claim">
-        <h2>One workspace, one policy, one trail.</h2>
-        <p>
-          A new account comes with its own workspace. Agents, knowledge and
-          secrets belong to it, and nothing crosses into another one — including
-          the evidence a run leaves behind.
-        </p>
+        <h2>{t('auth.aside.signUp.claim')}</h2>
+        <p>{t('auth.aside.signUp.body')}</p>
       </div>
 
       <EvidenceList
-        title="What you get on day one"
-        hint="owner"
+        title={t('auth.aside.signUp.evidenceTitle')}
+        hint={t('auth.aside.signUp.evidenceHint')}
         steps={[
-          { title: 'Owner role', detail: 'invite the rest of the team later', note: 'full access', tone: 'pri' },
-          { title: 'An empty workspace', detail: 'no sample agents, no seeded data', note: 'yours' },
-          { title: 'Policy on from the start', detail: 'egress allowlist · approval gates', note: 'before first run' },
-          { title: 'Audit from the first call', detail: 'retained and exportable', note: 'day one' },
+          {
+            title: t('auth.aside.signUp.owner'),
+            detail: t('auth.aside.signUp.ownerDetail'),
+            note: t('auth.aside.signUp.ownerNote'),
+            tone: 'pri',
+          },
+          {
+            title: t('auth.aside.signUp.empty'),
+            detail: t('auth.aside.signUp.emptyDetail'),
+            note: t('auth.aside.signUp.emptyNote'),
+          },
+          {
+            title: t('auth.aside.signUp.policy'),
+            detail: t('auth.aside.signUp.policyDetail'),
+            note: t('auth.aside.signUp.policyNote'),
+          },
+          {
+            title: t('auth.aside.signUp.audit'),
+            detail: t('auth.aside.signUp.auditDetail'),
+            note: t('auth.aside.signUp.auditNote'),
+          },
         ]}
       />
 
       <Notes
         notes={[
-          { text: 'Community builds authenticate with email and password only.' },
-          { text: 'Password reset is not available yet — keep your credentials safe.', color: 'var(--cat-amber)' },
+          { text: t('auth.aside.signUp.noteAuth') },
+          { text: t('auth.aside.signUp.noteReset'), color: 'var(--cat-amber)' },
         ]}
       />
     </>
@@ -140,23 +170,19 @@ export function SignUpAside() {
 }
 
 export function ResetAside() {
+  const { t } = useTranslation()
   return (
     <>
       <div className="auth-claim">
-        <h2>We would rather say no than pretend.</h2>
-        <p>
-          A reset form that accepts your address and sends nothing is worse than
-          no form at all: you wait for mail that will never arrive. The same
-          rule holds inside the console — a figure with nothing behind it is
-          left blank rather than filled with something plausible.
-        </p>
+        <h2>{t('auth.aside.reset.claim')}</h2>
+        <p>{t('auth.aside.reset.body')}</p>
       </div>
 
       <Notes
         notes={[
-          { text: 'Sign-in never says which of the two fields was wrong.' },
-          { text: 'Secrets are referenced, never shown back to an agent.', color: 'var(--cat-teal)' },
-          { text: 'Tiles with no endpoint behind them read "not reported", not zero.', color: 'var(--cat-amber)' },
+          { text: t('auth.aside.reset.noteFields') },
+          { text: t('auth.aside.reset.noteSecrets'), color: 'var(--cat-teal)' },
+          { text: t('auth.aside.reset.noteTiles'), color: 'var(--cat-amber)' },
         ]}
       />
     </>

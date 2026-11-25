@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router'
 import { Link } from '@/components/ui/link'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
+import { useTranslation } from '@/i18n'
 import {
   authCompleteMfaLogin,
   authLogin,
@@ -20,7 +21,7 @@ import { useUserStore } from '@/stores/user'
 import { resolveSafeAuthRedirect, storeAuthTokens } from '@/utils/auth-session'
 import { storage } from '@/utils/storage'
 
-import { AuthError, AuthSubmit, FieldError } from './auth-controls'
+import { AuthError, AuthSubmit, FieldError, lockoutMinutes } from './auth-controls'
 
 /**
  * Sign-in (v13 prototype: signin.html).
@@ -31,6 +32,7 @@ import { AuthError, AuthSubmit, FieldError } from './auth-controls'
  * deployments where it works.
  */
 export const LoginForm = () => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
@@ -101,21 +103,22 @@ export const LoginForm = () => {
       >
         <span className="auth-eyebrow">
           <i aria-hidden />
-          Two-factor
+          {t('auth.mfa.eyebrow')}
         </span>
 
-        <h1>Enter your code</h1>
-        <p className="auth-lede">
-          Open your authenticator app and enter the six-digit code for SOIT. A
-          recovery code works here too, and can only be used once.
-        </p>
+        <h1>{t('auth.mfa.title')}</h1>
+        <p className="auth-lede">{t('auth.mfa.lede')}</p>
 
         {mfaMutation.isError && (
-          <AuthError>That code was not accepted. Codes expire every 30 seconds.</AuthError>
+          <AuthError>
+            {lockoutMinutes(mfaMutation.error) != null
+              ? t('auth.common.tooManyAttempts', { minutes: lockoutMinutes(mfaMutation.error) })
+              : t('auth.mfa.failed')}
+          </AuthError>
         )}
 
         <div className="auth-field">
-          <label htmlFor="mfaCode">Authentication code</label>
+          <label htmlFor="mfaCode">{t('auth.mfa.code')}</label>
           <input
             id="mfaCode"
             className="input"
@@ -127,8 +130,8 @@ export const LoginForm = () => {
           />
         </div>
 
-        <AuthSubmit pending={mfaMutation.isPending} pendingLabel="Checking code">
-          Continue
+        <AuthSubmit pending={mfaMutation.isPending} pendingLabel={t('auth.mfa.pending')}>
+          {t('auth.mfa.submit')}
         </AuthSubmit>
 
         <div className="auth-alt">
@@ -140,7 +143,7 @@ export const LoginForm = () => {
               setMfaCode('')
             }}
           >
-            Use a different account
+            {t('auth.mfa.otherAccount')}
           </button>
         </div>
       </form>
@@ -151,35 +154,36 @@ export const LoginForm = () => {
     <form className="auth-card" onSubmit={handleSubmit(onSubmit)} noValidate>
       <span className="auth-eyebrow">
         <i aria-hidden />
-        Workspace access
+        {t('auth.login.eyebrow')}
       </span>
 
-      <h1>Sign in to SOIT</h1>
-      <p className="auth-lede">
-        Agents, workflows, knowledge and every run they produce — under one
-        workspace&apos;s policy and one audit trail.
-      </p>
+      <h1>{t('auth.login.title')}</h1>
+      <p className="auth-lede">{t('auth.login.lede')}</p>
 
       {/* Says nothing about which of the two was wrong: naming the field tells
           an attacker which addresses are registered. */}
       {loginMutation.isError && (
-        <AuthError>That email and password combination did not match an account.</AuthError>
+        <AuthError>
+          {lockoutMinutes(loginMutation.error) != null
+            ? t('auth.common.tooManyAttempts', { minutes: lockoutMinutes(loginMutation.error) })
+            : t('auth.login.failed')}
+        </AuthError>
       )}
 
       <div className="auth-field">
-        <label htmlFor="email">Email</label>
+        <label htmlFor="email">{t('auth.common.email')}</label>
         <input
           id="email"
           type="email"
           className="input"
-          placeholder="name@company.com"
+          placeholder={t('auth.common.emailPlaceholder')}
           autoComplete="email"
           aria-invalid={Boolean(errors.email)}
           {...register('email', {
-            required: 'Enter the email address for your workspace account.',
+            required: t('auth.login.emailRequired'),
             pattern: {
               value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-              message: 'Enter a valid email address.',
+              message: t('auth.common.emailInvalid'),
             },
           })}
         />
@@ -187,7 +191,7 @@ export const LoginForm = () => {
       </div>
 
       <div className="auth-field">
-        <label htmlFor="password">Password</label>
+        <label htmlFor="password">{t('auth.common.password')}</label>
         <input
           id="password"
           type="password"
@@ -195,15 +199,16 @@ export const LoginForm = () => {
           autoComplete="current-password"
           aria-invalid={Boolean(errors.password)}
           {...register('password', {
-            required: 'Enter your password.',
-            minLength: { value: 6, message: 'Passwords are at least 6 characters.' },
+            // No length rule on sign-in: the server decides, and a length hint
+            // here tells a guesser nothing it needs.
+            required: t('auth.login.passwordRequired'),
           })}
         />
         <FieldError message={errors.password?.message} />
       </div>
 
-      <AuthSubmit pending={loginMutation.isPending} pendingLabel="Opening workspace">
-        Open workspace
+      <AuthSubmit pending={loginMutation.isPending} pendingLabel={t('auth.login.pending')}>
+        {t('auth.login.submit')}
       </AuthSubmit>
 
       {/* Offered only when this deployment can send mail. A reset link nobody
@@ -212,12 +217,12 @@ export const LoginForm = () => {
           letting the feature exist where it works. */}
       {capabilities.data?.mail_enabled && (
         <div className="auth-alt">
-          <Link to="/forgot-password">Forgot your password?</Link>
+          <Link to="/forgot-password">{t('auth.login.forgot')}</Link>
         </div>
       )}
 
       <div className="auth-alt">
-        New to SOIT? <Link to="/sign-up">Create an account</Link>
+        {t('auth.login.newHere')} <Link to="/sign-up">{t('auth.login.createAccount')}</Link>
       </div>
     </form>
   )

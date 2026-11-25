@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import { Link } from '@/components/ui/link'
 import { useMutation } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
+import { useTranslation } from '@/i18n'
 import { confirmPasswordReset } from '@/services/auth-service'
 
 import { AuthError, AuthSubmit, FieldError } from './auth-controls'
@@ -23,6 +24,7 @@ interface ResetForm {
  * intruder signed in would make it pointless.
  */
 export function ResetPasswordForm() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const token = searchParams.get('token') || ''
@@ -44,15 +46,12 @@ export function ResetPasswordForm() {
       <div className="auth-card">
         <span className="auth-eyebrow warn">
           <i aria-hidden />
-          Link incomplete
+          {t('auth.reset.missingEyebrow')}
         </span>
-        <h1>This link is missing its token</h1>
-        <p className="auth-lede">
-          Open the link from the email exactly as it arrived, or ask for a new
-          one.
-        </p>
+        <h1>{t('auth.reset.missingTitle')}</h1>
+        <p className="auth-lede">{t('auth.reset.missingLede')}</p>
         <Link to="/forgot-password" className="btn primary auth-submit">
-          Send a new link
+          {t('auth.reset.newLink')}
         </Link>
       </div>
     )
@@ -66,24 +65,16 @@ export function ResetPasswordForm() {
     >
       <span className="auth-eyebrow">
         <i aria-hidden />
-        Account recovery
+        {t('auth.common.accountRecovery')}
       </span>
 
-      <h1>Choose a new password</h1>
-      <p className="auth-lede">
-        Setting it signs you out everywhere else, so anyone else holding a
-        session loses it.
-      </p>
+      <h1>{t('auth.reset.title')}</h1>
+      <p className="auth-lede">{t('auth.reset.lede')}</p>
 
-      {resetMutation.isError && (
-        <AuthError>
-          That link is no longer valid. Reset links work once and expire after
-          30 minutes.
-        </AuthError>
-      )}
+      {resetMutation.isError && <AuthError>{t('auth.reset.failed')}</AuthError>}
 
       <div className="auth-field">
-        <label htmlFor="password">New password</label>
+        <label htmlFor="password">{t('auth.reset.password')}</label>
         <input
           id="password"
           type="password"
@@ -91,15 +82,15 @@ export function ResetPasswordForm() {
           autoComplete="new-password"
           aria-invalid={Boolean(errors.password)}
           {...register('password', {
-            required: 'Enter a new password.',
-            minLength: { value: 8, message: 'Passwords are at least 8 characters.' },
+            required: t('auth.reset.passwordRequired'),
+            minLength: { value: 8, message: t('auth.common.passwordMin') },
           })}
         />
         <FieldError message={errors.password?.message} />
       </div>
 
       <div className="auth-field">
-        <label htmlFor="confirm">Confirm new password</label>
+        <label htmlFor="confirm">{t('auth.reset.confirm')}</label>
         <input
           id="confirm"
           type="password"
@@ -107,20 +98,19 @@ export function ResetPasswordForm() {
           autoComplete="new-password"
           aria-invalid={Boolean(errors.confirm)}
           {...register('confirm', {
-            required: 'Repeat the new password.',
-            validate: (value) =>
-              value === watch('password') || 'The two passwords do not match.',
+            required: t('auth.reset.confirmRequired'),
+            validate: (value) => value === watch('password') || t('auth.reset.mismatch'),
           })}
         />
         <FieldError message={errors.confirm?.message} />
       </div>
 
-      <AuthSubmit pending={resetMutation.isPending} pendingLabel="Setting password">
-        Set password
+      <AuthSubmit pending={resetMutation.isPending} pendingLabel={t('auth.reset.pending')}>
+        {t('auth.reset.submit')}
       </AuthSubmit>
 
       <div className="auth-alt">
-        Remembered it? <Link to="/sign-in">Sign in</Link>
+        {t('auth.common.rememberedIt')} <Link to="/sign-in">{t('auth.common.signIn')}</Link>
       </div>
     </form>
   )

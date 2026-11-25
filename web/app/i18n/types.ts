@@ -3,6 +3,7 @@ import { LanguagesArr } from './language'
 // Define types for all translation files
 type TranslationKeys = {
   agent: typeof import('./en-US/agent').default
+  auth: typeof import('./en-US/auth').default
   common: typeof import('./en-US/common').default
   layout: typeof import('./en-US/layout').default
   login: typeof import('./en-US/login').default

@@ -17,6 +17,7 @@ type ResourcesType = {
 
 const NAMESPACES = [
   'agent',
+  'auth',
   'chat',
   'common',
   'console',

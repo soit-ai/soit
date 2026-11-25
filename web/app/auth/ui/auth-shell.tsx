@@ -4,6 +4,7 @@ import '@/auth/styles/auth.css'
 import '@/console/styles/console.css'
 import { IconLogo, IconMoon, IconSun } from '@/console/components/icons'
 import { ConsoleThemeProvider, useConsoleTheme } from '@/console/shell/console-theme'
+import { useTranslation } from '@/i18n'
 import { cn } from '@/lib/utils'
 
 interface AuthShellProps {
@@ -25,6 +26,7 @@ interface AuthShellProps {
  * instead of two.
  */
 function AuthShellInner({ children, aside }: AuthShellProps) {
+  const { t } = useTranslation()
   const { theme, toggleTheme } = useConsoleTheme()
 
   return (
@@ -39,8 +41,8 @@ function AuthShellInner({ children, aside }: AuthShellProps) {
             type="button"
             className="btn ghost auth-theme"
             onClick={toggleTheme}
-            title="Toggle theme"
-            aria-label="Toggle theme"
+            title={t('auth.shell.toggleTheme')}
+            aria-label={t('auth.shell.toggleTheme')}
             style={{ width: 28, height: 28, padding: 0, display: 'grid', placeItems: 'center' }}
           >
             {theme === 'dark' ? <IconMoon size={14} /> : <IconSun size={14} />}
@@ -52,7 +54,7 @@ function AuthShellInner({ children, aside }: AuthShellProps) {
         <div className="auth-foot">
           <i aria-hidden />
           soit console
-          <span>Email and password only on community builds</span>
+          <span>{t('auth.shell.foot')}</span>
         </div>
       </div>
 

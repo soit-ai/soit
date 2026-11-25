@@ -51,3 +51,19 @@ export function AuthSubmit({ pending, pendingLabel, children }: AuthSubmitProps)
     </button>
   )
 }
+
+/**
+ * Minutes until a refused attempt may be retried, when the server refused it
+ * for too many failures (429), or null for any other error. The server sends
+ * the wait in seconds as `details.retry_after`.
+ */
+export function lockoutMinutes(error: unknown): number | null {
+  const response = (
+    error as {
+      response?: { status?: number; data?: { details?: { retry_after?: unknown } } }
+    } | null
+  )?.response
+  if (response?.status !== 429) return null
+  const seconds = Number(response.data?.details?.retry_after)
+  return Math.max(1, Math.ceil((Number.isFinite(seconds) && seconds > 0 ? seconds : 60) / 60))
+}

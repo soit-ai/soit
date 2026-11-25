@@ -3,18 +3,20 @@ import { useForm } from 'react-hook-form'
 import { Link } from '@/components/ui/link'
 import { useMutation } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
+import { useTranslation } from '@/i18n'
 import { authRegister, type RegisterRequest, type TokenResponse } from '@/services/auth-service'
 import { getCurrentUser } from '@/services/identity-service'
 import { useUserStore } from '@/stores/user'
 import { storeAuthTokens } from '@/utils/auth-session'
 import { storage } from '@/utils/storage'
 
-import { AuthError, AuthSubmit, FieldError } from './auth-controls'
+import { AuthError, AuthSubmit, FieldError, lockoutMinutes } from './auth-controls'
 
 type RegisterFormValues = RegisterRequest & { confirmPassword: string }
 
 /** Sign-up (v13 prototype: signup.html). */
 export const RegisterForm = () => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
   const {
@@ -56,33 +58,34 @@ export const RegisterForm = () => {
     <form className="auth-card" onSubmit={handleSubmit(onSubmit)} noValidate>
       <span className="auth-eyebrow">
         <i aria-hidden />
-        New workspace
+        {t('auth.register.eyebrow')}
       </span>
 
-      <h1>Create your SOIT account</h1>
-      <p className="auth-lede">
-        You get an owner account and a workspace of your own. Everything an
-        agent does in it is scoped to that workspace from the first run.
-      </p>
+      <h1>{t('auth.register.title')}</h1>
+      <p className="auth-lede">{t('auth.register.lede')}</p>
 
       {registerMutation.isError && (
-        <AuthError>That account could not be created. The email may already be registered.</AuthError>
+        <AuthError>
+          {lockoutMinutes(registerMutation.error) != null
+            ? t('auth.common.tooManyAttempts', { minutes: lockoutMinutes(registerMutation.error) })
+            : t('auth.register.failed')}
+        </AuthError>
       )}
 
       <div className="auth-field">
-        <label htmlFor="email">Email</label>
+        <label htmlFor="email">{t('auth.common.email')}</label>
         <input
           id="email"
           type="email"
           className="input"
-          placeholder="name@company.com"
+          placeholder={t('auth.common.emailPlaceholder')}
           autoComplete="email"
           aria-invalid={Boolean(errors.email)}
           {...register('email', {
-            required: 'Enter a valid email address.',
+            required: t('auth.register.emailRequired'),
             pattern: {
               value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-              message: 'Enter a valid email address.',
+              message: t('auth.common.emailInvalid'),
             },
           })}
         />
@@ -90,36 +93,36 @@ export const RegisterForm = () => {
       </div>
 
       <div className="auth-field">
-        <label htmlFor="name">Your name</label>
+        <label htmlFor="name">{t('auth.register.name')}</label>
         <input
           id="name"
           type="text"
           className="input"
-          placeholder="Jude"
+          placeholder={t('auth.register.namePlaceholder')}
           autoComplete="name"
           aria-invalid={Boolean(errors.name)}
-          {...register('name', { required: 'Your name appears on audit entries and approvals.' })}
+          {...register('name', { required: t('auth.register.nameRequired') })}
         />
         <FieldError message={errors.name?.message} />
       </div>
 
       <div className="auth-field">
         <div className="auth-field-head">
-          <label htmlFor="tenant-name">Organisation</label>
-          <span className="auth-opt">optional</span>
+          <label htmlFor="tenant-name">{t('auth.register.organisation')}</label>
+          <span className="auth-opt">{t('auth.register.optional')}</span>
         </div>
         <input
           id="tenant-name"
           type="text"
           className="input"
-          placeholder="acme-robotics"
+          placeholder={t('auth.register.organisationPlaceholder')}
           {...register('tenant_name')}
         />
-        <span className="auth-hint">Leave blank and one is created for you.</span>
+        <span className="auth-hint">{t('auth.register.organisationHint')}</span>
       </div>
 
       <div className="auth-field">
-        <label htmlFor="password">Password</label>
+        <label htmlFor="password">{t('auth.common.password')}</label>
         <input
           id="password"
           type="password"
@@ -127,15 +130,17 @@ export const RegisterForm = () => {
           autoComplete="new-password"
           aria-invalid={Boolean(errors.password)}
           {...register('password', {
-            required: 'Choose a password.',
-            minLength: { value: 6, message: 'Passwords are at least 6 characters.' },
+            required: t('auth.register.passwordRequired'),
+            // The server refuses anything shorter; saying so here beats a
+            // generic "could not be created".
+            minLength: { value: 8, message: t('auth.common.passwordMin') },
           })}
         />
         <FieldError message={errors.password?.message} />
       </div>
 
       <div className="auth-field">
-        <label htmlFor="confirm-password">Confirm password</label>
+        <label htmlFor="confirm-password">{t('auth.common.confirmPassword')}</label>
         <input
           id="confirm-password"
           type="password"
@@ -143,20 +148,20 @@ export const RegisterForm = () => {
           autoComplete="new-password"
           aria-invalid={Boolean(errors.confirmPassword)}
           {...register('confirmPassword', {
-            required: 'Repeat the password.',
+            required: t('auth.register.confirmRequired'),
             validate: (value: string) =>
-              value === watch('password') || 'Both passwords must match.',
+              value === watch('password') || t('auth.register.mismatch'),
           })}
         />
         <FieldError message={errors.confirmPassword?.message} />
       </div>
 
-      <AuthSubmit pending={registerMutation.isPending} pendingLabel="Creating workspace">
-        Create workspace
+      <AuthSubmit pending={registerMutation.isPending} pendingLabel={t('auth.register.pending')}>
+        {t('auth.register.submit')}
       </AuthSubmit>
 
       <div className="auth-alt">
-        Already have an account? <Link to="/sign-in">Sign in</Link>
+        {t('auth.register.haveAccount')} <Link to="/sign-in">{t('auth.common.signIn')}</Link>
       </div>
     </form>
   )

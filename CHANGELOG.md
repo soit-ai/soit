@@ -136,6 +136,11 @@ record for operators.
   after something else re-rendered them. The document's `lang` follows the
   choice, and the locale files load in parallel instead of one after another
   before the first render.
+- The sign-in, sign-up and password reset screens are translated, in
+  Simplified Chinese as well. A sign-in, code or reset refused for too many
+  attempts says how long to wait instead of calling the password wrong.
+  Sign-up asks for at least 8 characters, as the server does, rather than 6
+  and a generic refusal for 6 or 7.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are
