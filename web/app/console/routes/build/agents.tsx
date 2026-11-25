@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { toast } from 'sonner'
 
@@ -33,9 +33,11 @@ import { catColor, compactNumber, latency, percent, relativeTime } from '../../a
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import type { TranslationKey } from '@/i18n/types'
+import { readDocumentFile } from '../../adapters/read-document-file'
 import {
   createAgent,
   getAgentWorkbench,
+  importAgentFile,
   listDraftsAwaitingReview,
   reviewAgentVersion,
   type AgentReviewAction,
@@ -102,6 +104,31 @@ export default function ConsoleAgents() {
     },
   })
 
+  // Import takes the file `soit agent export` writes. The server validates it
+  // as it would a hand-made version, so a missing binding is its refusal to
+  // report, not something to pre-check here.
+  const importInput = useRef<HTMLInputElement>(null)
+  const importMutation = useMutation({
+    mutationKey: ['console', 'agents', 'import'],
+    mutationFn: async (file: File) => {
+      let document: Record<string, unknown>
+      try {
+        document = await readDocumentFile(file)
+      } catch {
+        throw new Error(t('console.agents.importUnreadable'))
+      }
+      return importAgentFile(document, { suppressErrorToast: true })
+    },
+    onSuccess: (result) => {
+      toast.success(t('console.agents.imported', { name: result.agent.name }))
+      void workbenchQuery.refetch()
+      navigate(`/build/agents/${result.agent.id}`)
+    },
+    onError: (error: unknown) => {
+      toast.error(requestErrorMessage(error, t('console.agents.importFailed')))
+    },
+  })
+
   // Drafts somebody was asked to look at. A draft nobody requested review on
   // is work in progress, not a queue entry, so it is not listed here.
   const draftsQuery = useQuery({
@@ -152,7 +179,22 @@ export default function ConsoleAgents() {
       description={t('console.agents.description')}
       actions={
         <>
-          <ConsoleButton>
+          <input
+            ref={importInput}
+            type="file"
+            accept=".yaml,.yml,.json,application/json,application/yaml,text/yaml"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) importMutation.mutate(file)
+            }}
+          />
+          <ConsoleButton
+            title={t('console.agents.importHint')}
+            disabled={importMutation.isPending}
+            onClick={() => importInput.current?.click()}
+          >
             <IconExport />
             {t('console.agents.import')}
           </ConsoleButton>

@@ -49,7 +49,7 @@ export interface RunDetailView {
   policy_code: string
   events: Array<{ ix: string; type: string; payload: string; at: string }>
   events_code: { command: string; output: string }
-  artifacts: Array<{ name: string; type: string; digest: string; size: string }>
+  artifacts: Array<{ id: string; name: string; type: string; digest: string; size: string }>
   raw: string
   verdict_note: string
   chain: Array<{ title: string; detail: string }>
@@ -242,6 +242,7 @@ export function toRunDetailView(detail: RunDetailResponse): RunDetailView {
       output: `${detail.response_events.length} events · same stream the Chat surface renders from`,
     },
     artifacts: (detail.artifacts || []).map((artifact) => ({
+      id: artifact.id,
       name: artifactName(artifact),
       type: artifact.type || artifact.mime || '—',
       digest: shortDigest(artifact.sha256),

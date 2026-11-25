@@ -23,15 +23,18 @@ import { cn } from '@/lib/utils'
 import { listRuns } from '@/services/run-service'
 import {
   cancelRun,
+  deleteWorkflow,
   failRun,
   getCurrentWorkflowVersionOrNull,
   getWorkflow,
   getWorkflowCapabilities,
   listWorkflowVersions,
   pauseRun,
+  publishWorkflowVersion,
   replayRun,
   resumeRun,
   retryRun,
+  updateWorkflow,
 } from '@/services/workflow-service'
 
 type WfTab = 'build' | 'monitor' | 'publish' | 'settings'
@@ -118,7 +121,7 @@ function formatStarted(iso?: string | null): string {
 // Everything on this page reads workflow-service (/workflows/{id},
 // /version/current, /versions, /capabilities) and run-service (/runs, whose
 // rows carry each run's cost). There is no publish-validation or legacy-node
-// migration-target endpoint, so the page offers neither.
+// migration-target endpoint, so those two buttons are disabled and say so.
 export default function ConsoleWorkflowDetail() {
   const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
@@ -254,6 +257,58 @@ export default function ConsoleWorkflowDetail() {
     failMutation.isPending ||
     replayMutation.isPending
 
+  // Publishing promotes whatever version is current, as the list page does.
+  const [publishOpen, setPublishOpen] = useState(false)
+  const publishMutation = useMutation({
+    mutationKey: ['console', 'workflow', 'publish'],
+    mutationFn: () => publishWorkflowVersion(workflowId as string, currentVersionId as string),
+    onSuccess: () => {
+      setPublishOpen(false)
+      toast.success(
+        t('console.wfDetail.published', { version: currentOrdinal ? `v${currentOrdinal}` : '' }),
+      )
+      void workflowQuery.refetch()
+      void versionsQuery.refetch()
+    },
+    onError: onControlError(t('console.wfDetail.publishFailed')),
+  })
+  const canPublish = Boolean(currentVersionId) && currentVersionId !== publishedVersionId
+
+  // Name and description are workflow columns; the rest of the settings tab
+  // is read from metadata_json, which nothing here writes.
+  const [settingsDraft, setSettingsDraft] = useState<{ name: string; description: string } | null>(
+    null,
+  )
+  const settingsName = settingsDraft?.name ?? workflow?.name ?? ''
+  const settingsDescription =
+    settingsDraft?.description ?? workflow?.description ?? workflow?.summary ?? ''
+  const saveSettingsMutation = useMutation({
+    mutationKey: ['console', 'workflow', 'settings'],
+    mutationFn: () =>
+      updateWorkflow(workflowId as string, {
+        name: settingsName.trim(),
+        description: settingsDescription,
+      }),
+    onSuccess: () => {
+      setSettingsDraft(null)
+      toast.success(t('console.wfDetail.saved'))
+      void workflowQuery.refetch()
+    },
+    onError: onControlError(t('console.wfDetail.saveFailed')),
+  })
+
+  // DELETE /workflows/{id} archives: it stamps deleted_at and keeps the runs.
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const archiveMutation = useMutation({
+    mutationKey: ['console', 'workflow', 'archive'],
+    mutationFn: () => deleteWorkflow(workflowId as string, { suppressErrorToast: true }),
+    onSuccess: () => {
+      setArchiveOpen(false)
+      navigate('/build/workflows')
+    },
+    onError: onControlError('Failed to archive the workflow'),
+  })
+
   const confirmMutation =
     confirming?.action === 'cancel'
       ? cancelMutation
@@ -280,8 +335,14 @@ export default function ConsoleWorkflowDetail() {
         </span>
         {hasDraftChanges && <StatusChip status="warn" label="DRAFT CHANGES" />}
         <span className="spacer" />
-        <ConsoleButton>{t('console.wfDetail.validate')}</ConsoleButton>
-        <ConsoleButton variant="primary">
+        <ConsoleButton disabled title={t('console.common.notAvailable')}>
+          {t('console.wfDetail.validate')}
+        </ConsoleButton>
+        <ConsoleButton
+          variant="primary"
+          disabled={!canPublish || publishMutation.isPending}
+          onClick={() => setPublishOpen(true)}
+        >
           <IconExport />
           {t('console.wfDetail.publish', {
             version: currentOrdinal ? `v${currentOrdinal}` : '',
@@ -321,7 +382,9 @@ export default function ConsoleWorkflowDetail() {
                 {t('console.wfDetail.warnbar')} <span className="mono">variable-assign@v2</span>{' '}
                 {t('console.wfDetail.warnbarSuffix')}
               </span>
-              <ConsoleButton>{t('console.wfDetail.migrate')}</ConsoleButton>
+              <ConsoleButton disabled title={t('console.common.notAvailable')}>
+                {t('console.wfDetail.migrate')}
+              </ConsoleButton>
             </div>
           )}
           {/* The real builder, shared with the legacy page: ReactFlow canvas,
@@ -511,70 +574,71 @@ export default function ConsoleWorkflowDetail() {
       {tab === 'settings' && (
         <WorkbenchPanel title={t('console.wfDetail.settingsTitle')}>
           <div className="frow">
-            <label>{t('console.wfDetail.fields.name')}</label>
-            <input key={`wf-name-${workflow?.id}`} className="input" defaultValue={workflow?.name || ''} />
-          </div>
-          <div className="frow">
-            <label>{t('console.wfDetail.fields.description')}</label>
+            <label htmlFor="wf-settings-name">{t('console.wfDetail.fields.name')}</label>
             <input
-              key={`wf-desc-${workflow?.id}`}
+              id="wf-settings-name"
               className="input"
-              defaultValue={workflow?.description || workflow?.summary || ''}
+              value={settingsName}
+              onChange={(event) =>
+                setSettingsDraft({ name: event.target.value, description: settingsDescription })
+              }
             />
           </div>
           <div className="frow">
-            <label>
-              {t('console.wfDetail.fields.trigger')}
-              <small>{t('console.wfDetail.fields.triggerHint')}</small>
-            </label>
-            {/* Trigger, concurrency, retry and policy bundle are not columns on
-                the workflow record; they round-trip through metadata_json. */}
-            <select
-              key={`wf-trigger-${workflow?.id}`}
-              className="input"
-              defaultValue={paramString(workflow?.metadata_json || {}, 'trigger')}
-            >
-              <option>webhook · ticket.created</option>
-              <option>schedule</option>
-              <option>manual</option>
-              <option>api</option>
-            </select>
-          </div>
-          <div className="frow">
-            <label>{t('console.wfDetail.fields.concurrency')}</label>
+            <label htmlFor="wf-settings-description">{t('console.wfDetail.fields.description')}</label>
             <input
-              key={`wf-concurrency-${workflow?.id}`}
+              id="wf-settings-description"
               className="input"
-              defaultValue={paramString(workflow?.metadata_json || {}, 'concurrency')}
-              style={{ maxWidth: 200 }}
+              value={settingsDescription}
+              onChange={(event) =>
+                setSettingsDraft({ name: settingsName, description: event.target.value })
+              }
             />
           </div>
           <div className="frow">
-            <label>{t('console.wfDetail.fields.retry')}</label>
-            <input
-              key={`wf-retry-${workflow?.id}`}
-              className="input"
-              defaultValue={paramString(workflow?.metadata_json || {}, 'retry')}
-              style={{ maxWidth: 200 }}
-            />
+            <label />
+            <div>
+              <ConsoleButton
+                variant="primary"
+                disabled={
+                  !settingsDraft || !settingsName.trim() || saveSettingsMutation.isPending
+                }
+                onClick={() => saveSettingsMutation.mutate(undefined)}
+              >
+                {t('console.common.save')}
+              </ConsoleButton>
+            </div>
           </div>
-          <div className="frow">
-            <label>
-              {t('console.wfDetail.fields.bundle')}
-              <small>{t('console.wfDetail.fields.bundleHint')}</small>
-            </label>
-            <select key={`wf-bundle-${workflow?.id}`} className="input" defaultValue={policyBundle}>
-              <option>workspace default (v2026.08.27-2)</option>
-              <option>pin v2026.08.27-2</option>
-            </select>
-          </div>
+          {/* Trigger, concurrency, retry and policy bundle are not columns on
+              the workflow record; they are shown as metadata_json carries
+              them, and nothing on this page edits them. */}
+          {(
+            [
+              ['trigger', t('console.wfDetail.fields.trigger'), paramString(workflow?.metadata_json || {}, 'trigger')],
+              ['concurrency', t('console.wfDetail.fields.concurrency'), paramString(workflow?.metadata_json || {}, 'concurrency')],
+              ['retry', t('console.wfDetail.fields.retry'), paramString(workflow?.metadata_json || {}, 'retry')],
+              ['bundle', t('console.wfDetail.fields.bundle'), policyBundle === '—' ? '' : policyBundle],
+            ] as const
+          ).map(([key, label, value]) => (
+            <div className="frow" key={key}>
+              <label>
+                {label}
+                <small>{t('console.wfDetail.metadataHint')}</small>
+              </label>
+              <div className="mono">{value || '—'}</div>
+            </div>
+          ))}
           <div className="frow">
             <label style={{ color: 'var(--danger-foreground)' }}>
               {t('console.wfDetail.fields.archive')}
               <small>{t('console.wfDetail.fields.archiveHint')}</small>
             </label>
             <div>
-              <ConsoleButton style={{ color: 'var(--danger-foreground)' }}>
+              <ConsoleButton
+                style={{ color: 'var(--danger-foreground)' }}
+                disabled={!workflowId}
+                onClick={() => setArchiveOpen(true)}
+              >
                 {t('console.wfDetail.fields.archiveBtn')}
               </ConsoleButton>
             </div>
@@ -618,6 +682,34 @@ export default function ConsoleWorkflowDetail() {
                   : 'console.wfDetail.runControls.replayConfirm',
             { id: confirming?.runId ?? '' },
           )}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+        title={t('console.workflows.publishTitleModal')}
+        note={t('console.workflows.publishModalNote')}
+        confirmLabel={t('console.workflows.publishAction')}
+        busy={publishMutation.isPending}
+        onConfirm={() => publishMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.workflows.publishConfirm', { name })}
+        </div>
+      </ConsoleModal>
+
+      <ConsoleModal
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        title={t('console.workflows.archiveTitle')}
+        confirmLabel={t('console.workflows.archiveAction')}
+        destructive
+        busy={archiveMutation.isPending}
+        onConfirm={() => archiveMutation.mutate(undefined)}
+      >
+        <div style={{ padding: '12px 16px', fontSize: 12.5, lineHeight: 1.6 }} className="dim">
+          {t('console.workflows.archiveConfirm', { name })}
         </div>
       </ConsoleModal>
     </>

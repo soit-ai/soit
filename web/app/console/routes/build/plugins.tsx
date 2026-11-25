@@ -406,7 +406,11 @@ export default function ConsolePlugins() {
             </TableBody>
           </Table>
           <Pager summary={t('console.plugins.installedNote')}>
-            <ConsoleButton size="sm">{t('console.plugins.reviewUpdate')}</ConsoleButton>
+            {/* Upgrades go through the package upload; nothing yet compares
+                an installed plugin against a newer release to review. */}
+            <ConsoleButton size="sm" disabled title={t('console.common.notAvailable')}>
+              {t('console.plugins.reviewUpdate')}
+            </ConsoleButton>
           </Pager>
         </WorkbenchPanel>
       )}

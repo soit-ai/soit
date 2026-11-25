@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { toast } from 'sonner'
 
@@ -31,12 +31,15 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { compactNumber, latency, percent, relativeTime } from '../../adapters/palette'
+import { readDocumentFile } from '../../adapters/read-document-file'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import {
+  createWorkflow,
   deleteWorkflow,
   getWorkflow,
   getWorkflowWorkbench,
+  importWorkflowDsl,
   publishWorkflowVersion,
   type WorkflowWorkbenchRow,
 } from '@/services/workflow-service'
@@ -109,6 +112,40 @@ export default function ConsoleWorkflows() {
     },
   })
 
+  // A DSL file imports into an existing workflow, so importing from the list
+  // creates one first, named after the DSL (or the file), and archives it
+  // again if the DSL is refused, rather than leaving an empty workflow.
+  const importInput = useRef<HTMLInputElement>(null)
+  const importMutation = useMutation({
+    mutationKey: ['console', 'workflows', 'import'],
+    mutationFn: async (file: File) => {
+      const dsl = await readDocumentFile(file)
+      const named = typeof dsl.name === 'string' && dsl.name.trim() ? dsl.name.trim() : ''
+      const workflow = await createWorkflow(
+        {
+          name: named || file.name.replace(/\.(ya?ml|json)$/i, ''),
+          description: typeof dsl.description === 'string' ? dsl.description : undefined,
+        },
+        { suppressErrorToast: true },
+      )
+      try {
+        await importWorkflowDsl(workflow.id, { dsl, format: 'json' })
+      } catch (error) {
+        await deleteWorkflow(workflow.id, { suppressErrorToast: true }).catch(() => undefined)
+        throw error
+      }
+      return workflow
+    },
+    onSuccess: (workflow) => {
+      toast.success(t('console.workflows.imported', { name: workflow.name }))
+      void workbenchQuery.refetch()
+      navigate(`/build/workflows/${workflow.id}`)
+    },
+    onError: (error: unknown) => {
+      toast.error(requestErrorMessage(error, t('console.workflows.importFailed')))
+    },
+  })
+
   const matchesSearch = (row: WorkflowWorkbenchRow) => {
     const query = search.trim().toLowerCase()
     if (!query) return true
@@ -134,7 +171,22 @@ export default function ConsoleWorkflows() {
       description={t('console.workflows.description')}
       actions={
         <>
-          <ConsoleButton>
+          <input
+            ref={importInput}
+            type="file"
+            accept=".yaml,.yml,.json,application/json,application/yaml,text/yaml"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) importMutation.mutate(file)
+            }}
+          />
+          <ConsoleButton
+            title={t('console.workflows.importHint')}
+            disabled={importMutation.isPending}
+            onClick={() => importInput.current?.click()}
+          >
             <IconExport />
             {t('console.workflows.import')}
           </ConsoleButton>

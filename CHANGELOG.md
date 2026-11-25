@@ -122,6 +122,15 @@ record for operators.
   overlay had no `scheduler` image, so `up --no-build` could not start it,
   and the quickstart, README and bootstrap commands did not name the service.
   Both are fixed; `scheduler` is now in every full-topology command.
+- Console controls that did nothing now work or say they are unavailable.
+  Agents and workflows can be imported from a file (`soit agent export`
+  YAML or JSON; a workflow DSL); a workflow's detail page publishes its
+  current version, saves its name and description, and archives it; run
+  artifacts download; Notification rules on Approvals opens the workspace
+  notification settings; and the Appearance settings switch theme and
+  language. Validate, Migrate, Run test, Review update and the Access export,
+  which have no endpoint yet, are disabled with a note, and the workflow
+  settings tab no longer offers invented triggers and policy bundles.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are

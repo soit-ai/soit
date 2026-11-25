@@ -262,6 +262,18 @@ export const deleteAgent = (
   return del(`/agents/${agentId}`, undefined, config)
 }
 
+/**
+ * POST /agents/import: create an agent and its draft version from an agent
+ * file, the document `soit agent export` writes. Bindings it names must exist
+ * in this workspace, or the import is refused.
+ */
+export const importAgentFile = (
+  document: Record<string, unknown>,
+  config?: RequestConfigWithToast,
+): Promise<{ agent: Agent; version?: unknown }> => {
+  return post('/agents/import', document, config)
+}
+
 export const listAgentVersions = (
   agentId: string,
   params?: {

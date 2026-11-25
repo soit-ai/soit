@@ -24,7 +24,9 @@ import { cn } from '@/lib/utils'
 import { getRunReplay } from '@/services/observe-service'
 import { getRunDetail } from '@/services/run-service'
 import { downloadRunEvidence } from '@/services/ledger-service'
-import { requestErrorMessage } from '@/utils/request'
+import { fetchGovernedContent } from '@/services/attachment-service'
+import { saveBlob } from '../../adapters/save-blob'
+import { API_BASE_URL, requestErrorMessage } from '@/utils/request'
 
 type RunTab = 'ledger' | 'policy' | 'events' | 'artifacts' | 'raw'
 
@@ -64,6 +66,20 @@ export default function ConsoleRunDetail() {
       toast.error(requestErrorMessage(error, 'Failed to build the evidence bundle'))
     },
   })
+
+  // Artifact bytes come from the governed content route, which checks the
+  // caller's access to the run on every read.
+  const downloadArtifact = async (artifactId: string, filename: string) => {
+    try {
+      const response = await fetchGovernedContent(
+        `${API_BASE_URL}/runs/${id}/artifacts/${artifactId}/content`,
+      )
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      saveBlob(await response.blob(), filename)
+    } catch {
+      toast.error(t('console.runDetail.downloadFailed'))
+    }
+  }
 
   const detailQuery = useQuery({
     queryKey: ['console', 'run-detail', id],
@@ -281,13 +297,17 @@ export default function ConsoleRunDetail() {
                 </thead>
                 <tbody>
                   {run.artifacts.map((artifact) => (
-                    <tr key={artifact.name}>
+                    <tr key={artifact.id}>
                       <td className="mono">{artifact.name}</td>
                       <td className="dim">{artifact.type}</td>
                       <td className="mono dimmer">{artifact.digest}</td>
                       <td className="num dim">{artifact.size}</td>
                       <td className="num">
-                        <button type="button" className="more">
+                        <button
+                          type="button"
+                          className="more"
+                          onClick={() => void downloadArtifact(artifact.id, artifact.name)}
+                        >
                           {t('console.runDetail.download')}
                         </button>
                       </td>
@@ -372,12 +392,7 @@ export default function ConsoleRunDetail() {
         confirmLabel={t('console.common.export')}
         onConfirm={() => {
           const blob = new Blob([JSON.stringify(replay, null, 2)], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          const anchor = document.createElement('a')
-          anchor.href = url
-          anchor.download = `${run.id}-replay.json`
-          anchor.click()
-          URL.revokeObjectURL(url)
+          saveBlob(blob, `${run.id}-replay.json`)
         }}
       >
         <CodeBlock style={{ border: 'none', borderRadius: 0 }}>

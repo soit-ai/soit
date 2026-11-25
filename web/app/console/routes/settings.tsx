@@ -32,8 +32,9 @@ import { ClientEndpoints } from '../components/client-endpoints'
 import { useConsoleNavigate } from '../shell/use-console-navigate'
 import { relativeTime } from '../adapters/palette'
 import { useMutation, useQuery } from '@/hooks/use-query'
-import { useTranslation } from '@/i18n'
+import { getLocaleOnClient, setLocaleOnClient, useTranslation, type Locale } from '@/i18n'
 import type { TFunction } from '@/i18n/types'
+import { useConsoleTheme, type ConsoleTheme } from '../shell/console-theme'
 import {
   createApiKey,
   listApiKeys,
@@ -2093,57 +2094,7 @@ export default function ConsoleSettings() {
         {/* Appearance is local UI preference, not server state — the console
             theme/density/locale live in the client, so there is nothing to
             fetch or persist through the API here. */}
-        {active === 'appearance' && (
-          <div className="panel">
-            <div className="panel-head">
-              <h2>{t('console.settings.appearance')}</h2>
-            </div>
-            <div className="frow">
-              <label>
-                {t('console.settings.appearancePane.theme')}
-                <small>{t('console.settings.appearancePane.themeHint')}</small>
-              </label>
-              <select className="input" style={{ maxWidth: 220 }} defaultValue="dark · default">
-                <option>dark · default</option>
-                <option>light</option>
-                <option>follow system</option>
-              </select>
-            </div>
-            <div className="frow">
-              <label>{t('console.settings.appearancePane.density')}</label>
-              <select className="input" style={{ maxWidth: 220 }} defaultValue="comfortable">
-                <option>comfortable</option>
-                <option>compact</option>
-              </select>
-            </div>
-            <div className="frow">
-              <label>{t('console.settings.appearancePane.language')}</label>
-              <select className="input" style={{ maxWidth: 220 }} defaultValue="English">
-                <option>English</option>
-                <option>Chinese (Simplified)</option>
-              </select>
-            </div>
-            <div className="frow">
-              <label>
-                {t('console.settings.appearancePane.accent')}
-                <small>{t('console.settings.appearancePane.accentHint')}</small>
-              </label>
-              <div>
-                <span className="chip">
-                  <i style={{ background: 'var(--primary)' }} />
-                  Signal Blue · fixed
-                </span>
-              </div>
-            </div>
-            <div className="frow">
-              <label>{t('console.settings.appearancePane.timestamps')}</label>
-              <select className="input" style={{ maxWidth: 220 }} defaultValue="UTC · absolute">
-                <option>UTC · absolute</option>
-                <option>local · relative</option>
-              </select>
-            </div>
-          </div>
-        )}
+        {active === 'appearance' && <AppearancePane />}
 
         {active === 'about' && (
           <div className="panel">
@@ -2953,5 +2904,93 @@ export default function ConsoleSettings() {
         </div>
       </ConsoleModal>
     </>
+  )
+}
+
+/**
+ * Theme and language apply at once and are kept in this browser. Density and
+ * timestamp format have one setting each so far, so they are shown, not
+ * offered.
+ */
+function AppearancePane() {
+  const { t } = useTranslation()
+  const { theme, setTheme } = useConsoleTheme()
+  const [locale, setLocale] = useState<Locale>(getLocaleOnClient)
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h2>{t('console.settings.appearance')}</h2>
+      </div>
+      <div className="frow">
+        <label htmlFor="appearance-theme">
+          {t('console.settings.appearancePane.theme')}
+          <small>{t('console.settings.appearancePane.themeHint')}</small>
+        </label>
+        <select
+          id="appearance-theme"
+          className="input"
+          style={{ maxWidth: 220 }}
+          value={theme}
+          onChange={(event) => setTheme(event.target.value as ConsoleTheme)}
+        >
+          <option value="dark">{t('console.settings.appearancePane.themeOptions.dark')}</option>
+          <option value="light">{t('console.settings.appearancePane.themeOptions.light')}</option>
+        </select>
+      </div>
+      <div className="frow">
+        <label htmlFor="appearance-density">{t('console.settings.appearancePane.density')}</label>
+        <select
+          id="appearance-density"
+          className="input"
+          style={{ maxWidth: 220 }}
+          disabled
+          title={t('console.common.notAvailable')}
+        >
+          <option>{t('console.settings.appearancePane.densityOptions.comfortable')}</option>
+        </select>
+      </div>
+      <div className="frow">
+        <label htmlFor="appearance-language">{t('console.settings.appearancePane.language')}</label>
+        <select
+          id="appearance-language"
+          className="input"
+          style={{ maxWidth: 220 }}
+          value={locale}
+          onChange={(event) => {
+            const next = event.target.value as Locale
+            setLocale(next)
+            void setLocaleOnClient(next)
+          }}
+        >
+          <option value="en-US">{t('console.settings.appearancePane.languageOptions.en-US')}</option>
+          <option value="zh-CN">{t('console.settings.appearancePane.languageOptions.zh-CN')}</option>
+        </select>
+      </div>
+      <div className="frow">
+        <label>
+          {t('console.settings.appearancePane.accent')}
+          <small>{t('console.settings.appearancePane.accentHint')}</small>
+        </label>
+        <div>
+          <span className="chip">
+            <i style={{ background: 'var(--primary)' }} />
+            Signal Blue · fixed
+          </span>
+        </div>
+      </div>
+      <div className="frow">
+        <label htmlFor="appearance-timestamps">{t('console.settings.appearancePane.timestamps')}</label>
+        <select
+          id="appearance-timestamps"
+          className="input"
+          style={{ maxWidth: 220 }}
+          disabled
+          title={t('console.common.notAvailable')}
+        >
+          <option>{t('console.settings.appearancePane.timestampOptions.utc')}</option>
+        </select>
+      </div>
+    </div>
   )
 }

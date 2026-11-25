@@ -251,7 +251,9 @@ export default function ConsoleAccess() {
       description={t('console.access.description')}
       actions={
         <>
-          <ConsoleButton>
+          {/* No export endpoint covers grants; the audit log export carries
+              every grant change. */}
+          <ConsoleButton disabled title={t('console.common.notAvailable')}>
             <IconExport />
             {t('console.common.export')}
           </ConsoleButton>

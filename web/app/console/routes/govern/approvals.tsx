@@ -173,7 +173,12 @@ export default function ConsoleApprovals() {
     <Workbench
       title={t('console.approvals.title')}
       description={t('console.approvals.description')}
-      actions={<ConsoleButton>{t('console.approvals.notificationRules')}</ConsoleButton>}
+      actions={
+        // Approval notices go to the workspace notification endpoints.
+        <ConsoleButton onClick={() => navigate('/settings/notifications')}>
+          {t('console.approvals.notificationRules')}
+        </ConsoleButton>
+      }
       tiles={
         <StatTileGrid>
           <StatTile

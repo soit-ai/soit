@@ -590,7 +590,9 @@ export default function ConsoleAgentDetail() {
           {t('console.agentDetail.saveDraft')}
         </ConsoleButton>
         {/* No dry-run endpoint exists for a draft version yet. */}
-        <ConsoleButton>{t('console.agentDetail.runTest')}</ConsoleButton>
+        <ConsoleButton disabled title={t('console.common.notAvailable')}>
+          {t('console.agentDetail.runTest')}
+        </ConsoleButton>
         <ConsoleButton
           variant="primary"
           disabled={!agentId || !currentVersion}
@@ -807,7 +809,11 @@ export default function ConsoleAgentDetail() {
                 <p className="dim" style={{ fontSize: 11.5, marginBottom: 9 }}>
                   {t('console.agentDetail.testNote')}
                 </p>
-                <ConsoleButton style={{ width: '100%', justifyContent: 'center' }}>
+                <ConsoleButton
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  disabled
+                  title={t('console.common.notAvailable')}
+                >
                   {t('console.agentDetail.runTest')}
                 </ConsoleButton>
               </div>
