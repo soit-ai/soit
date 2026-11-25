@@ -199,10 +199,9 @@ async def test_exporting_takes_governance_and_is_audited(async_client, async_db,
 
 
 async def test_a_browser_can_read_the_download_name_across_origins(async_client) -> None:
-    from app.main import cors_origins
-
-    origin = next((item for item in cors_origins if item != "*"), "http://localhost:5000")
-    response = await async_client.get("/api/v1/exports/runs", params=WINDOW, headers={"Origin": origin})
+    response = await async_client.get(
+        "/api/v1/exports/runs", params=WINDOW, headers={"Origin": "http://localhost:5000"}
+    )
 
     exposed = {name.strip().lower() for name in response.headers.get("access-control-expose-headers", "").split(",")}
     assert {"content-disposition", "x-soit-ledger-schema"} <= exposed
