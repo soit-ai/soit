@@ -28,6 +28,7 @@ import {
   TableRow,
 } from '../../components/ui'
 import { catColor, compactNumber } from '../../adapters/palette'
+import { usePageCursor } from '../../adapters/use-page-cursor'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import { listToolInvocations } from '@/services/run-service'
@@ -79,9 +80,10 @@ export default function ConsolePlugins() {
   const [packageFile, setPackageFile] = useState<File | null>(null)
   const [uninstalling, setUninstalling] = useState<Plugin | null>(null)
 
+  const cursor = usePageCursor()
   const pluginsQuery = useQuery({
-    queryKey: ['console', 'plugins', 'list'],
-    queryFn: () => listPlugins({ page_size: PAGE_SIZE }),
+    queryKey: ['console', 'plugins', 'list', cursor.pageToken],
+    queryFn: () => listPlugins({ page_token: cursor.pageToken, page_size: PAGE_SIZE }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
 
@@ -405,7 +407,15 @@ export default function ConsolePlugins() {
               )}
             </TableBody>
           </Table>
-          <Pager summary={t('console.plugins.installedNote')}>
+          <Pager
+            summary={t('console.plugins.installedNote')}
+            onPrev={cursor.prev}
+            onNext={() => cursor.next(pluginsQuery.data?.next_page_token)}
+            prevDisabled={!cursor.hasPrevious}
+            nextDisabled={!pluginsQuery.data?.next_page_token}
+            prevLabel={t('console.runs.prev')}
+            nextLabel={t('console.runs.next')}
+          >
             {/* Upgrades go through the package upload; nothing yet compares
                 an installed plugin against a newer release to review. */}
             <ConsoleButton size="sm" disabled title={t('console.common.notAvailable')}>

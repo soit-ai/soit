@@ -24,6 +24,7 @@ import {
 } from '../../components/ui'
 import { useConsoleNavigate } from '../../shell/use-console-navigate'
 import { catColor, relativeTime } from '../../adapters/palette'
+import { useOffsetPage } from '../../adapters/use-offset-page'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import {
@@ -60,12 +61,13 @@ export default function ConsoleSchedules() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [removing, setRemoving] = useState<Schedule | null>(null)
 
+  const page = useOffsetPage(100)
   const schedulesQuery = useQuery({
-    queryKey: ['console', 'schedules'],
-    queryFn: () => listSchedules({ limit: 200 }),
+    queryKey: ['console', 'schedules', page.offset],
+    queryFn: () => listSchedules({ limit: page.limit, offset: page.offset }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
-  const schedules = schedulesQuery.data || []
+  const { rows: schedules, hasMore } = page.take(schedulesQuery.data)
 
   // The next few firings for whatever is typed, so an expression can be
   // checked before it is saved rather than at two in the morning.
@@ -264,7 +266,15 @@ export default function ConsoleSchedules() {
             )}
           </TableBody>
         </Table>
-        <Pager summary={t('console.schedules.pagerNote')} />
+        <Pager
+          summary={t('console.schedules.pagerNote')}
+          onPrev={page.prev}
+          onNext={page.next}
+          prevDisabled={!page.hasPrevious}
+          nextDisabled={!hasMore}
+          prevLabel={t('console.runs.prev')}
+          nextLabel={t('console.runs.next')}
+        />
       </WorkbenchPanel>
 
       <ConsoleModal

@@ -25,6 +25,7 @@ import {
   TableRow,
 } from '../../components/ui'
 import { compactNumber, relativeTime } from '../../adapters/palette'
+import { useOffsetPage } from '../../adapters/use-offset-page'
 import { useMutation, useQuery } from '@/hooks/use-query'
 import { useTranslation } from '@/i18n'
 import {
@@ -68,9 +69,10 @@ export default function ConsoleSecrets() {
   const [deleting, setDeleting] = useState<Secret | null>(null)
   const [form, setForm] = useState({ name: '', description: '', value: '' })
 
+  const page = useOffsetPage(100)
   const secretsQuery = useQuery({
-    queryKey: ['console', 'secrets'],
-    queryFn: () => listSecrets({ limit: 200 }),
+    queryKey: ['console', 'secrets', page.offset],
+    queryFn: () => listSecrets({ limit: page.limit, offset: page.offset }),
     options: { retry: false, refetchOnWindowFocus: false },
   })
 
@@ -142,7 +144,10 @@ export default function ConsoleSecrets() {
     onError: onWriteError('Failed to test the secret'),
   })
 
-  const secrets = secretsQuery.data || []
+  // Counts and filters below cover the page shown; the total tile reports
+  // how many have been paged through, marked when more follow.
+  const { rows: secrets, hasMore } = page.take(secretsQuery.data)
+  const paged = page.hasPrevious || hasMore
   const kindOf = (name: string) => secretKind(name)
 
   const rows = secrets.filter((row) => {
@@ -180,7 +185,11 @@ export default function ConsoleSecrets() {
         <StatTileGrid>
           <StatTile
             label={t('console.secrets.tiles.secrets')}
-            value={secretsQuery.data ? String(secrets.length) : '—'}
+            value={
+              secretsQuery.data
+                ? `${page.offset + secrets.length}${hasMore ? '+' : ''}`
+                : '—'
+            }
             na={!secretsQuery.data}
             sub={<span className="mono dimmer">{t('console.tileSubs.referencedNeverInlined')}</span>}
           />
@@ -324,7 +333,19 @@ export default function ConsoleSecrets() {
               )}
             </TableBody>
           </Table>
-          <Pager summary={t('console.secrets.vaultNote')} />
+          <Pager
+            summary={
+              paged
+                ? `${t('console.secrets.vaultNote')} · ${t('console.common.pageFilterNote')}`
+                : t('console.secrets.vaultNote')
+            }
+            onPrev={page.prev}
+            onNext={page.next}
+            prevDisabled={!page.hasPrevious}
+            nextDisabled={!hasMore}
+            prevLabel={t('console.runs.prev')}
+            nextLabel={t('console.runs.next')}
+          />
         </WorkbenchPanel>
       )}
 

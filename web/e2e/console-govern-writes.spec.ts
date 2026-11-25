@@ -31,6 +31,34 @@ test.beforeEach(async ({ page }) => {
   await mockShellApi(page)
 })
 
+test('the secrets list pages by offset once there are more than a page of them', async ({ page }) => {
+  const offsets: string[] = []
+  const secret = (index: number) => ({ ...secrets[0], id: `sec_${index}`, name: `secret-${index}` })
+  await page.route('**/api/v1/secrets?**', (route) => {
+    const url = new URL(route.request().url())
+    const offset = Number(url.searchParams.get('offset') || '0')
+    const limit = Number(url.searchParams.get('limit') || '0')
+    offsets.push(String(offset))
+    // 120 in all: the first page asks for 101 and gets them, so Next lights up.
+    const all = Array.from({ length: 120 }, (_, index) => secret(index))
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: ok(all.slice(offset, offset + limit)),
+    })
+  })
+
+  await page.goto('/govern/secrets', { waitUntil: 'domcontentloaded' })
+  const row = (name: string) => page.getByRole('row', { name: new RegExp(`vault:${name} `) })
+  await expect(row('secret-99')).toBeVisible()
+  await expect(row('secret-100')).toHaveCount(0)
+
+  await page.getByRole('button', { name: /Next/ }).click()
+  await expect(row('secret-100')).toBeVisible()
+  expect(offsets).toContain('100')
+  await expect(page.getByRole('button', { name: /Next/ })).toBeDisabled()
+})
+
 test('secrets can be created from the console', async ({ page }) => {
   let posted: Record<string, unknown> | null = null
   await json(page, '**/api/v1/secrets?**', secrets)

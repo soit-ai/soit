@@ -155,6 +155,9 @@ record for operators.
   nothing beyond it; the audit log even reported how many entries matched
   while showing only the first 50. Filters and search on the agent, workflow
   and knowledge lists apply to the page shown.
+- The plugin, schedule and secret lists page as well. Schedules and secrets
+  showed at most the first 200; the secrets total tile reports how many have
+  been paged through, with a "+" while more follow.
 - The console is translated into Simplified Chinese. Choosing Simplified Chinese
   in Settings → Appearance used to change little beyond a few legacy screens,
   because the console's copy had no Chinese version. Stat tile subtitles that
