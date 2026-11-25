@@ -11,8 +11,10 @@ WEB_ROOT = REPO_ROOT / "web"
 
 def test_community_frontend_does_not_define_enterprise_routes_or_clients() -> None:
     routes_source = (WEB_APP / "routes.ts").read_text(encoding="utf-8")
-    sidebar_source = (WEB_APP / "components" / "nav" / "root-sidebar.tsx").read_text(
-        encoding="utf-8"
+    # The console's navigation: the rail, the context panel and the palette.
+    sidebar_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((WEB_APP / "console" / "shell").glob("*.ts*"))
     )
 
     assert "prefix('/enterprise'" not in routes_source

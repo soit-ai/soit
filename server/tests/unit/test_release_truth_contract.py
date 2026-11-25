@@ -177,15 +177,13 @@ def test_product_navigation_has_no_hash_only_links() -> None:
     for path in (ROOT / "web" / "app").rglob("*.tsx"):
         assert 'href="#"' not in path.read_text(encoding="utf-8"), path
 
-    sidebar_source = (ROOT / "web" / "app" / "components" / "nav" / "root-sidebar.tsx").read_text(
-        encoding="utf-8"
+    # The console's navigation, including its workspace switcher.
+    navigation_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "web" / "app" / "console" / "shell").glob("*.ts*"))
     )
-    team_switcher_source = (
-        ROOT / "web" / "app" / "components" / "common" / "team-switcher.tsx"
-    ).read_text(encoding="utf-8")
     for fake_team_label in ("Acme Inc", "Acme Corp.", "Evil Corp.", "Add team"):
-        assert fake_team_label not in sidebar_source
-        assert fake_team_label not in team_switcher_source
+        assert fake_team_label not in navigation_source
 
 
 def test_readme_workflow_node_count_matches_the_builder_contract() -> None:

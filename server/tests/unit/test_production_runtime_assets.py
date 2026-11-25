@@ -90,7 +90,8 @@ def test_quality_workflow_builds_and_smoke_tests_backend_image() -> None:
     assert "docker compose -f docker/docker-compose.yml config --quiet" in workflow
     assert "docker compose -f docker/docker-compose.app.yml config --quiet" in workflow
     assert "docker compose -f docker/docker-compose.infra.yml config --quiet" in workflow
-    assert "docker build --tag soit-api:ci ./server" in workflow
+    # The API stage by name: the Dockerfile's last stage is the knowledge worker.
+    assert "docker build --target runtime --tag soit-api:ci ./server" in workflow
     assert "/health/ready" in workflow
     assert "ENVIRONMENT: test" in workflow
 
