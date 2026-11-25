@@ -32,6 +32,14 @@ serialized event sequencing, and native JSON query behavior. SQLite ignores
 `SKIP LOCKED`, so lease exclusivity is only ever proven here.
 A skipped PostgreSQL suite is not a passing release gate.
 
+The suite also compares the migrated schema with the models
+(`test_migration_drift.py`): a model change without a migration fails here,
+since the SQLite fixtures build their tables from the models and cannot see
+it. It exercises the pgvector backend too, so the database needs the `vector`
+extension (the `pgvector/pgvector` image the lite profile uses has it). CI sets
+`SOIT_TEST_REQUIRE_PGVECTOR=1`, which turns a missing extension into a failure
+instead of a skip.
+
 Point `DATABASE_URL` at a dedicated acceptance database rather than a working
 development database:
 

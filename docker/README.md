@@ -163,7 +163,7 @@ machine is reached by its usual address.
 | PostgreSQL | `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASS`, `DATABASE_NAME`, or a full `DATABASE_URL` | The bundled server is PostgreSQL 15. The user must be able to create tables in the database, since `migrate` runs Alembic. Size `max_connections` for every process's pool ([database-connections.md](../docs/operations/database-connections.md)); the bundled server uses 200. |
 | Redis | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `EVENT_BUS_REDIS_URL` | Set `REDIS_URL` and `EVENT_BUS_REDIS_URL` together. On a shared Redis, give SOIT its own database index, e.g. `redis://host.docker.internal:6379/3`. |
 | Object storage | `STORAGE_URL`, `STORAGE_OPTIONS_JSON`, `STORAGE_AUTO_MKDIR` | Any S3-compatible store. `STORAGE_OPTIONS_JSON` carries `endpoint_url`, `key` and `secret`; its default names the bundled `minio:9000`. With `STORAGE_AUTO_MKDIR=true` the application creates the bucket. |
-| Vector store | `MILVUS_HOST`, `MILVUS_PORT` | Milvus 2.5. For local development only, `VECTOR_BACKEND=pgvector` keeps vectors in PostgreSQL instead and needs the `vector` extension there. |
+| Vector store | `MILVUS_HOST`, `MILVUS_PORT` | Milvus 2.5. Or `VECTOR_BACKEND=pgvector`, which keeps vectors in PostgreSQL and needs the `vector` extension there; the lite profile uses it, in production as well. |
 | Vault | `VAULT_URL`, `VAULT_TOKEN` | An empty `VAULT_URL` falls back to the bundled `http://vault:8200`, so without a Vault of your own, start the bundled one. |
 
 Backups: `operations/compose_backup.py` and `compose_restore.py` dump

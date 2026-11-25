@@ -29,6 +29,10 @@ def database_url() -> str:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     except Exception:  # pragma: no cover - depends on the local instance
+        # CI sets this so that a database image without the extension fails
+        # the gate instead of skipping the backend the lite profile runs on.
+        if os.environ.get("SOIT_TEST_REQUIRE_PGVECTOR") == "1":
+            raise
         pytest.skip("The pgvector extension is not available in this database")
     finally:
         engine.dispose()
