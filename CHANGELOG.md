@@ -131,6 +131,11 @@ record for operators.
   language. Validate, Migrate, Run test, Review update and the Access export,
   which have no endpoint yet, are disabled with a note, and the workflow
   settings tab no longer offers invented triggers and policy bundles.
+- Switching the interface language takes effect at once. Screens read their
+  copy without subscribing to language changes, so a new language showed only
+  after something else re-rendered them. The document's `lang` follows the
+  choice, and the locale files load in parallel instead of one after another
+  before the first render.
 - Deleting an installed plugin uninstalls it first. Deleting used to remove
   only the installation row, so the plugin's MCP servers and skills stayed
   enabled in the tool catalog. Its projected artifacts and version rows are

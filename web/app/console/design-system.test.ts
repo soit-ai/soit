@@ -243,7 +243,7 @@ describe('console v2 design system', () => {
 
   it('routes all console copy through i18n with the console namespace', () => {
     expect(read('app/i18n/types.ts')).toContain("console: typeof import('./en-US/console').default")
-    expect(read('app/i18n/i18next-config.ts')).toContain('console.ts')
+    expect(read('app/i18n/i18next-config.ts')).toContain("'console',")
     expect(read('app/i18n/en-US/console.ts')).toContain('status')
     expect(read('app/i18n/zh-CN/console.ts')).toContain("from '../en-US/console'")
 

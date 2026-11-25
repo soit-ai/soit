@@ -1,5 +1,5 @@
 import i18next from 'i18next'
-import { initReactI18next } from 'react-i18next'
+import { initReactI18next, useTranslation as useI18nextTranslation } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { LanguagesArr } from '@/i18n/language'
 import { debugLog } from '@/utils/debug'
@@ -15,33 +15,40 @@ type ResourcesType = {
   [key: string]: ResourceType
 }
 
-// Load language resources on demand
+const NAMESPACES = [
+  'agent',
+  'chat',
+  'common',
+  'console',
+  'knowledge',
+  'layout',
+  'login',
+  'model',
+  'observe',
+  'run',
+  'plugin',
+  'tools',
+  'register',
+  'workflow',
+  'system',
+  'store',
+  'safe',
+  'notification',
+  'task',
+] as const
+
+// Load language resources on demand. The namespaces load in parallel: one
+// after another, they held the first render for a chain of round trips.
 const loadLangResources = async (lang: string): Promise<ResourceType | null> => {
   try {
-    const resources = {
-      translation: {
-        agent: (await import(`./${lang}/agent.ts`)).default,
-        chat: (await import(`./${lang}/chat.ts`)).default,
-        common: (await import(`./${lang}/common.ts`)).default,
-        console: (await import(`./${lang}/console.ts`)).default,
-        knowledge: (await import(`./${lang}/knowledge.ts`)).default,
-        layout: (await import(`./${lang}/layout.ts`)).default,
-        login: (await import(`./${lang}/login.ts`)).default,
-        model: (await import(`./${lang}/model.ts`)).default,
-        observe: (await import(`./${lang}/observe.ts`)).default,
-        run: (await import(`./${lang}/run.ts`)).default,
-        plugin: (await import(`./${lang}/plugin.ts`)).default,
-        tools: (await import(`./${lang}/tools.ts`)).default,
-        register: (await import(`./${lang}/register.ts`)).default,
-        workflow: (await import(`./${lang}/workflow.ts`)).default,
-        system: (await import(`./${lang}/system.ts`)).default,
-        store: (await import(`./${lang}/store.ts`)).default,
-        safe: (await import(`./${lang}/safe.ts`)).default,
-        notification: (await import(`./${lang}/notification.ts`)).default,
-        task: (await import(`./${lang}/task.ts`)).default,
-      },
-    }
-    return resources
+    const modules = await Promise.all(
+      NAMESPACES.map((namespace) => import(`./${lang}/${namespace}.ts`)),
+    )
+    const translation: ResourceType['translation'] = {}
+    NAMESPACES.forEach((namespace, index) => {
+      translation[namespace] = modules[index].default
+    })
+    return { translation }
   } catch (error) {
     console.error(`Failed to load resources for ${lang}:`, error)
     return null
@@ -57,17 +64,18 @@ const initResources = async (): Promise<ResourcesType> => {
   let userLang = localStorage.getItem('i18nextLng') || localStorage.getItem('locale')
   
   // Load both user language and default language when they differ.
-  if (userLang && userLang !== defaultLang && LanguagesArr.includes(userLang as Locale)) {
-    // Load user language resources.
-    const userResources = await loadLangResources(userLang)
-    if (userResources) {
-      resources[userLang] = userResources
-      debugLog(`Loaded user language resources: ${userLang}`)
-    }
+  const wantsUserLang =
+    Boolean(userLang) && userLang !== defaultLang && LanguagesArr.includes(userLang as Locale)
+  const [userResources, defaultResources] = await Promise.all([
+    wantsUserLang ? loadLangResources(userLang as string) : Promise.resolve(null),
+    // Always load default language resources as fallback.
+    loadLangResources(defaultLang),
+  ])
+  if (userResources) {
+    resources[userLang as string] = userResources
+    debugLog(`Loaded user language resources: ${userLang}`)
   }
-  
-  // Always load default language resources as fallback.
-  const defaultResources = await loadLangResources(defaultLang)
+
   if (defaultResources) {
     resources[defaultLang] = defaultResources
     debugLog(`Loaded default language resources: ${defaultLang}`)
@@ -104,6 +112,14 @@ i18next
     }
   )
 
+// Screen readers and the browser's own spelling and hyphenation go by the
+// document's language, which root.tsx renders as English.
+const syncDocumentLanguage = (lng: string | undefined) => {
+  if (lng && typeof document !== 'undefined') document.documentElement.lang = lng
+}
+i18next.on('languageChanged', syncDocumentLanguage)
+syncDocumentLanguage(i18next.language)
+
 // Dynamically load other language resources
 export const loadLanguageAsync = async (lang: Locale): Promise<void> => {
   if (i18next.hasResourceBundle(lang, 'translation')) {
@@ -123,14 +139,18 @@ export const changeLanguage = async (lang: Locale): Promise<void> => {
   await i18next.changeLanguage(lang)
 }
 
-export const useTranslation = (ns = ['translation'], options = {}): UseTranslationResponse => {
+/**
+ * react-i18next's hook under the project's typed `t`. It subscribes the
+ * component to language changes; returning `i18next.t` directly did not, so
+ * switching the language changed nothing until something else re-rendered.
+ */
+export const useTranslation = (): UseTranslationResponse => {
+  const { t, i18n } = useI18nextTranslation()
   return {
-    t: i18next.t as TFunction,
+    t: t as unknown as TFunction,
     i18n: {
-      language: i18next.language as Locale,
-      changeLanguage: async (lng: Locale) => {
-        await i18next.changeLanguage(lng)
-      },
+      language: i18n.language as Locale,
+      changeLanguage,
     },
   }
 }
