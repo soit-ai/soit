@@ -152,7 +152,7 @@ docker compose -f docker/docker-compose.yml config --quiet
 When Docker is available, build the same backend image used by the CI smoke job:
 
 ```bash
-docker build --tag soit-api:local ./server
+docker build --target runtime --tag soit-api:local ./server
 ```
 
 ## Enterprise MVP Demo Smoke

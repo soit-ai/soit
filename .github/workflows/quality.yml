@@ -258,7 +258,7 @@ jobs:
           docker compose -f docker/docker-compose.infra.yml config --quiet
 
       - name: Build backend image
-        run: docker build --tag soit-api:ci ./server
+        run: docker build --target runtime --tag soit-api:ci ./server
 
       # MinIO's images are no longer published on Docker Hub; RustFS is an
       # Apache-2.0 S3-compatible server that SOIT's s3fs storage works with.

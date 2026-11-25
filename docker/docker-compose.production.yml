@@ -135,6 +135,7 @@ services:
   migrate:
     build:
       context: ../server
+      target: runtime
     environment:
       <<: *server_environment
     command: ["sh", "scripts/migrate.sh"]
@@ -144,6 +145,7 @@ services:
   api:
     build:
       context: ../server
+      target: runtime
     environment:
       <<: *server_environment
     # No published port: reachable only through the TLS gateway.
@@ -183,6 +185,7 @@ services:
   response-worker:
     build:
       context: ../server
+      target: runtime
     environment:
       <<: *server_environment
       # In-flight executions per worker process. Capped in code at pool +
@@ -205,6 +208,7 @@ services:
   outbox-dispatcher:
     build:
       context: ../server
+      target: runtime
     # The script is the dispatcher. OUTBOX_DISPATCHER_ENABLED means "run one
     # inside the API process", which production refuses, so it stays unset.
     environment:
@@ -237,6 +241,7 @@ services:
   scheduler:
     build:
       context: ../server
+      target: runtime
     environment:
       <<: *server_environment
       SCHEDULE_WORKER_ENABLED: "true"

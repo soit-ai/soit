@@ -34,6 +34,9 @@ services:
   migrate:
     build:
       context: ../server
+      # The Dockerfile's last stage is the knowledge worker; without a
+      # target this service would build that image instead of the API's.
+      target: runtime
     env_file:
       - path: ../.env
         required: false
@@ -99,6 +102,9 @@ services:
   bootstrap:
     build:
       context: ../server
+      # The Dockerfile's last stage is the knowledge worker; without a
+      # target this service would build that image instead of the API's.
+      target: runtime
     env_file:
       - path: ../.env
         required: false
@@ -129,6 +135,9 @@ services:
   api:
     build:
       context: ../server
+      # The Dockerfile's last stage is the knowledge worker; without a
+      # target this service would build that image instead of the API's.
+      target: runtime
     env_file:
       - path: ../.env
         required: false
@@ -199,6 +208,9 @@ services:
   outbox-dispatcher:
     build:
       context: ../server
+      # The Dockerfile's last stage is the knowledge worker; without a
+      # target this service would build that image instead of the API's.
+      target: runtime
     env_file:
       - path: ../.env
         required: false
@@ -226,6 +238,9 @@ services:
   scheduler:
     build:
       context: ../server
+      # The Dockerfile's last stage is the knowledge worker; without a
+      # target this service would build that image instead of the API's.
+      target: runtime
     env_file:
       - path: ../.env
         required: false

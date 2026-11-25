@@ -122,6 +122,12 @@ record for operators.
   overlay had no `scheduler` image, so `up --no-build` could not start it,
   and the quickstart, README and bootstrap commands did not name the service.
   Both are fixed; `scheduler` is now in every full-topology command.
+- Building the full topology or the production reference from source builds
+  the API image for the API, migrate, bootstrap, dispatcher, scheduler and
+  response worker. Without a target, `docker compose build` picked the
+  Dockerfile's last stage, the knowledge worker: a much larger image with
+  document OCR, and a plain `docker build ./server` gave an image whose
+  default command started a Python prompt and exited.
 - Console controls that did nothing now work or say they are unavailable.
   Agents and workflows can be imported from a file (`soit agent export`
   YAML or JSON; a workflow DSL); a workflow's detail page publishes its
