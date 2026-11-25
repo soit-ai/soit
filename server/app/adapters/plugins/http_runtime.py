@@ -24,11 +24,13 @@ POST {base_url}{invoke_path}
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
+from app.adapters.http.capped_body import ResponseTooLargeError, read_capped
 from app.adapters.http.governed_client import governed_httpx_client
 from app.kernel.commons.errors import ValidationError
 from app.kernel.contracts.context import RequestContext
@@ -120,9 +122,13 @@ class HTTPPluginRuntimePort(PluginRuntimePort):
             egress_guard=self._egress_guard,
             timeout=timeout,
         ) as client:
-            resp = await client.post(url, json=req)
-            resp.raise_for_status()
-            data = resp.json()
+            async with client.stream("POST", url, json=req) as resp:
+                resp.raise_for_status()
+                try:
+                    content = await read_capped(resp, settings.tool_max_response_bytes)
+                except ResponseTooLargeError as exc:
+                    raise ValidationError(f"Plugin runtime response too large: {exc}") from exc
+            data = json.loads(content)
 
         if not isinstance(data, dict):
             raise ValidationError("Plugin runtime returned non-object JSON")

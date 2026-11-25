@@ -587,6 +587,10 @@ class Settings(BaseSettings):
     plugin_package_max_entries: int = Field(default=5000, ge=1)
     """Most files and directories a plugin package may contain."""
 
+    tool_max_response_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    """Largest response body an HTTP tool or a plugin runtime may return. A
+    larger one fails the call instead of being read into memory."""
+
     plugin_runtime_allow_localhost: bool = False
     """Allow plugin runtime to run on localhost (development only)."""
 

@@ -162,6 +162,11 @@ record for operators.
   and a stream that runs past it is cut off and its partial object removed.
   Previously a text upload of any size was stored and later read whole into
   memory by the ingest worker. An ingest task's `max_retries` is capped at 10.
+- HTTP tools and plugin runtimes stop reading a response past
+  `TOOL_MAX_RESPONSE_BYTES` (10 MiB) and fail the call, instead of reading
+  the whole body into memory. A tool pointed at a very large or endless
+  response, for example by a prompt-injected URL, could exhaust the API or
+  worker process.
 
 ## [1.8.0] - 2026-11-14
 

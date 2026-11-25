@@ -3,10 +3,17 @@
 HTTP tools port adapter implementation.
 """
 
+import json
+import time
 from typing import Any
 
 import httpx
 
+from app.adapters.http.capped_body import (
+    ResponseTooLargeError,
+    decode_body,
+    read_capped,
+)
 from app.adapters.http.governed_client import governed_httpx_client
 from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.tools.interface import ToolPort, ToolResponse
@@ -52,6 +59,21 @@ class HTTPToolsPort(ToolPort):
                 error="HTTP tool invocation requires ctx",
             )
 
+        method_upper = method.upper()
+        if method_upper in {"GET", "DELETE"}:
+            request_kwargs: dict[str, Any] = {"params": query or body}
+        elif method_upper in {"POST", "PUT", "PATCH"}:
+            request_kwargs = {"params": query or None, "json": body}
+        else:
+            return ToolResponse(
+                result=None,
+                success=False,
+                error=f"Unsupported method: {method}",
+            )
+
+        from app.settings.settings import settings
+
+        started = time.monotonic()
         try:
             async with governed_httpx_client(
                 ctx=ctx,
@@ -59,42 +81,26 @@ class HTTPToolsPort(ToolPort):
                 egress_guard=self.egress_guard,
                 timeout=30.0,
             ) as client:
-                method_upper = method.upper()
-                if method_upper in {"GET", "DELETE"}:
-                    response = await client.request(
-                        method_upper,
-                        url,
-                        headers=headers,
-                        params=query or body,
-                        timeout=timeout_s,
-                    )
-                elif method_upper in {"POST", "PUT", "PATCH"}:
-                    response = await client.request(
-                        method_upper,
-                        url,
-                        headers=headers,
-                        params=query or None,
-                        json=body,
-                        timeout=timeout_s,
-                    )
-                else:
-                    return ToolResponse(
-                        result=None,
-                        success=False,
-                        error=f"Unsupported method: {method}",
-                    )
-
-                response.raise_for_status()
+                async with client.stream(
+                    method_upper,
+                    url,
+                    headers=headers,
+                    timeout=timeout_s,
+                    **request_kwargs,
+                ) as response:
+                    response.raise_for_status()
+                    content = await read_capped(response, settings.tool_max_response_bytes)
+                    result = decode_body(response, content)
 
             return ToolResponse(
-                result=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
+                result=result,
                 success=True,
                 metadata={
                     "http_status": response.status_code,
-                    "latency_ms": int(response.elapsed.total_seconds() * 1000),
+                    "latency_ms": int((time.monotonic() - started) * 1000),
                 },
             )
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, ResponseTooLargeError, json.JSONDecodeError) as e:
             return ToolResponse(
                 result=None,
                 success=False,
