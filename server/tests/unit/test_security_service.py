@@ -25,7 +25,7 @@ from app.modules.security.application.service import SecurityService
 async def _seed_tenant_workspace(async_db):
     tenant_id = generate_tenant_id()
     workspace_id = generate_workspace_id()
-    tenant = Tenant(id=tenant_id, name="tenant-1", plan="free")
+    tenant = Tenant(id=tenant_id, name="tenant-1")
     workspace = Workspace(
         id=workspace_id,
         tenant_id=tenant_id,

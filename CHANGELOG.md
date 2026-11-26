@@ -212,6 +212,10 @@ record for operators.
 
 ### Removed
 
+- `tenants.plan`, and `plan` in `POST /api/v1/tenants` and its response.
+  Nothing in the runtime read it; plans and subscriptions belong to the cloud
+  control plane, which grants features through entitlements. The migration
+  drops the column.
 - Server dependencies nothing imports: `python-magic` (and the `libmagic1`
   package the image installed for it), `oss2`, `cos-python-sdk-v5`,
   `google-cloud-storage`, `aioredis`, `aiofiles`, `emails`,

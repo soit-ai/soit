@@ -32,7 +32,6 @@ class TenantCreate(BaseModel):
     """Schema for creating a tenant."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Tenant name")
-    plan: str = Field(default="free", description="Tenant plan")
 
 
 class WorkspaceCreate(BaseModel):
@@ -145,7 +144,6 @@ class TenantResponse(BaseModel):
 
     id: str
     name: str
-    plan: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

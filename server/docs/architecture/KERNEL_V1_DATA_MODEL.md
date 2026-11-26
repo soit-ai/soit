@@ -25,8 +25,10 @@ It is designed to be stable for years and to support:
 
 ### tenants
 - `id` PK
-- `name`, `plan`
+- `name`
 - `created_at`
+- No plan or subscription: those live in the cloud control plane and reach a
+  runtime as entitlements.
 
 ### workspaces
 - `id` PK

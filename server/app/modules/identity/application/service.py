@@ -1356,10 +1356,7 @@ class IdentityService:
             raise ValidationError("Tenant with this name already exists")
 
         # Create tenant
-        tenant = Tenant(
-            name=tenant_data.name,
-            plan=tenant_data.plan,
-        )
+        tenant = Tenant(name=tenant_data.name)
         tenant = await self.tenant_repo.create(tenant)
 
         # Create owner membership

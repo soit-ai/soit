@@ -109,9 +109,6 @@ class Tenant(SQLModel, table=True):
     name: str = Field()
     """Tenant name."""
 
-    plan: str = Field(default="free")
-    """Tenant plan (free/pro/enterprise)."""
-
     egress_allowlist: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     """Tenant-level egress allowlist."""
 

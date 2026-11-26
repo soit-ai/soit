@@ -11,7 +11,7 @@ def _headers() -> dict:
 
 
 async def _seed_workspace(async_db) -> None:
-    tenant = Tenant(id="test-tenant", name="Test Tenant", plan="free")
+    tenant = Tenant(id="test-tenant", name="Test Tenant")
     workspace = Workspace(
         id="test-workspace",
         tenant_id=tenant.id,
