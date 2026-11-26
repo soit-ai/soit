@@ -18,17 +18,18 @@ from app.kernel.identity.permissions import (
     require_resource_write_async,
 )
 
-# Tenant roles
+# Tenant (organization) roles. They decide what a person may do to the
+# organization itself: its members, workspaces and guardrails. What a person
+# may do inside a workspace is their workspace role alone, never derived from
+# the organization role.
 TENANT_ROLE_OWNER = "Owner"
 TENANT_ROLE_ADMIN = "Admin"
-TENANT_ROLE_DEV = "Dev"
-TENANT_ROLE_VIEWER = "Viewer"
+TENANT_ROLE_MEMBER = "Member"
 
 TENANT_ROLES = {
     TENANT_ROLE_OWNER,
     TENANT_ROLE_ADMIN,
-    TENANT_ROLE_DEV,
-    TENANT_ROLE_VIEWER,
+    TENANT_ROLE_MEMBER,
 }
 
 # Workspace roles
@@ -65,8 +66,7 @@ class UserRole(str, Enum):
 
     OWNER = TENANT_ROLE_OWNER
     ADMIN = TENANT_ROLE_ADMIN
-    DEV = TENANT_ROLE_DEV
-    VIEWER = TENANT_ROLE_VIEWER
+    MEMBER = TENANT_ROLE_MEMBER
 
 
 class WorkspaceRole(str, Enum):

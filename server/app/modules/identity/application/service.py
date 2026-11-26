@@ -24,13 +24,11 @@ from app.kernel.identity.api_key_scopes import normalize_scopes
 from app.kernel.identity.auth import JWTManager
 from app.kernel.identity.rbac import (
     TENANT_ROLE_ADMIN,
-    TENANT_ROLE_DEV,
+    TENANT_ROLE_MEMBER,
     TENANT_ROLE_OWNER,
     TENANT_ROLES,
     WORKSPACE_ROLE_ADMIN,
-    WORKSPACE_ROLE_DEV,
     WORKSPACE_ROLE_OWNER,
-    WORKSPACE_ROLE_VIEWER,
     WORKSPACE_ROLES,
 )
 from app.kernel.ports.mail.interface import MailMessage, MailPort
@@ -216,15 +214,6 @@ class IdentityService:
             seen.add(value)
         return normalized
 
-    def _resolve_workspace_role(self, tenant_role: str | None) -> str:
-        if tenant_role == TENANT_ROLE_OWNER:
-            return WORKSPACE_ROLE_OWNER
-        if tenant_role == TENANT_ROLE_ADMIN:
-            return WORKSPACE_ROLE_ADMIN
-        if tenant_role == TENANT_ROLE_DEV:
-            return WORKSPACE_ROLE_DEV
-        return WORKSPACE_ROLE_VIEWER
-
     async def _ensure_workspace_membership(
         self,
         *,
@@ -246,17 +235,32 @@ class IdentityService:
             return membership.workspace_id, membership.role
 
         workspace_repo = self.workspace_repo_factory(ctx)
-        workspaces = await workspace_repo.list_by_tenant()
-        if workspaces:
-            workspace = workspaces[0]
+        if tenant_role in (TENANT_ROLE_OWNER, TENANT_ROLE_ADMIN):
+            # Organization owners and admins answer for every workspace; one
+            # who belongs to none is placed in the organization's first at
+            # the matching workspace role.
+            workspaces = await workspace_repo.list_by_tenant()
+            if workspaces:
+                workspace = workspaces[0]
+            else:
+                workspace = Workspace(
+                    name="default",
+                    description="Default workspace",
+                )
+                workspace = await workspace_repo.create(workspace)
+            role = WORKSPACE_ROLE_OWNER if tenant_role == TENANT_ROLE_OWNER else WORKSPACE_ROLE_ADMIN
         else:
-            workspace = Workspace(
-                name="default",
-                description="Default workspace",
+            # A member is never placed in a shared workspace on the strength of
+            # the organization role: what they may see there is for that
+            # workspace's admins to grant. One who belongs to none gets a
+            # personal workspace of their own.
+            workspace = await workspace_repo.create(
+                Workspace(
+                    name=await self._personal_workspace_name(workspace_repo, user_id),
+                    description="Personal workspace",
+                )
             )
-            workspace = await workspace_repo.create(workspace)
-
-        role = self._resolve_workspace_role(tenant_role)
+            role = WORKSPACE_ROLE_OWNER
         await membership_repo.create(
             WorkspaceMembership(
                 workspace_id=workspace.id,
@@ -265,6 +269,20 @@ class IdentityService:
             )
         )
         return workspace.id, role
+
+    async def _personal_workspace_name(
+        self, workspace_repo: WorkspaceRepositoryPort, user_id: str
+    ) -> str:
+        """A workspace name for one person, unique within their organization."""
+        user = await self.user_repo.get_by_id(user_id)
+        label = ""
+        if user is not None:
+            label = (user.name or "").strip() or (user.email or "").split("@")[0].strip()
+        label = label[:100] or "Personal"
+        name = f"{label}'s workspace"
+        if await workspace_repo.get_by_name(name) is not None:
+            name = f"{name} ({user_id[-6:]})"
+        return name
 
     async def register_user(
         self,
@@ -978,7 +996,7 @@ class IdentityService:
                 TenantMembership(
                     tenant_id=invitation.tenant_id,
                     user_id=user_id,
-                    role=TENANT_ROLE_DEV,
+                    role=TENANT_ROLE_MEMBER,
                 )
             )
         membership_repo = self.workspace_membership_repo_factory(ctx)
@@ -1449,6 +1467,9 @@ class IdentityService:
 
         if membership_data.role not in TENANT_ROLES:
             raise ValidationError("Invalid tenant role")
+        if membership_data.role == TENANT_ROLE_OWNER and ctx.tenant_role != TENANT_ROLE_OWNER:
+            # An admin may not hand out more than they hold.
+            raise ForbiddenError("Only an organization owner can add another owner")
 
         # Check if membership already exists
         existing = await self.tenant_membership_repo.get(tenant_id, membership_data.user_id)

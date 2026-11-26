@@ -32,7 +32,7 @@ class RequestContext:
     """Trace ID for correlation (optional)."""
 
     tenant_role: str | None = None
-    """User's role in tenant (Owner/Admin/Dev/Viewer)."""
+    """User's role in the tenant (Owner/Admin/Member)."""
 
     workspace_role: str | None = None
     """User's role in workspace (Owner/Admin/Dev/Viewer)."""

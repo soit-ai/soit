@@ -3,11 +3,19 @@
 Unit tests for IdentityService.
 """
 
+from dataclasses import replace
+
 import pytest
 
-from app.kernel.commons.errors import ValidationError
+from app.kernel.commons.errors import ForbiddenError, ValidationError
 from app.kernel.contracts.context import RequestContext
-from app.kernel.identity.rbac import TENANT_ROLE_OWNER, WORKSPACE_ROLE_OWNER
+from app.kernel.identity.rbac import (
+    TENANT_ROLE_ADMIN,
+    TENANT_ROLE_MEMBER,
+    TENANT_ROLE_OWNER,
+    WORKSPACE_ROLE_ADMIN,
+    WORKSPACE_ROLE_OWNER,
+)
 from app.modules.identity.application.schemas import (
     ApiKeyCreate,
     MembershipCreate,
@@ -225,19 +233,22 @@ async def test_identity_rejects_legacy_roles(async_db):
         workspace_role=WORKSPACE_ROLE_OWNER,
     )
 
-    try:
-        await service.add_tenant_member(
-            tenant.id,
-            MembershipCreate(user_id=member.id, role="Member"),
-            ctx,
-        )
-        raise AssertionError("Expected ValidationError for legacy tenant role")
-    except ValidationError:
-        pass
+    # Dev and Viewer are workspace roles; the organization has Owner, Admin
+    # and Member.
+    for legacy in ("Dev", "Viewer"):
+        try:
+            await service.add_tenant_member(
+                tenant.id,
+                MembershipCreate(user_id=member.id, role=legacy),
+                ctx,
+            )
+            raise AssertionError("Expected ValidationError for legacy tenant role")
+        except ValidationError:
+            pass
 
     await service.add_tenant_member(
         tenant.id,
-        MembershipCreate(user_id=member.id, role="Dev"),
+        MembershipCreate(user_id=member.id, role="Member"),
         ctx,
     )
 
@@ -255,3 +266,79 @@ async def test_identity_rejects_legacy_roles(async_db):
         raise AssertionError("Expected ValidationError for legacy workspace role")
     except ValidationError:
         pass
+
+
+async def _owner_and_outsider(service, suffix: str):
+    owner, tenant, _token, owner_workspace_id, _refresh = await service.register_user(
+        UserCreate(email=f"owner-{suffix}@example.com", password="password123", name="Owner"),
+        tenant_name=f"org-{suffix}",
+    )
+    outsider, _tenant, _token, _workspace_id, _refresh = await service.register_user(
+        UserCreate(email=f"pat-{suffix}@example.com", password="password123", name="Pat"),
+        tenant_name=f"other-{suffix}",
+    )
+    ctx = RequestContext(
+        tenant_id=tenant.id,
+        workspace_id=owner_workspace_id,
+        user_id=owner.id,
+        tenant_role=TENANT_ROLE_OWNER,
+        workspace_role=WORKSPACE_ROLE_OWNER,
+    )
+    return tenant, owner_workspace_id, outsider, ctx
+
+
+@pytest.mark.asyncio
+async def test_a_member_without_a_workspace_gets_a_personal_one(async_db):
+    """The organization role never seeds a role in a shared workspace."""
+    service = build_identity_service(db=async_db)
+    tenant, shared_workspace_id, pat, ctx = await _owner_and_outsider(service, "personal")
+    await service.add_tenant_member(
+        tenant.id, MembershipCreate(user_id=pat.id, role=TENANT_ROLE_MEMBER), ctx
+    )
+
+    workspace_id, role = await service._ensure_workspace_membership(
+        tenant_id=tenant.id, user_id=pat.id, tenant_role=TENANT_ROLE_MEMBER
+    )
+
+    assert workspace_id != shared_workspace_id
+    assert role == WORKSPACE_ROLE_OWNER
+    workspace = await service.get_workspace(workspace_id=workspace_id, ctx=ctx)
+    assert workspace.tenant_id == tenant.id
+    assert workspace.name == "Pat's workspace"
+    # Asking again returns the same workspace rather than another one.
+    again, _role = await service._ensure_workspace_membership(
+        tenant_id=tenant.id, user_id=pat.id, tenant_role=TENANT_ROLE_MEMBER
+    )
+    assert again == workspace_id
+
+
+@pytest.mark.asyncio
+async def test_an_organization_admin_without_a_workspace_joins_the_first(async_db):
+    service = build_identity_service(db=async_db)
+    tenant, shared_workspace_id, pat, ctx = await _owner_and_outsider(service, "admin")
+    await service.add_tenant_member(
+        tenant.id, MembershipCreate(user_id=pat.id, role=TENANT_ROLE_ADMIN), ctx
+    )
+
+    workspace_id, role = await service._ensure_workspace_membership(
+        tenant_id=tenant.id, user_id=pat.id, tenant_role=TENANT_ROLE_ADMIN
+    )
+
+    assert (workspace_id, role) == (shared_workspace_id, WORKSPACE_ROLE_ADMIN)
+
+
+@pytest.mark.asyncio
+async def test_only_an_owner_adds_an_owner(async_db):
+    service = build_identity_service(db=async_db)
+    tenant, _workspace_id, pat, ctx = await _owner_and_outsider(service, "grant")
+    admin_ctx = replace(ctx, tenant_role=TENANT_ROLE_ADMIN)
+
+    with pytest.raises(ForbiddenError):
+        await service.add_tenant_member(
+            tenant.id, MembershipCreate(user_id=pat.id, role=TENANT_ROLE_OWNER), admin_ctx
+        )
+
+    membership = await service.add_tenant_member(
+        tenant.id, MembershipCreate(user_id=pat.id, role=TENANT_ROLE_OWNER), ctx
+    )
+    assert membership.role == TENANT_ROLE_OWNER

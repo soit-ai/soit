@@ -234,7 +234,7 @@ class TenantMembership(SQLModel, table=True):
     """User ID."""
 
     role: str = Field()
-    """Role (Owner/Admin/Dev/Viewer)."""
+    """Role (Owner/Admin/Member)."""
 
     created_at: datetime = Field(default_factory=utc_now)
     """Creation timestamp."""

@@ -39,6 +39,14 @@ record for operators.
 
 ### Changed
 
+- Tenant roles are Owner, Admin and Member. Dev and Viewer were workspace
+  roles that tenants borrowed; at the tenant level they granted nothing, and
+  their only effect was to place a person in the tenant's first workspace at
+  that role when they signed in without one. A member who belongs to no
+  workspace now gets a personal workspace instead of a role in a shared one,
+  and only an owner can add another owner. The migration turns every Dev and
+  Viewer tenant membership into Member; `POST /api/v1/tenants/{id}/members`
+  refuses Dev and Viewer. Workspace roles are unchanged.
 - The runs list reads an index on workspace and creation time instead of
   sorting every run in the workspace for each page. Migration
   `20261126100000` adds `ix_runs_scope_created`; on PostgreSQL it is built

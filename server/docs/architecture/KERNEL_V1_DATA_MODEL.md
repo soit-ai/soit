@@ -45,7 +45,9 @@ It is designed to be stable for years and to support:
 
 ### tenant_memberships
 - PK `(tenant_id, user_id)`
-- `role` (Owner/Admin/Dev/Viewer)
+- `role` (Owner/Admin/Member): what a person may do to the organization
+  itself. It never seeds a workspace role; a member who belongs to no
+  workspace gets a personal one at sign-in.
 - `created_at`
 
 ### workspace_memberships
