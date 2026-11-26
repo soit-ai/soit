@@ -19,6 +19,15 @@ from app.modules.identity.domain.models import (
 from app.modules.identity.infra.repository import UserSessionRepository
 
 
+def tighter_limit(workspace_value: int | None, tenant_value: int | None) -> int | None:
+    """The stricter of a workspace limit and its tenant's; None means unlimited."""
+    if workspace_value is None:
+        return tenant_value
+    if tenant_value is None:
+        return workspace_value
+    return min(workspace_value, tenant_value)
+
+
 class DatabaseWorkspaceAccessResolver:
     """Resolve membership and effective quotas from the primary database."""
 
@@ -84,21 +93,16 @@ class DatabaseWorkspaceAccessResolver:
                     {"reason": "mfa_required", "workspace_id": workspace_id},
                 )
 
+            # The tenant's limits are a ceiling: a workspace may tighten them
+            # but never loosen them, so a workspace admin cannot buy back what
+            # the organization took away.
             return WorkspaceAccess(
                 tenant_role=tenant_role,
                 workspace_role=workspace_role,
-                llm_rate_limit_per_minute=(
-                    workspace_llm_rate if workspace_llm_rate is not None else tenant_llm_rate
-                ),
-                tool_rate_limit_per_minute=(
-                    workspace_tool_rate if workspace_tool_rate is not None else tenant_tool_rate
-                ),
-                llm_daily_quota=(
-                    workspace_llm_quota if workspace_llm_quota is not None else tenant_llm_quota
-                ),
-                tool_daily_quota=(
-                    workspace_tool_quota if workspace_tool_quota is not None else tenant_tool_quota
-                ),
+                llm_rate_limit_per_minute=tighter_limit(workspace_llm_rate, tenant_llm_rate),
+                tool_rate_limit_per_minute=tighter_limit(workspace_tool_rate, tenant_tool_rate),
+                llm_daily_quota=tighter_limit(workspace_llm_quota, tenant_llm_quota),
+                tool_daily_quota=tighter_limit(workspace_tool_quota, tenant_tool_quota),
                 content_capture=content_capture or "full",
             )
         finally:

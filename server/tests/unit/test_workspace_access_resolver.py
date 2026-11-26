@@ -95,6 +95,24 @@ async def test_access_resolves_in_one_statement_with_workspace_overrides(async_d
 
 
 @pytest.mark.asyncio
+async def test_a_workspace_cannot_loosen_the_tenant_ceiling(async_db, resolver) -> None:
+    await _seed(async_db, workspace_llm_rate=100)
+
+    access = await resolver.resolve(TENANT, WORKSPACE, USER)
+
+    assert access is not None
+    assert access.llm_rate_limit_per_minute == 30  # the tenant's ceiling holds
+
+
+def test_tighter_limit_treats_none_as_unlimited() -> None:
+    assert workspace_access.tighter_limit(None, None) is None
+    assert workspace_access.tighter_limit(None, 7) == 7
+    assert workspace_access.tighter_limit(7, None) == 7
+    assert workspace_access.tighter_limit(9, 7) == 7
+    assert workspace_access.tighter_limit(3, 7) == 3
+
+
+@pytest.mark.asyncio
 async def test_missing_membership_yields_no_access(async_db, resolver) -> None:
     await _seed(async_db)
 

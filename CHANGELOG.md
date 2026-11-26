@@ -228,6 +228,11 @@ record for operators.
 
 ### Security
 
+- A tenant's LLM and tool rate limits and daily quotas are now a ceiling for
+  its workspaces. A workspace value used to replace the tenant's, so a
+  workspace admin could set a higher limit than the tenant allowed; the
+  stricter of the two now applies, and a workspace with no value of its own
+  still takes the tenant's.
 - Sign-in is rate limited. After `AUTH_MAX_FAILED_ATTEMPTS` (10) wrong
   passwords for an address, or wrong second-factor codes for an account,
   further attempts are refused with `429 RATE_LIMIT_EXCEEDED` for
