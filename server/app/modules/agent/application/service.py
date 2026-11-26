@@ -423,6 +423,498 @@ class AgentService:
         return f"{content}\n\n{attachment_context}" if content else attachment_context
 
     @workspace_guard("write")
+    async def _open_run(self, data: AgentRuntimeRequest, run_id: str, *, resuming: bool) -> str:
+        """Mark a resumed run running again, or record a new one; return its ID."""
+        if not self.trace_writer:
+            return run_id
+        if resuming:
+            await self._ensure_run_active(run_id)
+            await self.trace_writer.update_run_status(run_id, "running")
+            return run_id
+        subject_id, subject_version_id = self._resolve_agent_trace_subject()
+        run = await self.trace_writer.create_run(
+            mode="agent",
+            subject_kind="agent",
+            subject_id=subject_id,
+            subject_version_id=subject_version_id,
+            input_summary=data.messages[-1].content[:8192],
+            run_id=run_id,
+            request_id=data.request_id,
+        )
+        await self.trace_writer.update_run_status(run.id, "running")
+        return run.id
+
+    def _initial_messages(self, data: AgentRuntimeRequest, checkpoint: dict[str, Any]) -> list[ChatMessage]:
+        """The conversation the loop starts from: a checkpoint's, or the request's within its window."""
+        if checkpoint and checkpoint.get("schema_version") != 1:
+            raise ValidationError("Unsupported Agent approval checkpoint")
+        if checkpoint:
+            checkpoint_messages = checkpoint.get("messages")
+            if not isinstance(checkpoint_messages, list) or not checkpoint_messages:
+                raise ValidationError("Agent approval checkpoint has no message state")
+            return [
+                self._deserialize_message(item)
+                for item in checkpoint_messages
+                if isinstance(item, dict)
+            ]
+        messages = [
+            ChatMessage(
+                role=m.role,
+                content=self._message_content_with_attachments(m.content, m.metadata),
+            )
+            for m in data.messages
+        ]
+        return self._apply_context_window(
+            messages,
+            max_messages=data.context_window_messages,
+            max_chars=data.context_window_chars,
+        )
+
+    async def _with_memory_context(
+        self,
+        messages: list[ChatMessage],
+        data: AgentRuntimeRequest,
+        checkpoint: dict[str, Any],
+        run_id: str,
+    ) -> tuple[list[ChatMessage], str | None]:
+        """Recall memory for a fresh run; either prepend it or hand it to the planner."""
+        if checkpoint:
+            return messages, checkpoint.get("memory_context")
+        memory_context: str | None = None
+        if self.memory_service and (data.memory_strategy or data.memory_query or data.memory_top_k):
+            query_text = data.memory_query or data.messages[-1].content
+            try:
+                results = await self.memory_service.query_memory(
+                    self._build_memory_query(query_text=query_text, top_k=data.memory_top_k or 5),
+                    run_id=run_id,
+                )
+                memory_lines = []
+                for item in results:
+                    summary = item.memory.content_summary or str(item.memory.content)
+                    memory_lines.append(f"- {summary}")
+                if memory_lines:
+                    memory_context = "\n".join(memory_lines)
+            except Exception:
+                memory_context = None
+
+        if memory_context and data.memory_strategy in ("system_message", "user_message"):
+            role = "system" if data.memory_strategy == "system_message" else "user"
+            return [ChatMessage(role=role, content=f"Memory context:\n{memory_context}"), *messages], None
+        return messages, memory_context
+
+    async def _with_rag_context(
+        self,
+        messages: list[ChatMessage],
+        data: AgentRuntimeRequest,
+        checkpoint: dict[str, Any],
+        run_id: str,
+    ) -> tuple[list[ChatMessage], str | None, list[dict[str, Any]]]:
+        """Retrieve knowledge for a fresh run; either prepend it or hand it to the planner."""
+        rag_context = checkpoint.get("rag_context") if checkpoint else None
+        rag_citations: list[dict[str, Any]] = list(checkpoint.get("citations") or [])
+        if not checkpoint and data.knowledge_refs:
+            try:
+                rag_context, rag_citations = await self._retrieve_rag_context(
+                    knowledge_refs=data.knowledge_refs,
+                    query=data.messages[-1].content,
+                    top_k=data.rag_top_k,
+                    run_id=run_id,
+                )
+            except _SPEND_REFUSALS as refusal:
+                # Before the run's own error handling starts: close it here.
+                if self.trace_writer:
+                    await self.trace_writer.update_run_status(
+                        run_id,
+                        "failed",
+                        error_code=refusal.code,
+                        error_message=refusal.message,
+                    )
+                raise
+
+        if not checkpoint and rag_context and data.rag_strategy == "system_message":
+            messages = [ChatMessage(role="system", content=f"Retrieved context:\n{rag_context}"), *messages]
+            rag_context = None
+        return messages, rag_context, rag_citations
+
+    async def _resolve_tool_setup(
+        self, data: AgentRuntimeRequest
+    ) -> tuple[list[ToolDefinition] | None, frozenset[str], dict[str, Any]]:
+        """Tool definitions for function calling, the refs the run may call, and their policies."""
+        resolved_tool_refs = list(data.tool_refs or [])
+        tool_definitions = None
+        if self.tool_resolver and resolved_tool_refs:
+            tool_definitions = await self.tool_resolver.resolve(resolved_tool_refs, self.ctx)
+        if data.workflow_refs:
+            workflow_definitions = [
+                ToolDefinition(
+                    name=ref,
+                    description=f"Execute bound workflow {ref}",
+                    parameters=await self._workflow_tool_parameters(ref),
+                )
+                for ref in data.workflow_refs
+            ]
+            tool_definitions = [*(tool_definitions or []), *workflow_definitions]
+        allowed_action_refs = frozenset([*resolved_tool_refs, *(data.workflow_refs or [])])
+        # Only policies that were resolved: a tool without one is priced and
+        # gated by the gateway's own lookup, not as if it declared nothing.
+        tool_policies = {
+            definition.name: definition.policy
+            for definition in tool_definitions or []
+            if definition.policy is not None
+        }
+        return tool_definitions, allowed_action_refs, tool_policies
+
+    @staticmethod
+    def _tool_metrics(
+        *,
+        tool_ref: str,
+        parameters: dict[str, Any],
+        status: str,
+        tool_type: str = "builtin",
+        result: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "tool_call": {
+                "tool_name": tool_ref,
+                "tool_ref": tool_ref,
+                "tool_type": tool_type,
+                "status": status,
+                "arguments": summarize_parameters(parameters or {}),
+                "result": summarize_tool_payload(result or {}),
+                "metadata": summarize_tool_payload(metadata or {}),
+                "error_code": error_code,
+                "error_message": error_message,
+            }
+        }
+
+    async def _append_response_events(
+        self,
+        response_id: str | None,
+        events: list[tuple[str, dict[str, Any]]],
+    ) -> None:
+        """Mirror tool progress onto the response the run serves, when it has one."""
+        if not (self.response_service and response_id):
+            return
+        response = await self.response_service.get_response(response_id)
+        for event_type, payload in events:
+            await self.response_service.append_event(
+                response=response,
+                event_type=event_type,
+                payload=payload,
+                source="agent",
+            )
+
+    async def _execute_tool_call(
+        self,
+        *,
+        data: AgentRuntimeRequest,
+        run_id: str,
+        tool_call: ToolCall,
+        tool_type: str,
+        is_workflow_call: bool,
+        tool_arguments: dict[str, Any],
+        approval: dict[str, Any] | None,
+        runtime_tool_execution: RuntimeToolExecutionService | None,
+        tool_policy: Any,
+        tool_lease_owner: str,
+        iteration: int,
+        emit: EventEmitter,
+        response_id: str | None,
+        on_started: Callable[[], None],
+    ) -> tuple[ToolResponse, str | None, bool]:
+        """Claim, run and settle one tool or workflow call.
+
+        Returns the tool's response, the run step that records it, and whether
+        an approver rejected the call. ``on_started`` runs once the call is
+        claimed, which is when it counts against the run's tool budget.
+        """
+        tc = tool_call
+        idempotency_key = f"tool:{run_id}:{tc.id}"
+        resume_approval = bool(approval is not None and approval.get("approved"))
+        direct_tool_claim = None
+        tool_step_id = None
+        existing_tool_claim = (
+            await runtime_tool_execution.get_by_call(run_id=run_id, tool_call_id=tc.id)
+            if runtime_tool_execution is not None
+            else None
+        )
+        if existing_tool_claim is not None:
+            tool_step_id = existing_tool_claim.run_step.id
+        approval_rejected = bool(approval is not None and not approval.get("approved"))
+        if approval_rejected and runtime_tool_execution is not None and existing_tool_claim is not None:
+            rejected_claim = await runtime_tool_execution.reject_approval(
+                ToolExecutionCommand(
+                    run_id=run_id,
+                    run_step_id=tool_step_id,
+                    tool_call_id=tc.id,
+                    tool_ref=tc.name,
+                    arguments=tool_arguments,
+                    idempotency_key=idempotency_key,
+                    created_by=self.ctx.user_id,
+                )
+            )
+            tool_step_id = rejected_claim.run_step.id
+        if self.trace_writer and tool_step_id is None:
+            step = await self.trace_writer.create_step(
+                run_id=run_id,
+                step_type="tool",
+                input_summary=f"tool_ref={tc.name}",
+            )
+            tool_step_id = step.id
+        if runtime_tool_execution is not None and not approval_rejected:
+            direct_tool_claim = await runtime_tool_execution.claim(
+                ToolExecutionCommand(
+                    run_id=run_id,
+                    run_step_id=tool_step_id,
+                    tool_call_id=tc.id,
+                    tool_ref=tc.name,
+                    arguments=tool_arguments,
+                    idempotency_key=idempotency_key,
+                    created_by=self.ctx.user_id,
+                    resume_approval=resume_approval,
+                )
+            )
+            tool_step_id = direct_tool_claim.run_step.id
+
+        on_started()
+        await emit(
+            "agent.tool.rejected" if approval_rejected else "agent.tool.started",
+            {
+                "tool_ref": tc.name,
+                "tool_type": tool_type,
+                "tool_call_id": tc.id,
+                "arguments": tool_arguments,
+            },
+        )
+
+        if self.trace_writer and tool_step_id:
+            await self.trace_writer.update_step_metrics(
+                tool_step_id,
+                self._tool_metrics(
+                    tool_ref=tc.name,
+                    parameters=tool_arguments,
+                    status="rejected" if approval_rejected else "started",
+                    tool_type=tool_type,
+                    metadata={"source": "agent.tool", "iteration": iteration},
+                ),
+            )
+        call_payload = {
+            "response_id": response_id,
+            "run_id": run_id,
+            "tool_call_id": tc.id,
+            "tool_name": tc.name,
+            "tool_type": tool_type,
+            "step_id": tool_step_id,
+        }
+        opening_events: list[tuple[str, dict[str, Any]]] = [
+            ("tool.call.requested", {**call_payload, "status": "requested", "arguments": tool_arguments})
+        ]
+        if not approval_rejected:
+            opening_events.append(("tool.call.started", {**call_payload, "status": "started"}))
+        await self._append_response_events(response_id, opening_events)
+
+        try:
+            if approval_rejected:
+                tool_response = ToolResponse(
+                    result=None,
+                    success=False,
+                    error="Tool call was rejected by the approver",
+                    metadata={"source": "agent.approval", "rejected": True},
+                )
+            elif is_workflow_call:
+                if not self.workflow_executor:
+                    raise ValidationError(f"Workflow execution is not configured: {tc.name}")
+                if direct_tool_claim is not None and direct_tool_claim.replayed:
+                    assert runtime_tool_execution is not None
+                    cached_response = await runtime_tool_execution.load_cached_response(direct_tool_claim)
+                    if cached_response is None:
+                        raise RuntimeError("Durable workflow tool replay is unavailable")
+                    tool_response = cached_response
+                else:
+                    if direct_tool_claim is not None:
+                        assert runtime_tool_execution is not None
+                        await runtime_tool_execution.mark_running(direct_tool_claim.record.id)
+                    workflow_result = await self.workflow_executor(tc.name, tool_arguments)
+                    workflow_run_id = workflow_result.get("run_id")
+                    tool_response = ToolResponse(
+                        result={
+                            "workflow_ref": tc.name,
+                            "workflow_run_id": workflow_run_id,
+                            "output": workflow_result.get("output"),
+                        },
+                        metadata={
+                            "source": "agent.workflow",
+                            "workflow_ref": tc.name,
+                            "workflow_run_id": workflow_run_id,
+                        },
+                    )
+            else:
+                if direct_tool_claim is not None and not direct_tool_claim.replayed:
+                    assert runtime_tool_execution is not None
+                    await runtime_tool_execution.mark_running(direct_tool_claim.record.id)
+                tool_response = await self.executor.execute_tool(
+                    tool_ref=tc.name,
+                    parameters=tool_arguments,
+                    ctx=self.ctx,
+                    run_id=run_id,
+                    tool_call_id=tc.id,
+                    idempotency_key=idempotency_key,
+                    run_step_id=tool_step_id,
+                    resume_approval=resume_approval,
+                    lease_owner=tool_lease_owner,
+                    tool_policy=tool_policy,
+                )
+            if direct_tool_claim is not None and not direct_tool_claim.replayed:
+                assert runtime_tool_execution is not None
+                await runtime_tool_execution.complete(direct_tool_claim.record.id, tool_response)
+        except Exception as exc:
+            if (
+                runtime_tool_execution is not None
+                and direct_tool_claim is not None
+                and not direct_tool_claim.replayed
+            ):
+                await runtime_tool_execution.fail(direct_tool_claim.record.id, exc)
+            if self.trace_writer and tool_step_id:
+                await self.trace_writer.update_step_status(
+                    tool_step_id,
+                    "failed",
+                    metrics=self._tool_metrics(
+                        tool_ref=tc.name,
+                        parameters=tool_arguments,
+                        status="failed",
+                        tool_type=tool_type,
+                        metadata={"source": "agent.tool", "iteration": iteration},
+                        error_code="tool_execution_failed",
+                        error_message=str(exc),
+                    ),
+                    error_message=str(exc),
+                )
+            await self._append_response_events(
+                response_id,
+                [
+                    (
+                        "tool.call.failed",
+                        {
+                            **call_payload,
+                            "status": "failed",
+                            "error": {
+                                "code": "tool_execution_failed",
+                                "message": "Tool execution failed",
+                            },
+                        },
+                    )
+                ],
+            )
+            raise
+        return tool_response, tool_step_id, approval_rejected
+
+    async def _record_tool_result(
+        self,
+        *,
+        run_id: str,
+        tool_call: ToolCall,
+        tool_type: str,
+        tool_response: ToolResponse,
+        tool_step_id: str | None,
+        approval_rejected: bool,
+        iteration: int,
+        messages: list[ChatMessage],
+        tool_call_details: list[dict[str, Any]],
+        emit: EventEmitter,
+        response_id: str | None,
+    ) -> None:
+        """Feed a settled call back to the model and record it on the run and response."""
+        tc = tool_call
+        succeeded = tool_response.success
+        tool_content = str(tool_response.result) if succeeded else f"ERROR: {tool_response.error}"
+        messages.append(
+            ChatMessage(
+                role="tool",
+                content=tool_content,
+                tool_call_id=tc.id,
+                name=tc.name,
+            )
+        )
+        response_metadata = tool_response.metadata or {}
+        effective_tool_type = str(response_metadata.get("source_kind") or tool_type)
+        result_summary = summarize_tool_payload({"result": tool_response.result} if succeeded else {})
+        metadata_summary = summarize_tool_payload(response_metadata)
+        error = None if succeeded else {"code": "tool_execution_failed", "message": tool_response.error}
+        await emit(
+            "agent.tool.succeeded",
+            {
+                "tool_ref": tc.name,
+                "tool_type": effective_tool_type,
+                "tool_call_id": tc.id,
+                "success": succeeded,
+                "result": result_summary,
+                "metadata": metadata_summary,
+                "error": error,
+            },
+        )
+        tool_call_details.append(
+            {
+                "tool_call_id": tc.id,
+                "tool_name": tc.name,
+                "tool_type": effective_tool_type,
+                "status": "completed" if succeeded else "failed",
+                "arguments_json": summarize_parameters(tc.arguments or {}),
+                "result_json": result_summary,
+                "metadata_json": metadata_summary,
+                "error": error,
+            }
+        )
+
+        if self.trace_writer and tool_step_id and not approval_rejected:
+            await self.trace_writer.update_step_status(
+                tool_step_id,
+                "succeeded" if succeeded else "failed",
+                output_summary=json.dumps(
+                    summarize_tool_payload(
+                        {"result": tool_response.result} if succeeded else {"error": tool_response.error}
+                    ),
+                    ensure_ascii=False,
+                    default=str,
+                )[:8192],
+                metrics={
+                    **(await writer_capture(self.trace_writer, self.ctx)).identifiers(response_metadata),
+                    **self._tool_metrics(
+                        tool_ref=tc.name,
+                        parameters=tc.arguments,
+                        status="completed" if succeeded else "failed",
+                        tool_type=effective_tool_type,
+                        result={"result": tool_response.result} if succeeded else {},
+                        metadata={"source": "agent.tool", "iteration": iteration, **response_metadata},
+                        error_code=None if succeeded else "tool_execution_failed",
+                        error_message=None if succeeded else tool_response.error,
+                    ),
+                },
+                error_message=None if succeeded else tool_response.error,
+            )
+        await self._append_response_events(
+            response_id,
+            [
+                (
+                    "tool.call.completed" if succeeded else "tool.call.failed",
+                    {
+                        "response_id": response_id,
+                        "run_id": run_id,
+                        "tool_call_id": tc.id,
+                        "tool_name": tc.name,
+                        "tool_type": effective_tool_type,
+                        "step_id": tool_step_id,
+                        "status": "completed" if succeeded else "failed",
+                        "result": result_summary,
+                        "metadata": metadata_summary,
+                        "error": error,
+                    },
+                )
+            ],
+        )
+
     async def run(
         self,
         data: AgentRuntimeRequest,
@@ -443,106 +935,12 @@ class AgentService:
                 limit=settings.agent_rate_limit_per_minute,
                 window_seconds=60,
             )
-        if self.trace_writer:
-            if existing_run_id:
-                await self._ensure_run_active(run_id)
-                await self.trace_writer.update_run_status(run_id, "running")
-            else:
-                subject_id, subject_version_id = self._resolve_agent_trace_subject()
-                run = await self.trace_writer.create_run(
-                    mode="agent",
-                    subject_kind="agent",
-                    subject_id=subject_id,
-                    subject_version_id=subject_version_id,
-                    input_summary=data.messages[-1].content[:8192],
-                    run_id=run_id,
-                    request_id=data.request_id,
-                )
-                run_id = run.id
-                await self.trace_writer.update_run_status(run_id, "running")
+        run_id = await self._open_run(data, run_id, resuming=bool(existing_run_id))
 
-        messages = [
-            ChatMessage(
-                role=m.role,
-                content=self._message_content_with_attachments(m.content, m.metadata),
-            )
-            for m in data.messages
-        ]
         checkpoint = data.approval_checkpoint or {}
-        if checkpoint and checkpoint.get("schema_version") != 1:
-            raise ValidationError("Unsupported Agent approval checkpoint")
-        checkpoint_messages = checkpoint.get("messages")
-        if checkpoint:
-            if not isinstance(checkpoint_messages, list) or not checkpoint_messages:
-                raise ValidationError("Agent approval checkpoint has no message state")
-            messages = [
-                self._deserialize_message(item)
-                for item in checkpoint_messages
-                if isinstance(item, dict)
-            ]
-        else:
-            messages = self._apply_context_window(
-                messages,
-                max_messages=data.context_window_messages,
-                max_chars=data.context_window_chars,
-            )
-        memory_context = checkpoint.get("memory_context") if checkpoint else None
-
-        if (
-            not checkpoint
-            and self.memory_service
-            and (data.memory_strategy or data.memory_query or data.memory_top_k)
-        ):
-            query_text = data.memory_query or data.messages[-1].content
-            try:
-                results = await self.memory_service.query_memory(
-                    self._build_memory_query(query_text=query_text, top_k=data.memory_top_k or 5),
-                    run_id=run_id,
-                )
-                memory_lines = []
-                for item in results:
-                    summary = item.memory.content_summary or str(item.memory.content)
-                    memory_lines.append(f"- {summary}")
-                if memory_lines:
-                    memory_context = "\n".join(memory_lines)
-            except Exception:
-                memory_context = None
-
-        if (
-            not checkpoint
-            and memory_context
-            and data.memory_strategy in ("system_message", "user_message")
-        ):
-            role = "system" if data.memory_strategy == "system_message" else "user"
-            messages = [ChatMessage(role=role, content=f"Memory context:\n{memory_context}")] + messages
-            memory_context = None
-
-        # RAG retrieval from knowledge bases
-        rag_context = checkpoint.get("rag_context") if checkpoint else None
-        rag_citations: list[dict[str, Any]] = list(checkpoint.get("citations") or [])
-        if not checkpoint and data.knowledge_refs:
-            query_text = data.messages[-1].content
-            try:
-                rag_context, rag_citations = await self._retrieve_rag_context(
-                    knowledge_refs=data.knowledge_refs,
-                    query=query_text,
-                    top_k=data.rag_top_k,
-                    run_id=run_id,
-                )
-            except _SPEND_REFUSALS as refusal:
-                # Before the run's own error handling starts: close it here.
-                if self.trace_writer:
-                    await self.trace_writer.update_run_status(
-                        run_id,
-                        "failed",
-                        error_code=refusal.code,
-                        error_message=refusal.message,
-                    )
-                raise
-
-        if not checkpoint and rag_context and data.rag_strategy == "system_message":
-            messages = [ChatMessage(role="system", content=f"Retrieved context:\n{rag_context}")] + messages
-            rag_context = None
+        messages = self._initial_messages(data, checkpoint)
+        messages, memory_context = await self._with_memory_context(messages, data, checkpoint, run_id)
+        messages, rag_context, rag_citations = await self._with_rag_context(messages, data, checkpoint, run_id)
 
         model = data.model_ref
         iterations = int(checkpoint.get("iterations") or 0)
@@ -626,56 +1024,7 @@ class AgentService:
             finish_reason = reason
             return True
 
-        def build_tool_metrics(
-            *,
-            tool_ref: str,
-            parameters: dict[str, Any],
-            status: str,
-            tool_type: str = "builtin",
-            result: dict[str, Any] | None = None,
-            metadata: dict[str, Any] | None = None,
-            error_code: str | None = None,
-            error_message: str | None = None,
-        ) -> dict[str, Any]:
-            return {
-                "tool_call": {
-                    "tool_name": tool_ref,
-                    "tool_ref": tool_ref,
-                    "tool_type": tool_type,
-                    "status": status,
-                    "arguments": summarize_parameters(parameters or {}),
-                    "result": summarize_tool_payload(result or {}),
-                    "metadata": summarize_tool_payload(metadata or {}),
-                    "error_code": error_code,
-                    "error_message": error_message,
-                }
-            }
-
-        # Resolve tool definitions for function calling
-        resolved_tool_refs = list(data.tool_refs or [])
-        tool_definitions = None
-        if self.tool_resolver and resolved_tool_refs:
-            tool_definitions = await self.tool_resolver.resolve(resolved_tool_refs, self.ctx)
-        if data.workflow_refs:
-            workflow_definitions = [
-                ToolDefinition(
-                    name=ref,
-                    description=f"Execute bound workflow {ref}",
-                    parameters=await self._workflow_tool_parameters(ref),
-                )
-                for ref in data.workflow_refs
-            ]
-            tool_definitions = [*(tool_definitions or []), *workflow_definitions]
-        allowed_action_refs = frozenset(
-            [*resolved_tool_refs, *(data.workflow_refs or [])]
-        )
-        # Only policies that were resolved: a tool without one is priced and
-        # gated by the gateway's own lookup, not as if it declared nothing.
-        tool_policies = {
-            definition.name: definition.policy
-            for definition in tool_definitions or []
-            if definition.policy is not None
-        }
+        tool_definitions, allowed_action_refs, tool_policies = await self._resolve_tool_setup(data)
 
         try:
             await emit("agent.run.started", {"run_id": run_id})
@@ -824,7 +1173,6 @@ class AgentService:
                             else (tc.arguments or {})
                         )
 
-                        direct_tool_claim = None
                         try:
                             approval = await self._require_tool_approval(
                                 data=data,
@@ -887,347 +1235,48 @@ class AgentService:
                         if approval is not None:
                             tool_arguments = dict(approval.get("parameters") or tool_arguments)
 
-                        tool_step_id = None
-                        existing_tool_claim = (
-                            await runtime_tool_execution.get_by_call(
-                                run_id=run_id,
-                                tool_call_id=tc.id,
-                            )
-                            if runtime_tool_execution is not None
-                            else None
-                        )
-                        if existing_tool_claim is not None:
-                            tool_step_id = existing_tool_claim.run_step.id
-                        approval_rejected = bool(
-                            approval is not None and not approval.get("approved")
+                        def count_tool_call() -> None:
+                            nonlocal tool_calls
+                            tool_calls += 1
+
+                        tool_response, tool_step_id, approval_rejected = await self._execute_tool_call(
+                            data=data,
+                            run_id=run_id,
+                            tool_call=tc,
+                            tool_type=tool_type,
+                            is_workflow_call=is_workflow_call,
+                            tool_arguments=tool_arguments,
+                            approval=approval,
+                            runtime_tool_execution=runtime_tool_execution,
+                            tool_policy=tool_policies.get(tc.name),
+                            tool_lease_owner=tool_lease_owner,
+                            iteration=iterations,
+                            emit=emit,
+                            response_id=response_id if emit_response_events else None,
+                            on_started=count_tool_call,
                         )
                         if (
-                            approval_rejected
-                            and runtime_tool_execution is not None
-                            and existing_tool_claim is not None
+                            is_workflow_call
+                            and tool_response.success
+                            and isinstance(tool_response.result, dict)
                         ):
-                            rejected_claim = await runtime_tool_execution.reject_approval(
-                                ToolExecutionCommand(
-                                    run_id=run_id,
-                                    run_step_id=tool_step_id,
-                                    tool_call_id=tc.id,
-                                    tool_ref=tc.name,
-                                    arguments=tool_arguments,
-                                    idempotency_key=f"tool:{run_id}:{tc.id}",
-                                    created_by=self.ctx.user_id,
-                                )
+                            rag_citations = self._merge_citations(
+                                rag_citations,
+                                self._workflow_output_citations(tool_response.result.get("output")),
                             )
-                            tool_step_id = rejected_claim.run_step.id
-                        if self.trace_writer:
-                            if tool_step_id is None:
-                                step = await self.trace_writer.create_step(
-                                    run_id=run_id,
-                                    step_type="tool",
-                                    input_summary=f"tool_ref={tc.name}",
-                                )
-                                tool_step_id = step.id
-                        if runtime_tool_execution is not None and not approval_rejected:
-                            direct_tool_claim = await runtime_tool_execution.claim(
-                                ToolExecutionCommand(
-                                    run_id=run_id,
-                                    run_step_id=tool_step_id,
-                                    tool_call_id=tc.id,
-                                    tool_ref=tc.name,
-                                    arguments=tool_arguments,
-                                    idempotency_key=f"tool:{run_id}:{tc.id}",
-                                    created_by=self.ctx.user_id,
-                                    resume_approval=bool(
-                                        approval is not None and approval.get("approved")
-                                    ),
-                                )
-                            )
-                            tool_step_id = direct_tool_claim.run_step.id
-
-                        tool_calls += 1
-                        await emit(
-                            "agent.tool.rejected" if approval_rejected else "agent.tool.started",
-                            {
-                                "tool_ref": tc.name,
-                                "tool_type": tool_type,
-                                "tool_call_id": tc.id,
-                                "arguments": tool_arguments,
-                            },
+                        await self._record_tool_result(
+                            run_id=run_id,
+                            tool_call=tc,
+                            tool_type=tool_type,
+                            tool_response=tool_response,
+                            tool_step_id=tool_step_id,
+                            approval_rejected=approval_rejected,
+                            iteration=iterations,
+                            messages=messages,
+                            tool_call_details=tool_call_details,
+                            emit=emit,
+                            response_id=response_id if emit_response_events else None,
                         )
-
-                        if self.trace_writer and tool_step_id:
-                            await self.trace_writer.update_step_metrics(
-                                tool_step_id,
-                                build_tool_metrics(
-                                    tool_ref=tc.name,
-                                    parameters=tool_arguments,
-                                    status="rejected" if approval_rejected else "started",
-                                    tool_type=tool_type,
-                                    metadata={"source": "agent.tool", "iteration": iterations},
-                                ),
-                            )
-                        if emit_response_events and self.response_service and response_id:
-                            response = await self.response_service.get_response(response_id)
-                            await self.response_service.append_event(
-                                response=response,
-                                event_type="tool.call.requested",
-                                payload={
-                                    "response_id": response_id,
-                                    "run_id": run_id,
-                                    "tool_call_id": tc.id,
-                                    "tool_name": tc.name,
-                                    "tool_type": tool_type,
-                                    "step_id": tool_step_id,
-                                    "status": "requested",
-                                    "arguments": tool_arguments,
-                                },
-                                source="agent",
-                            )
-                            if not approval_rejected:
-                                await self.response_service.append_event(
-                                    response=response,
-                                    event_type="tool.call.started",
-                                    payload={
-                                        "response_id": response_id,
-                                        "run_id": run_id,
-                                        "tool_call_id": tc.id,
-                                        "tool_name": tc.name,
-                                        "tool_type": tool_type,
-                                        "step_id": tool_step_id,
-                                        "status": "started",
-                                    },
-                                    source="agent",
-                                )
-                        try:
-                            if approval is not None and not approval.get("approved"):
-                                tool_response = ToolResponse(
-                                    result=None,
-                                    success=False,
-                                    error="Tool call was rejected by the approver",
-                                    metadata={"source": "agent.approval", "rejected": True},
-                                )
-                            elif is_workflow_call:
-                                if not self.workflow_executor:
-                                    raise ValidationError(f"Workflow execution is not configured: {tc.name}")
-                                if direct_tool_claim is not None and direct_tool_claim.replayed:
-                                    cached_response = await runtime_tool_execution.load_cached_response(
-                                        direct_tool_claim
-                                    )
-                                    if cached_response is None:
-                                        raise RuntimeError("Durable workflow tool replay is unavailable")
-                                    tool_response = cached_response
-                                else:
-                                    if direct_tool_claim is not None:
-                                        await runtime_tool_execution.mark_running(
-                                            direct_tool_claim.record.id
-                                        )
-                                    workflow_result = await self.workflow_executor(
-                                        tc.name,
-                                        tool_arguments,
-                                    )
-                                    workflow_run_id = workflow_result.get("run_id")
-                                    tool_response = ToolResponse(
-                                        result={
-                                            "workflow_ref": tc.name,
-                                            "workflow_run_id": workflow_run_id,
-                                            "output": workflow_result.get("output"),
-                                        },
-                                        metadata={
-                                            "source": "agent.workflow",
-                                            "workflow_ref": tc.name,
-                                            "workflow_run_id": workflow_run_id,
-                                        },
-                                    )
-                            else:
-                                if direct_tool_claim is not None and not direct_tool_claim.replayed:
-                                    await runtime_tool_execution.mark_running(
-                                        direct_tool_claim.record.id
-                                    )
-                                tool_response = await self.executor.execute_tool(
-                                    tool_ref=tc.name,
-                                    parameters=tool_arguments,
-                                    ctx=self.ctx,
-                                    run_id=run_id,
-                                    tool_call_id=tc.id,
-                                    idempotency_key=f"tool:{run_id}:{tc.id}",
-                                    run_step_id=tool_step_id,
-                                    resume_approval=bool(
-                                        approval is not None and approval.get("approved")
-                                    ),
-                                    lease_owner=tool_lease_owner,
-                                    tool_policy=tool_policies.get(tc.name),
-                                )
-                            if direct_tool_claim is not None and not direct_tool_claim.replayed:
-                                await runtime_tool_execution.complete(
-                                    direct_tool_claim.record.id,
-                                    tool_response,
-                                )
-                            if (
-                                is_workflow_call
-                                and tool_response.success
-                                and isinstance(tool_response.result, dict)
-                            ):
-                                rag_citations = self._merge_citations(
-                                    rag_citations,
-                                    self._workflow_output_citations(
-                                        tool_response.result.get("output")
-                                    ),
-                                )
-                        except Exception as exc:
-                            if (
-                                runtime_tool_execution is not None
-                                and direct_tool_claim is not None
-                                and not direct_tool_claim.replayed
-                            ):
-                                await runtime_tool_execution.fail(
-                                    direct_tool_claim.record.id,
-                                    exc,
-                                )
-                            if self.trace_writer and tool_step_id:
-                                await self.trace_writer.update_step_status(
-                                    tool_step_id,
-                                    "failed",
-                                    metrics=build_tool_metrics(
-                                        tool_ref=tc.name,
-                                        parameters=tool_arguments,
-                                        status="failed",
-                                        tool_type=tool_type,
-                                        metadata={"source": "agent.tool", "iteration": iterations},
-                                        error_code="tool_execution_failed",
-                                        error_message=str(exc),
-                                    ),
-                                    error_message=str(exc),
-                                )
-                            if emit_response_events and self.response_service and response_id:
-                                response = await self.response_service.get_response(response_id)
-                                await self.response_service.append_event(
-                                    response=response,
-                                    event_type="tool.call.failed",
-                                    payload={
-                                        "response_id": response_id,
-                                        "run_id": run_id,
-                                        "tool_call_id": tc.id,
-                                        "tool_name": tc.name,
-                                        "tool_type": tool_type,
-                                        "step_id": tool_step_id,
-                                        "status": "failed",
-                                        "error": {
-                                            "code": "tool_execution_failed",
-                                            "message": "Tool execution failed",
-                                        },
-                                    },
-                                    source="agent",
-                                )
-                            raise
-
-                        tool_content = (
-                            str(tool_response.result)
-                            if tool_response.success
-                            else f"ERROR: {tool_response.error}"
-                        )
-                        messages.append(ChatMessage(
-                            role="tool",
-                            content=tool_content,
-                            tool_call_id=tc.id,
-                            name=tc.name,
-                        ))
-                        response_metadata = tool_response.metadata or {}
-                        effective_tool_type = str(response_metadata.get("source_kind") or tool_type)
-                        await emit(
-                            "agent.tool.succeeded",
-                            {
-                                "tool_ref": tc.name,
-                                "tool_type": effective_tool_type,
-                                "tool_call_id": tc.id,
-                                "success": tool_response.success,
-                                "result": summarize_tool_payload(
-                                    {"result": tool_response.result}
-                                    if tool_response.success
-                                    else {}
-                                ),
-                                "metadata": summarize_tool_payload(response_metadata),
-                                "error": None if tool_response.success else {
-                                    "code": "tool_execution_failed",
-                                    "message": tool_response.error,
-                                },
-                            },
-                        )
-                        tool_call_details.append(
-                            {
-                                "tool_call_id": tc.id,
-                                "tool_name": tc.name,
-                                "tool_type": effective_tool_type,
-                                "status": "completed" if tool_response.success else "failed",
-                                "arguments_json": summarize_parameters(tc.arguments or {}),
-                                "result_json": summarize_tool_payload(
-                                    {"result": tool_response.result}
-                                    if tool_response.success
-                                    else {}
-                                ),
-                                "metadata_json": summarize_tool_payload(response_metadata),
-                                "error": None if tool_response.success else {
-                                    "code": "tool_execution_failed",
-                                    "message": tool_response.error,
-                                },
-                            }
-                        )
-
-                        if self.trace_writer and tool_step_id and not approval_rejected:
-                            status = "succeeded" if tool_response.success else "failed"
-                            await self.trace_writer.update_step_status(
-                                tool_step_id,
-                                status,
-                                output_summary=json.dumps(
-                                    summarize_tool_payload(
-                                        {"result": tool_response.result}
-                                        if tool_response.success
-                                        else {"error": tool_response.error}
-                                    ),
-                                    ensure_ascii=False,
-                                    default=str,
-                                )[:8192],
-                                metrics={
-                                    **(await writer_capture(self.trace_writer, self.ctx)).identifiers(
-                                        response_metadata
-                                    ),
-                                    **build_tool_metrics(
-                                        tool_ref=tc.name,
-                                        parameters=tc.arguments,
-                                        status="completed" if tool_response.success else "failed",
-                                        tool_type=effective_tool_type,
-                                        result={"result": tool_response.result} if tool_response.success else {},
-                                        metadata={"source": "agent.tool", "iteration": iterations, **response_metadata},
-                                        error_code=None if tool_response.success else "tool_execution_failed",
-                                        error_message=None if tool_response.success else tool_response.error,
-                                    ),
-                                },
-                                error_message=None if tool_response.success else tool_response.error,
-                            )
-                        if emit_response_events and self.response_service and response_id:
-                            response = await self.response_service.get_response(response_id)
-                            await self.response_service.append_event(
-                                response=response,
-                                event_type="tool.call.completed" if tool_response.success else "tool.call.failed",
-                                payload={
-                                    "response_id": response_id,
-                                    "run_id": run_id,
-                                    "tool_call_id": tc.id,
-                                    "tool_name": tc.name,
-                                    "tool_type": effective_tool_type,
-                                    "step_id": tool_step_id,
-                                    "status": "completed" if tool_response.success else "failed",
-                                    "result": summarize_tool_payload(
-                                        {"result": tool_response.result}
-                                        if tool_response.success
-                                        else {}
-                                    ),
-                                    "metadata": summarize_tool_payload(response_metadata),
-                                    "error": None if tool_response.success else {
-                                        "code": "tool_execution_failed",
-                                        "message": tool_response.error,
-                                    },
-                                },
-                                source="agent",
-                            )
 
                         if not tool_response.success:
                             failures += 1
