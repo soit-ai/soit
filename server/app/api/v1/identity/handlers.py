@@ -776,16 +776,18 @@ async def list_my_workspaces(
     ctx: RequestContext = Depends(require_workspace_read_ctx),
     service: IdentityService = Depends(get_identity_service),
 ) -> list[MyWorkspaceResponse]:
-    """List the workspaces the caller belongs to in the current tenant."""
+    """List the workspaces the caller belongs to, in every organization."""
     return [
         MyWorkspaceResponse(
             id=workspace.id,
             name=workspace.name,
             description=workspace.description,
             role=role,
+            tenant_id=tenant.id,
+            tenant_name=tenant.name,
             created_at=workspace.created_at,
         )
-        for workspace, role in await service.list_my_workspaces(ctx)
+        for workspace, role, tenant in await service.list_my_workspaces(ctx)
     ]
 
 

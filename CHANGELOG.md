@@ -118,6 +118,14 @@ record for operators.
 
 ### Fixed
 
+- A person who belongs to more than one tenant can reach every workspace
+  they are a member of. Sign-in always picked their oldest tenant and the
+  workspace switcher listed only that tenant's workspaces, so someone with a
+  tenant of their own who accepted an invitation to another could never open
+  the workspace they were invited to. A request now acts in the tenant of the
+  workspace it names, still requiring membership of both, and
+  `GET /api/v1/me/workspaces` lists workspaces in every tenant with
+  `tenant_id` and `tenant_name`. API keys stay bound to their own tenant.
 - A schedule whose agent or workflow was deleted pauses itself at its next
   occurrence, with `last_error` naming the deleted target, instead of failing
   at every occurrence indefinitely. A target that still exists but cannot run,

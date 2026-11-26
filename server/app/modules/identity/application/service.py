@@ -7,6 +7,7 @@ import hashlib
 import logging
 import secrets
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, timedelta
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -1748,25 +1749,41 @@ class IdentityService:
         repo = self.workspace_membership_repo_factory(ctx)
         return await repo.get_by_workspace(workspace_id)
 
-    async def list_my_workspaces(self, ctx: RequestContext) -> list[tuple[Workspace, str]]:
-        """Return the caller's own workspaces in the current tenant, with roles.
+    async def list_my_workspaces(
+        self, ctx: RequestContext
+    ) -> list[tuple[Workspace, str, Tenant]]:
+        """Return the caller's own workspaces in every tenant they belong to.
 
         Distinct from ``list_workspaces``, which answers "every workspace in
         this tenant" and is an administrative question. This one is what a
-        workspace switcher needs, and any member may ask it.
+        workspace switcher needs, and any member may ask it. The current
+        tenant comes first; a request through any of these workspaces acts in
+        that workspace's tenant, so switching between organizations needs no
+        new sign-in.
         """
-        membership_repo = self.workspace_membership_repo_factory(ctx)
-        workspace_repo = self.workspace_repo_factory(ctx)
-        pairs: list[tuple[Workspace, str]] = []
-        for membership in await membership_repo.get_by_user(ctx.user_id):
-            workspace = await workspace_repo.get_by_id(membership.workspace_id)
-            # A membership can outlive the workspace it points at; showing a
-            # dangling row in a switcher would offer a destination that 404s.
-            if workspace is None or workspace.tenant_id != ctx.tenant_id:
+        tenant_memberships = sorted(
+            await self.tenant_membership_repo.get_by_user(ctx.user_id),
+            key=lambda item: (item.tenant_id != ctx.tenant_id, item.created_at),
+        )
+        rows: list[tuple[Workspace, str, Tenant]] = []
+        for tenant_membership in tenant_memberships:
+            tenant = await self.tenant_repo.get_by_id(tenant_membership.tenant_id)
+            if tenant is None:
                 continue
-            pairs.append((workspace, membership.role))
-        pairs.sort(key=lambda pair: pair[0].created_at)
-        return pairs
+            scoped = replace(ctx, tenant_id=tenant.id)
+            membership_repo = self.workspace_membership_repo_factory(scoped)
+            workspace_repo = self.workspace_repo_factory(scoped)
+            pairs: list[tuple[Workspace, str]] = []
+            for membership in await membership_repo.get_by_user(ctx.user_id):
+                workspace = await workspace_repo.get_by_id(membership.workspace_id)
+                # A membership can outlive the workspace it points at; showing a
+                # dangling row in a switcher would offer a destination that 404s.
+                if workspace is None or workspace.tenant_id != tenant.id:
+                    continue
+                pairs.append((workspace, membership.role))
+            pairs.sort(key=lambda pair: pair[0].created_at)
+            rows.extend((workspace, role, tenant) for workspace, role in pairs)
+        return rows
 
     async def update_workspace_member_role(
         self,

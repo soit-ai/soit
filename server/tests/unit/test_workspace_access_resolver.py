@@ -122,6 +122,36 @@ async def test_missing_membership_yields_no_access(async_db, resolver) -> None:
 
 
 @pytest.mark.asyncio
+async def test_without_a_pinned_tenant_the_workspace_names_it(async_db, resolver, statements) -> None:
+    await _seed(async_db)
+    statements.clear()
+
+    access = await resolver.resolve(None, WORKSPACE, USER)
+
+    assert access is not None
+    assert access.tenant_id == TENANT
+    assert access.workspace_role == "Editor"
+    assert len(statements) == 1
+    assert await resolver.resolve(None, "no-such-workspace", USER) is None
+    assert await resolver.resolve(None, WORKSPACE, "somebody-else") is None
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_membership_without_its_tenant_admits_nobody(async_db, resolver) -> None:
+    """Belonging to the workspace's tenant is required, whoever names the tenant."""
+    await _seed(async_db)
+    async_db.add(Tenant(id="tenant-home", name="Home"))
+    async_db.add(TenantMembership(tenant_id="tenant-home", user_id="drifter", role="Owner"))
+    async_db.add(
+        WorkspaceMembership(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="drifter", role="Owner")
+    )
+    await async_db.commit()
+
+    assert await resolver.resolve(None, WORKSPACE, "drifter") is None
+    assert await resolver.resolve("tenant-home", WORKSPACE, "drifter") is None
+
+
+@pytest.mark.asyncio
 async def test_a_dead_session_is_refused_before_membership_is_considered(async_db, resolver) -> None:
     await _seed(async_db)
     async_db.add(

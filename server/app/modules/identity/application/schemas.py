@@ -209,6 +209,9 @@ class MyWorkspaceResponse(BaseModel):
     name: str
     description: str | None = None
     role: str
+    tenant_id: str
+    """The organization the workspace belongs to."""
+    tenant_name: str
     created_at: datetime
 
 

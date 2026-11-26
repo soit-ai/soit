@@ -35,12 +35,14 @@ class _JWTManager:
 
 
 class _WorkspaceAccessResolver:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str, str]] = []
+    def __init__(self, workspace_tenant: str = "tenant-1") -> None:
+        self.calls: list[tuple[str | None, str, str]] = []
+        self.workspace_tenant = workspace_tenant
 
-    async def resolve(self, tenant_id: str, workspace_id: str, user_id: str, session_id=None):
+    async def resolve(self, tenant_id: str | None, workspace_id: str, user_id: str, session_id=None):
         self.calls.append((tenant_id, workspace_id, user_id))
         return SimpleNamespace(
+            tenant_id=self.workspace_tenant,
             tenant_role="Viewer",
             workspace_role="Viewer",
             llm_rate_limit_per_minute=None,
@@ -89,7 +91,7 @@ async def test_header_workspace_uses_authoritative_membership_role() -> None:
 
     assert context.workspace_id == "workspace-b"
     assert context.workspace_role == "Viewer"
-    assert access_resolver.calls == [("tenant-1", "workspace-b", "user-1")]
+    assert access_resolver.calls == [(None, "workspace-b", "user-1")]
 
 
 @pytest.mark.asyncio
@@ -110,6 +112,27 @@ async def test_missing_workspace_membership_is_forbidden() -> None:
                 credentials="token",
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_a_token_reaches_a_workspace_in_another_of_its_tenants() -> None:
+    """The workspace decides the tenant; the token only names where sign-in began."""
+    access_resolver = _WorkspaceAccessResolver(workspace_tenant="tenant-2")
+    resolver = ContextResolver(
+        _JWTManager(),
+        workspace_access_resolver=access_resolver,
+    )
+
+    context = await resolver.resolve_from_request(
+        _request(),
+        workspace_id_header="workspace-elsewhere",
+        authorization=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
+    )
+    assert context.tenant_id == "tenant-2"
+    assert context.workspace_id == "workspace-elsewhere"
+
+    context = await resolver.resolve_from_token("token", workspace_id="workspace-elsewhere")
+    assert context.tenant_id == "tenant-2"
 
 
 def test_default_context_resolver_wires_workspace_access_provider(monkeypatch) -> None:
@@ -138,7 +161,7 @@ async def test_non_http_token_resolution_uses_authoritative_membership() -> None
     assert context.workspace_id == "workspace-b"
     assert context.tenant_role == "Viewer"
     assert context.workspace_role == "Viewer"
-    assert access_resolver.calls == [("tenant-1", "workspace-b", "user-1")]
+    assert access_resolver.calls == [(None, "workspace-b", "user-1")]
 
 
 @pytest.mark.asyncio

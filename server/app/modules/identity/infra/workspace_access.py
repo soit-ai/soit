@@ -33,7 +33,7 @@ class DatabaseWorkspaceAccessResolver:
 
     async def resolve(
         self,
-        tenant_id: str,
+        tenant_id: str | None,
         workspace_id: str,
         user_id: str,
         session_id: str | None = None,
@@ -64,6 +64,7 @@ class DatabaseWorkspaceAccessResolver:
             (
                 session_status,
                 session_expires_at,
+                resolved_tenant_id,
                 tenant_role,
                 workspace_role,
                 tenant_llm_rate,
@@ -104,18 +105,26 @@ class DatabaseWorkspaceAccessResolver:
                 llm_daily_quota=tighter_limit(workspace_llm_quota, tenant_llm_quota),
                 tool_daily_quota=tighter_limit(workspace_tool_quota, tenant_tool_quota),
                 content_capture=content_capture or "full",
+                tenant_id=resolved_tenant_id,
             )
         finally:
             await db.close()
 
     @staticmethod
-    def _access_query(tenant_id: str, workspace_id: str, user_id: str, session_id: str | None):
+    def _access_query(
+        tenant_id: str | None, workspace_id: str, user_id: str, session_id: str | None
+    ):
         session_key = str(session_id or "")
         session_status = (
             select(UserSession.status).where(UserSession.id == session_key).scalar_subquery()
         )
         session_expires_at = (
             select(UserSession.expires_at).where(UserSession.id == session_key).scalar_subquery()
+        )
+        # Without a pinned tenant the workspace names it: its id is unique
+        # across tenants, so this is the only tenant it can belong to.
+        workspace_tenant = (
+            select(Workspace.tenant_id).where(Workspace.id == workspace_id).scalar_subquery()
         )
         mfa_active = exists(
             select(UserMfa.user_id).where(
@@ -126,6 +135,7 @@ class DatabaseWorkspaceAccessResolver:
             select(
                 session_status,
                 session_expires_at,
+                Tenant.id,
                 TenantMembership.role,
                 WorkspaceMembership.role,
                 Tenant.llm_rate_limit_per_minute,
@@ -161,7 +171,7 @@ class DatabaseWorkspaceAccessResolver:
                     WorkspaceMembership.user_id == user_id,
                 ),
             )
-            .where(Tenant.id == tenant_id)
+            .where(Tenant.id == (tenant_id if tenant_id is not None else workspace_tenant))
         )
 
     @staticmethod

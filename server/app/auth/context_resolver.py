@@ -123,8 +123,12 @@ class ContextResolver:
         if not workspace_id:
             raise NotFoundError("Workspace ID required but not provided")
 
+        # The workspace decides the tenant, not the token: a person may belong
+        # to more than one organization, and the token only records the one
+        # they signed in to. Membership of the workspace's own tenant and of
+        # the workspace is what admits them.
         access = await self.workspace_access_resolver.resolve(
-            str(tenant_id),
+            None,
             str(workspace_id),
             str(user_id),
             session_id=payload.get("sid"),
@@ -133,7 +137,7 @@ class ContextResolver:
             raise ForbiddenError("User is not a member of the requested workspace")
 
         return RequestContext(
-            tenant_id=str(tenant_id),
+            tenant_id=access.tenant_id or str(tenant_id),
             workspace_id=str(workspace_id),
             user_id=str(user_id),
             tenant_role=access.tenant_role,
@@ -347,7 +351,7 @@ class ContextResolver:
             raise NotFoundError("Workspace ID required")
 
         access = await self.workspace_access_resolver.resolve(
-            str(tenant_id),
+            None,
             str(resolved_workspace_id),
             str(user_id),
             session_id=payload.get("sid"),
@@ -356,7 +360,7 @@ class ContextResolver:
             raise ForbiddenError("User is not a member of the requested workspace")
 
         return RequestContext(
-            tenant_id=str(tenant_id),
+            tenant_id=access.tenant_id or str(tenant_id),
             workspace_id=str(resolved_workspace_id),
             user_id=str(user_id),
             tenant_role=access.tenant_role,
