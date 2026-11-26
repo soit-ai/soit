@@ -273,10 +273,10 @@ SOIT 面向需要 Agent 在生产中做真实工作的团队：
 
 **数据库与存储：**
 - **主数据库**: PostgreSQL 15 (使用 psycopg[binary] 3.1+)
-- **缓存/消息队列**: Redis 7 (使用 aioredis 2.0+, redis 5.2+)
+- **缓存/消息队列**: Redis 7 (使用 redis-py 5.2+)
 - **后台任务**: 基于 PostgreSQL 租约的持久 worker（outbox 分发、知识入库、定时调度、对话交互）
-- **向量数据库**: Milvus 2.5.12 (使用 pymilvus 2.5.18)，或 PostgreSQL 内的 pgvector
-- **对象存储**: MinIO (支持 S3/OSS/COS/GCS，使用 boto3/oss2/cos-python-sdk-v5/google-cloud-storage)，或本地文件
+- **向量数据库**: Milvus 2.5 (使用 pymilvus 2.6.18)，或 PostgreSQL 内的 pgvector
+- **对象存储**: 通过 fsspec 访问 S3 兼容存储（如 MinIO，使用 s3fs）或本地文件；其他后端安装对应的 fsspec 实现即可（例如 GCS 用 gcsfs）
 
 **数据库迁移与版本控制：**
 - **迁移工具**: Alembic 1.12+ (数据库版本管理)

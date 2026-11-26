@@ -24,14 +24,16 @@ def test_base_api_dependencies_exclude_test_and_local_training_stacks() -> None:
         (ROOT / "server" / "pyproject.toml").read_text(encoding="utf-8")
     )
     base = "\n".join(project["project"]["dependencies"]).lower()
-    local_embedding = "\n".join(
-        project["project"]["optional-dependencies"]["local-embedding"]
+    knowledge_worker = "\n".join(
+        project["project"]["optional-dependencies"]["knowledge-worker"]
     ).lower()
 
     for package in ("pytest", "mypy", "pip-audit", "torch", "transformers"):
         assert package not in base
-    assert "torch" in local_embedding
-    assert "sentence-transformers" in local_embedding
+    # Docling's torch is declared directly so the CPU-only index applies:
+    # uv sources cover direct dependencies only.
+    assert "torch==" in knowledge_worker
+    assert project["tool"]["uv"]["sources"]["torch"] == {"index": "pytorch-cpu"}
 
 
 def test_compose_defaults_to_explicit_development_and_redis_events() -> None:

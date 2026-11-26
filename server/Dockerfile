@@ -29,11 +29,7 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH=/app
 WORKDIR /app/
-# libmagic backs python-magic's upload type detection.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends libmagic1 \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --uid 10001 appuser
+RUN useradd --create-home --uid 10001 appuser
 
 FROM base AS runtime
 

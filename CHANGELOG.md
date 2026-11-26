@@ -212,6 +212,16 @@ record for operators.
 
 ### Removed
 
+- Server dependencies nothing imports: `python-magic` (and the `libmagic1`
+  package the image installed for it), `oss2`, `cos-python-sdk-v5`,
+  `google-cloud-storage`, `aioredis`, `aiofiles`, `emails`,
+  `restrictedpython`, `sse-starlette` and the explicit `pandas`, `openpyxl`,
+  `jinja2`, `pluggy`, `pytz`, `tiktoken` and `setuptools` pins, 43 packages
+  in all with what they pulled in. The `local-embedding` extra
+  (`sentence-transformers`, `langchain-huggingface`, `transformers`) is gone
+  too; no code loaded it. Object storage other than S3 and local files still
+  works through fsspec once its implementation, such as `gcsfs`, is
+  installed.
 - Celery, its OpenTelemetry instrumentation and the `operations` extra
   (Flower). Nothing in SOIT ran on Celery: background work runs in the
   asyncio worker processes.
