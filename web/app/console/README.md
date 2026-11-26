@@ -27,15 +27,10 @@ Each marker falls into one of two kinds, and says which:
 A marker is not a licence to invent a figure. Where a control has no backend it
 is inert and labelled, and where a number has no source the cell shows a dash.
 
-## `mocks/`
+## No fixtures
 
-Fixtures live in `mocks/` rather than inline, so that a grep for `mocks/` finds
-every invented figure in the console and deleting a file is enough to retire
-one. What remains here is the design of features that do not exist server-side:
-
-- `build-agents.ts` — the agent marketplace. No catalogue or install endpoint
-  exists.
-- `tiles.ts` — the seat cap and renewal date on the Settings seats tile. Its
-  numerator is the live member count; licensing is a Cloud concern.
-
-Anything else that once lived here now reads its service.
+The console carries no invented data. The marketplace fixtures and the
+licence tiles that once lived in a `mocks/` directory were removed when the
+tiles started reading the licence; every figure on a screen now reads its
+service, and anything a service cannot answer is a dash or an inert,
+labelled control with a `BACKEND-PENDING` marker.

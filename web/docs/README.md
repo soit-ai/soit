@@ -2,8 +2,7 @@
 
 Frontend engineering docs and structure notes.
 
-- `PROJECT_STRUCTURE.md`: frontend directory layout overview
-- Agent-centered route entry points now live under `app/routes/agents`, `app/routes/chat`, `app/routes/workflow`, `app/routes/knowledge`, `app/routes/tasks`, and `app/routes/observe`
+- `PROJECT_STRUCTURE.md`: frontend directory layout and the route map
 - `CHAT.md`: web chat module overview and gaps
-- Historical page trees have been removed from the active frontend surface
-- Runtime inspection pages remain under `app/routes/run`, mounted only through `/observe/runs`
+- Pages are declared in `app/routes.ts`; console pages live under `app/console/routes/`, grouped as build, execute, observe and govern
+- Old top-level URLs redirect to their console pages through `app/console/routes/redirects/`

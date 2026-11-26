@@ -5,10 +5,11 @@ This document summarizes the web chat module and highlights areas that still nee
 ## Scope
 
 - Route: `/chat/:agentId?/:threadId?`
-- Pages: `web/app/routes/chat/index.tsx`, `web/app/routes/chat/ui/box-sidebar.tsx`
+- Page: `web/app/console/routes/chat.tsx` (thread list and conversation)
 - Core UI: `web/app/components/ui/chat/*`
 - Services: `web/app/services/thread-service.ts`, `web/app/services/responses-service.ts`
 - Unified entry component: `web/app/components/ui/chat/chat-box.tsx`
+- Streaming runtime: `web/app/components/ui/chat/agui-runtime.tsx`
 - Hook: `web/app/hooks/use-chat.tsx`
 
 ## Main Flow
@@ -16,16 +17,15 @@ This document summarizes the web chat module and highlights areas that still nee
 1. User opens `/chat/:agentId?/:threadId?`.
 2. User selects a provider model for the chat.
 3. `ChatBox` creates local runtime, wraps `AssistantRuntimeProvider`, and registers model context through `useAui`.
-4. `ChatAdapter.run()` handles send/streaming completion and emits events.
-5. Sidebar lists threads via `/threads`, supports provider switch, and groups by date.
+4. `useSoitAgUiRuntime` posts to `/responses`, streams the reply, and reconnects to `/responses/:id/stream` when the stream drops.
+5. The page's thread list reads `/threads` and supports rename, delete and load more.
 6. `ChatBox` imports message history from `thread_messages` when a thread is present.
 
 ## Key Components
 
-- `ChatAdapter` (`web/app/components/ui/chat/chat-adapter.tsx`)
-  - Creates threads on demand and sends messages to `/responses`.
-  - Parses semantic SSE events (`response.created`, `response.output_text.delta`, `response.completed`, `tool.call.*`).
-  - Emits `chat_thread_created`, `refresh_chat_sidebar`, `chat_completion_finished`.
+- `useSoitAgUiRuntime` (`web/app/components/ui/chat/agui-runtime.tsx`)
+  - Sends messages to `/responses` and parses the streamed events.
+  - Resumes a dropped stream from its last cursor and cancels through `cancelResponse`.
 - `Thread` (`web/app/components/ui/chat/thread.tsx`)
   - UI for composer, message list, reasoning block, actions.
   - Placeholder toggles for "deep thinking / web search / code mode".
@@ -33,8 +33,8 @@ This document summarizes the web chat module and highlights areas that still nee
   - Owns runtime and AUI provider boundary.
   - Exposes `AssistantClient` by `ref` for external thread control.
   - Handles thread switching + history import on thread changes.
-- `BoxSidebar` (`web/app/routes/chat/ui/box-sidebar.tsx`)
-  - Lists threads, rename, archive, delete, load more, grouped by date.
+- Thread list (`web/app/console/routes/chat.tsx`)
+  - Lists threads, rename, delete, load more.
 - `MessageConverter` (`web/app/components/ui/chat/message-adapter.tsx`)
   - Converts runtime thread messages to Assistant UI thread messages.
 
