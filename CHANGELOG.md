@@ -105,6 +105,13 @@ record for operators.
 
 ### Fixed
 
+- A workflow running branches in parallel stops the other branches when one
+  fails. With `on_error: fail_fast` the run was marked failed while its other
+  nodes kept running, and with `on_error: compensate` cancelling a running
+  branch ended the run as cancelled without running the compensation nodes.
+  Running branches are now cancelled and recorded as `canceled` before the
+  run fails or compensates, and also when the run itself is cancelled or hits
+  a limit.
 - Granting access to a resource takes effect at once even when the
   permission cache cannot be cleared. Invalidation used to scan Redis for
   matching keys and silently ignore any error, so a denial cached just before

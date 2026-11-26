@@ -788,80 +788,82 @@ class WorkflowExecutor:
                     )
 
         async def _cancel_all(pending_tasks: list[asyncio.Task[Any]]) -> None:
+            """Cancel running sibling nodes and wait until each has recorded its outcome.
+
+            ``gather(return_exceptions=True)`` absorbs the siblings' own
+            ``CancelledError`` and failures, while a cancellation of this
+            coroutine itself still propagates.
+            """
             for pending_task in pending_tasks:
                 pending_task.cancel()
-            for pending_task in pending_tasks:
-                try:
-                    await pending_task
-                except (asyncio.CancelledError, Exception):  # draining cancelled nodes
-                    pass
+            if pending_tasks:
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
 
         # Execute all nodes
-        tasks = []
-        while ready_queue or tasks:
-            # Start new tasks for ready nodes
-            while ready_queue and len(tasks) < concurrency:
-                node_id = ready_queue.popleft()
-                queued_nodes.discard(node_id)
-                if limit_guard is not None and node_states.get(node_id) != "skipped":
-                    try:
-                        # The shared session is idle here: with one slot no
-                        # node is running, and concurrent nodes own sessions.
-                        await limit_guard.check_before_node(context.trace_writer.db, node_id)
-                    except WorkflowLimitExceeded:
-                        await _cancel_all(tasks)
-                        raise
-                    limit_guard.note_step_started()
-                tasks.append(asyncio.create_task(execute_node(node_id)))
-
-            # Wait for at least one task to complete
-            if tasks:
-                wait_timeout = limit_guard.remaining_seconds() if limit_guard is not None else None
-                done, pending = await asyncio.wait(
-                    tasks, timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
-                )
-                tasks = list(pending)
-                if not done and limit_guard is not None:
-                    await _cancel_all(tasks)
-                    limit_guard.check_time()
-
-                # Check for exceptions
-                for task in done:
-                    try:
-                        await task
-                    except WorkflowApprovalRequired as exc:
-                        approval_required = exc
-                        for pending_task in tasks:
-                            pending_task.cancel()
-                        for pending_task in tasks:
-                            try:
-                                await pending_task
-                            except asyncio.CancelledError:
-                                pass
-                            except Exception:
-                                pass
-                        tasks = []
-                        break
-                    except CompensationRequested as exc:
-                        compensation_requested = True
-                        compensation_error = exc
-                        for pending_task in tasks:
-                            pending_task.cancel()
-                        for pending_task in tasks:
-                            try:
-                                await pending_task
-                            except Exception:
-                                pass
-                        tasks = []
-                        break
-                    except Exception:
-                        # If fail_fast, propagate exception
-                        if semantics.get("on_error", "fail_fast") == "fail_fast":
+        tasks: list[asyncio.Task[Any]] = []
+        try:
+            while ready_queue or tasks:
+                # Start new tasks for ready nodes
+                while ready_queue and len(tasks) < concurrency:
+                    node_id = ready_queue.popleft()
+                    queued_nodes.discard(node_id)
+                    if limit_guard is not None and node_states.get(node_id) != "skipped":
+                        try:
+                            # The shared session is idle here: with one slot no
+                            # node is running, and concurrent nodes own sessions.
+                            await limit_guard.check_before_node(context.trace_writer.db, node_id)
+                        except WorkflowLimitExceeded:
+                            await _cancel_all(tasks)
                             raise
-                        # Otherwise, continue
+                        limit_guard.note_step_started()
+                    tasks.append(asyncio.create_task(execute_node(node_id)))
 
-            if compensation_requested or approval_required:
-                break
+                # Wait for at least one task to complete
+                if tasks:
+                    wait_timeout = limit_guard.remaining_seconds() if limit_guard is not None else None
+                    done, pending = await asyncio.wait(
+                        tasks, timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    tasks = list(pending)
+                    if not done and limit_guard is not None:
+                        await _cancel_all(tasks)
+                        limit_guard.check_time()
+
+                    # Check for exceptions
+                    for task in done:
+                        try:
+                            await task
+                        except WorkflowApprovalRequired as exc:
+                            approval_required = exc
+                            await _cancel_all(tasks)
+                            tasks = []
+                            break
+                        except CompensationRequested as exc:
+                            compensation_requested = True
+                            compensation_error = exc
+                            # A sibling's CancelledError is a BaseException; letting it
+                            # escape here skipped compensation entirely.
+                            await _cancel_all(tasks)
+                            tasks = []
+                            break
+                        except Exception:
+                            # If fail_fast, propagate exception
+                            if semantics.get("on_error", "fail_fast") == "fail_fast":
+                                # Stop the siblings before the run is marked failed,
+                                # so none keeps working for a run that has ended.
+                                await _cancel_all(tasks)
+                                tasks = []
+                                raise
+                            # Otherwise, continue
+
+                if compensation_requested or approval_required:
+                    break
+
+        except BaseException:
+            # Whatever ends the scheduler early (a limit, a node failure, or
+            # the run itself being cancelled) must not leave nodes running.
+            await _cancel_all(tasks)
+            raise
 
         if approval_required:
             approval_output = dict(approval_required.output)
