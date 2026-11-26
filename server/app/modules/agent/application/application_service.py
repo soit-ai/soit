@@ -1676,6 +1676,104 @@ class AgentApplicationService:
     async def rollback_version(self, agent_id: str, version_id: str, *, notes: str | None = None) -> Agent:
         return await self.versioning.rollback(agent_id, version_id, notes=notes)
 
+    async def _finish_agent_execution(
+        self,
+        *,
+        agent: Agent,
+        version: AgentVersion,
+        request: AgentRuntimeRequest,
+        thread: Any,
+        task: Any,
+        run: Run,
+        result: dict[str, Any],
+        linked_response: Response | None,
+        parent_message_id: str | None,
+        approval_progress: dict[str, Any],
+        assistant_message_id: str | None = None,
+        extra_result: dict[str, Any] | None = None,
+        response_events: bool = True,
+    ) -> dict[str, Any]:
+        """Settle an execution the runner returned from, for both entry points.
+
+        A run waiting on approval leaves its task waiting and the thread
+        pointing at it. A finished run gets its assistant message, a succeeded
+        task and a completed response. ``response_events`` is false when the
+        caller streams the response's own events and they must not be written
+        twice.
+        """
+        response_id = linked_response.id if linked_response else None
+        linkage = {
+            "thread_id": thread.id,
+            "task_id": task.id,
+            "response_id": response_id,
+            "request_id": request.request_id,
+        }
+        if result.get("status") == TaskStatus.WAITING_APPROVAL.value:
+            current_task = await self.task_service.get_task(task.id)
+            if current_task.status != TaskStatus.WAITING_APPROVAL.value:
+                await self.task_service.transition_task(
+                    task_id=task.id,
+                    status=TaskStatus.WAITING_APPROVAL.value,
+                    progress=approval_progress,
+                )
+            await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
+            return {**result, **linkage}
+
+        result = {
+            **result,
+            "artifacts": await self._run_artifact_descriptors(run.id),
+            **(extra_result or {}),
+        }
+        await self.thread_service.append_message(
+            thread_id=thread.id,
+            message_id=assistant_message_id,
+            role="assistant",
+            content=result.get("output") or "",
+            run_id=result.get("run_id"),
+            task_id=task.id,
+            response_id=response_id,
+            parent_message_id=parent_message_id,
+            status="completed",
+            model_ref=result.get("model"),
+            metadata=self._assistant_message_metadata(agent, version, result, response_id=response_id),
+            citations_json=result.get("citations") or [],
+            tokens_prompt=result.get("tokens_prompt"),
+            tokens_completion=result.get("tokens_completion"),
+            finish_reason=result.get("finish_reason"),
+            tool_calls_json=result.get("tool_call_details") or [],
+        )
+        await self.task_service.transition_task(
+            task_id=task.id,
+            status=TaskStatus.SUCCEEDED.value,
+            progress={"phase": "completed"},
+            output_payload=self._task_output_payload(result, response_id=response_id),
+        )
+        if linked_response:
+            output = self._response_output_payload(result)
+            usage = self._response_usage_payload(result)
+            await self.response_service.complete_response(
+                response=linked_response,
+                output_json=output,
+                usage_json=usage,
+                source="agent",
+                output_event_payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "output": output,
+                    "usage": usage,
+                },
+                completed_event_payload={
+                    "response_id": linked_response.id,
+                    "run_id": linked_response.run_id,
+                    "status": "succeeded",
+                    "usage": usage,
+                    "tool_calls": int(result.get("tool_calls") or 0),
+                },
+                output_event_type="response.output_text.done" if response_events else None,
+                completed_event_type="response.succeeded" if response_events else None,
+            )
+        return {**result, **linkage}
+
     @rbac_guard(RESOURCE_AGENT, "run", resource_id_arg="agent_id")
     async def execute_agent(self, agent_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
         agent = await self._get_agent(agent_id)
@@ -1859,82 +1957,24 @@ class AgentApplicationService:
             )
             raise
 
-        response_id = linked_response.id if linked_response else None
-        if result.get("status") == TaskStatus.WAITING_APPROVAL.value:
-            # Deliberately left "inline": the attempt is still in flight through
-            # approval, and "waiting_approval" would collide with the resume
-            # claim that targets durable worker interactions in that status.
-            current_task = await self.task_service.get_task(task.id)
-            if current_task.status != TaskStatus.WAITING_APPROVAL.value:
-                await self.task_service.transition_task(
-                    task_id=task.id,
-                    status=TaskStatus.WAITING_APPROVAL.value,
-                    progress={"phase": "approval", "interrupt": result.get("interrupt")},
-                )
-            await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
-            return {
-                **result,
-                "thread_id": thread.id,
-                "task_id": task.id,
-                "response_id": response_id,
-                "request_id": request.request_id,
-            }
-
-        _finalize_snapshot("succeeded")
-        result = {
-            **result,
-            "artifacts": await self._run_artifact_descriptors(run.id),
-        }
-        await self.thread_service.append_message(
-            thread_id=thread.id,
-            role="assistant",
-            content=result.get("output") or "",
-            run_id=result.get("run_id"),
-            task_id=task.id,
-            response_id=response_id,
+        if result.get("status") != TaskStatus.WAITING_APPROVAL.value:
+            # Deliberately left "inline" while waiting: the attempt is still in
+            # flight through approval, and "waiting_approval" would collide with
+            # the resume claim that targets durable worker interactions in that
+            # status.
+            _finalize_snapshot("succeeded")
+        return await self._finish_agent_execution(
+            agent=agent,
+            version=version,
+            request=request,
+            thread=thread,
+            task=task,
+            run=run,
+            result=result,
+            linked_response=linked_response,
             parent_message_id=stored_user_message.id,
-            status="completed",
-            model_ref=result.get("model"),
-            metadata=self._assistant_message_metadata(agent, version, result, response_id=response_id),
-            citations_json=result.get("citations") or [],
-            tokens_prompt=result.get("tokens_prompt"),
-            tokens_completion=result.get("tokens_completion"),
-            finish_reason=result.get("finish_reason"),
-            tool_calls_json=result.get("tool_call_details") or [],
+            approval_progress={"phase": "approval", "interrupt": result.get("interrupt")},
         )
-        await self.task_service.transition_task(
-            task_id=task.id,
-            status=TaskStatus.SUCCEEDED.value,
-            progress={"phase": "completed"},
-            output_payload=self._task_output_payload(result, response_id=response_id),
-        )
-        if linked_response:
-            linked_response = await self.response_service.complete_response(
-                response=linked_response,
-                output_json=self._response_output_payload(result),
-                usage_json=self._response_usage_payload(result),
-                source="agent",
-                output_event_payload={
-                    "response_id": linked_response.id,
-                    "run_id": linked_response.run_id,
-                    "output": self._response_output_payload(result),
-                    "usage": self._response_usage_payload(result),
-                },
-                completed_event_payload={
-                    "response_id": linked_response.id,
-                    "run_id": linked_response.run_id,
-                    "status": "succeeded",
-                    "usage": self._response_usage_payload(result),
-                    "tool_calls": int(result.get("tool_calls") or 0),
-                },
-            )
-        return {
-            **result,
-            "thread_id": thread.id,
-            "task_id": task.id,
-            "response_id": response_id,
-            "request_id": request.request_id,
-        }
 
     @rbac_guard(RESOURCE_AGENT, "run", resource_id_arg="agent_id")
     async def cancel_agent_execution(self, agent_id: str, run_id: str) -> dict[str, Any]:
@@ -2284,87 +2324,26 @@ class AgentApplicationService:
             )
             raise
 
-        response_id = linked_response.id if linked_response else None
-        if result.get("status") == TaskStatus.WAITING_APPROVAL.value:
-            current_task = await self.task_service.get_task(task.id)
-            if current_task.status != TaskStatus.WAITING_APPROVAL.value:
-                await self.task_service.transition_task(
-                    task_id=task.id,
-                    status=TaskStatus.WAITING_APPROVAL.value,
-                    progress={
-                        "phase": "approval",
-                        "interrupt": result.get("interrupt"),
-                        "checkpoint": result.get("checkpoint"),
-                    },
-                )
-            await self.thread_service.thread_repo.touch_thread(thread, latest_run_id=result.get("run_id"))
-            return {
-                **result,
-                "thread_id": thread.id,
-                "task_id": task.id,
-                "response_id": response_id,
-                "request_id": request.request_id,
-            }
-
-        result = {
-            **result,
-            "artifacts": await self._run_artifact_descriptors(run.id),
-            "branch_id": agui_context.get("branch_id"),
-        }
-        await self.thread_service.append_message(
-            thread_id=thread.id,
-            message_id=(
+        return await self._finish_agent_execution(
+            agent=agent,
+            version=version,
+            request=request,
+            thread=thread,
+            task=task,
+            run=run,
+            result=result,
+            linked_response=linked_response,
+            parent_message_id=current_user_message_id,
+            approval_progress={
+                "phase": "approval",
+                "interrupt": result.get("interrupt"),
+                "checkpoint": result.get("checkpoint"),
+            },
+            assistant_message_id=(
                 str(agui_context.get("assistant_message_id"))
                 if agui_context.get("assistant_message_id")
                 else None
             ),
-            role="assistant",
-            content=result.get("output") or "",
-            run_id=result.get("run_id"),
-            task_id=task.id,
-            response_id=response_id,
-            parent_message_id=current_user_message_id,
-            status="completed",
-            model_ref=result.get("model"),
-            metadata=self._assistant_message_metadata(agent, version, result, response_id=response_id),
-            citations_json=result.get("citations") or [],
-            tokens_prompt=result.get("tokens_prompt"),
-            tokens_completion=result.get("tokens_completion"),
-            finish_reason=result.get("finish_reason"),
-            tool_calls_json=result.get("tool_call_details") or [],
+            extra_result={"branch_id": agui_context.get("branch_id")},
+            response_events=on_response_started is None,
         )
-        await self.task_service.transition_task(
-            task_id=task.id,
-            status=TaskStatus.SUCCEEDED.value,
-            progress={"phase": "completed"},
-            output_payload=self._task_output_payload(result, response_id=response_id),
-        )
-        if linked_response:
-            await self.response_service.complete_response(
-                response=linked_response,
-                output_json=self._response_output_payload(result),
-                usage_json=self._response_usage_payload(result),
-                source="agent",
-                output_event_payload={
-                    "response_id": linked_response.id,
-                    "run_id": linked_response.run_id,
-                    "output": self._response_output_payload(result),
-                    "usage": self._response_usage_payload(result),
-                },
-                completed_event_payload={
-                    "response_id": linked_response.id,
-                    "run_id": linked_response.run_id,
-                    "status": "succeeded",
-                    "usage": self._response_usage_payload(result),
-                    "tool_calls": int(result.get("tool_calls") or 0),
-                },
-                output_event_type=None if on_response_started is not None else "response.output_text.done",
-                completed_event_type=None if on_response_started is not None else "response.succeeded",
-            )
-        return {
-            **result,
-            "thread_id": thread.id,
-            "task_id": task.id,
-            "response_id": response_id,
-            "request_id": request.request_id,
-        }
