@@ -1043,61 +1043,6 @@ async def test_registry_workflow_node_passes_stable_tool_identity(async_db: Sess
 
 
 @pytest.mark.asyncio
-async def test_execution_engine_agent_passes_existing_tool_step_identity(
-    async_db: Session,
-    ctx: RequestContext,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class QueueAgentLLM(FakeLLMPort):
-        def __init__(self) -> None:
-            self.responses = [
-                ChatResponse(
-                    text='{"tool_call":{"tool_ref":"tool:test:echo","parameters":{"value":"one"}}}',
-                    model="model:test:primary",
-                    finish_reason="stop",
-                ),
-                ChatResponse(text="done", model="model:test:primary", finish_reason="stop"),
-            ]
-
-        async def chat(self, *args: Any, **kwargs: Any) -> ChatResponse:
-            return self.responses.pop(0)
-
-    fake_tool = FakeToolPort()
-    fake_llm = QueueAgentLLM()
-
-    class FakeContainer:
-        def get_llm_port(self, **kwargs: Any) -> LLMPort:
-            return fake_llm
-
-        def get_tool_port(self, **kwargs: Any) -> ToolPort:
-            return fake_tool
-
-    import app.wiring
-
-    monkeypatch.setattr(app.wiring, "get_container", lambda: FakeContainer())
-    trace_writer = TraceWriter(async_db, ctx)
-    engine = ExecutionEngine(async_db, ctx, trace_writer)
-    run = await trace_writer.create_run(mode="agent", kind="agent")
-    plan = ExecutionPlan(
-        run_id=run.id,
-        mode="agent",
-        inputs={
-            "messages": [{"role": "user", "content": "use the tool"}],
-            "model": "model:test:primary",
-            "max_iterations": 2,
-            "tools": [{"ref": "tool:test:echo"}],
-        },
-    )
-
-    await engine._execute_agent(plan)
-
-    assert len(fake_tool.calls) == 1
-    kwargs = fake_tool.calls[0]["kwargs"]
-    assert kwargs["tool_call_id"] == kwargs["run_step_id"]
-    assert kwargs["idempotency_key"] == f"tool:{run.id}:{kwargs['tool_call_id']}"
-
-
-@pytest.mark.asyncio
 async def test_workflow_executor_skips_nodes_when_edge_condition_false(async_db: Session, ctx: RequestContext) -> None:
     trace_writer = TraceWriter(async_db, ctx)
     engine = ExecutionEngine(async_db, ctx, trace_writer)

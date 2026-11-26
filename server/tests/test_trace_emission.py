@@ -1,4 +1,4 @@
-"""Trace emission tests: every engine execution leaves a run and its steps.
+"""Trace emission tests: every workflow execution leaves a run and its steps.
 
 The executions run for real on the in-memory model that the container hands
 out under pytest, so nothing here tolerates a failure: a run that does not
@@ -48,43 +48,6 @@ async def _steps(db: AsyncSession, run_id: str) -> list[RunStep]:
 
 
 @pytest.mark.asyncio
-async def test_chat_execution_creates_trace(async_db: AsyncSession, ctx: RequestContext) -> None:
-    """A chat execution records one succeeded run whose steps are all llm.
-
-    Two llm steps are expected: the engine's own chat step and the one the
-    policy-wrapped LLM port records around the model call.
-    """
-    trace_writer = TraceWriter(async_db, ctx)
-    engine = ExecutionEngine(async_db, ctx, trace_writer)
-
-    plan = ExecutionPlan(
-        mode="chat",
-        subject_kind="thread",
-        subject_id="thr-trace-chat",
-        subject_version_id="ver-chat",
-        inputs={
-            "messages": [{"role": "user", "content": "Hello"}],
-            "model": "model:test:trace-chat",
-        },
-    )
-
-    result = await engine.execute(plan)
-
-    assert result["text"]
-    runs = await _runs(async_db, ctx, "chat")
-    assert len(runs) == 1
-    run = runs[0]
-    assert run.id == plan.run_id
-    assert run.status == "succeeded"
-    assert run.subject_kind == "thread"
-    assert run.subject_id == "thr-trace-chat"
-
-    steps = await _steps(async_db, run.id)
-    assert [step.step_type for step in steps] == ["llm", "llm"]
-    assert all(step.status == "succeeded" for step in steps)
-
-
-@pytest.mark.asyncio
 async def test_workflow_execution_creates_trace(async_db: AsyncSession, ctx: RequestContext) -> None:
     """A workflow execution records a succeeded run with a step per node."""
     trace_writer = TraceWriter(async_db, ctx)
@@ -131,38 +94,14 @@ async def test_workflow_execution_creates_trace(async_db: AsyncSession, ctx: Req
 
 
 @pytest.mark.asyncio
-async def test_agent_execution_creates_trace(async_db: AsyncSession, ctx: RequestContext) -> None:
-    """An agent execution records a succeeded run with an agent_plan audit step
-    for its one iteration, plus the llm step of the model call inside it."""
-    trace_writer = TraceWriter(async_db, ctx)
-    engine = ExecutionEngine(async_db, ctx, trace_writer)
+async def test_a_plan_that_is_not_a_workflow_fails_its_run(async_db: AsyncSession, ctx: RequestContext) -> None:
+    """Agents and chat run through their own services, so the engine refuses
+    any other plan and records the refusal on the run it opened."""
+    engine = ExecutionEngine(async_db, ctx, TraceWriter(async_db, ctx))
+    plan = ExecutionPlan(mode="agent", subject_kind="agent", subject_id="agt-trace", inputs={})
 
-    plan = ExecutionPlan(
-        mode="agent",
-        subject_kind="agent",
-        subject_id="agt-trace",
-        subject_version_id="ver-agent",
-        inputs={
-            "messages": [{"role": "user", "content": "Hello"}],
-            "model": "model:test:trace-agent",
-            "max_iterations": 1,
-        },
-    )
+    with pytest.raises(ValueError, match="Unsupported mode"):
+        await engine.execute(plan)
 
-    result = await engine.execute(plan)
-
-    assert result["output"]
-    assert result["iterations"] == 1
     runs = await _runs(async_db, ctx, "agent")
-    assert len(runs) == 1
-    run = runs[0]
-    assert run.id == plan.run_id
-    assert run.status == "succeeded"
-    assert run.subject_kind == "agent"
-    assert run.subject_id == "agt-trace"
-
-    steps = await _steps(async_db, run.id)
-    assert [step.step_type for step in steps] == ["agent_plan", "llm"], (
-        "Agent execution must emit an agent_plan audit step"
-    )
-    assert all(step.status == "succeeded" for step in steps)
+    assert [run.status for run in runs] == ["failed"]
