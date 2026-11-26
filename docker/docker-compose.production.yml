@@ -41,7 +41,7 @@ x-server-environment: &server_environment
   VAULT_URL: ${VAULT_URL:?production requires an external Vault}
   VAULT_TOKEN: ${VAULT_TOKEN:?production requires a Vault token}
 
-  STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+  STORAGE_URL: ${STORAGE_URL:?production requires an object storage URL such as s3://bucket}
   STORAGE_OPTIONS_JSON: ${STORAGE_OPTIONS_JSON:?production requires object storage options}
   MILVUS_HOST: ${MILVUS_HOST:?production requires a vector store host}
   MILVUS_PORT: ${MILVUS_PORT:-19530}

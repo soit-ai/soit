@@ -22,6 +22,7 @@ def _production_settings(**overrides) -> Settings:
         "plugin_signature_required": True,
         "plugin_signature_public_keys": ["trusted-key"],
         "plugin_integrity_required": True,
+        "storage_url": "s3://soit-artifacts",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -180,6 +181,7 @@ def test_production_takes_safe_defaults_for_settings_left_unset() -> None:
         event_bus_backend="redis",
         vector_backend="pgvector",
         secrets_backend="sealed",
+        storage_url="file:///data/storage",
     )
 
     config.validate_runtime_requirements()
@@ -187,6 +189,12 @@ def test_production_takes_safe_defaults_for_settings_left_unset() -> None:
     assert config.response_interaction_worker_enabled is True
     assert config.plugin_signature_required is True
     assert config.plugin_integrity_required is True
+
+
+def test_production_settings_require_a_storage_url() -> None:
+    # Unset, storage falls back to a directory inside the container.
+    with pytest.raises(ValueError, match="STORAGE_URL"):
+        _production_settings(storage_url=None).validate_runtime_requirements()
 
 
 def test_development_keeps_its_own_defaults() -> None:

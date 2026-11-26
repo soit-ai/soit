@@ -909,6 +909,11 @@ class Settings(BaseSettings):
         secret_key = (self.secret_key or "").strip()
         if len(secret_key) < 32 or secret_key in PLACEHOLDER_SECRET_KEYS:
             raise ValueError("Production requires a non-placeholder SECRET_KEY of at least 32 characters")
+        if not (self.storage_url or "").strip():
+            # Without a root URL the storage adapter falls back to a directory
+            # inside the process's own filesystem, which a container loses on
+            # every recreate.
+            raise ValueError("Production requires STORAGE_URL, such as s3://bucket or a mounted file:// path")
         try:
             storage_options = json.loads(self.storage_options_json or "{}")
         except json.JSONDecodeError as exc:

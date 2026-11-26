@@ -105,6 +105,13 @@ record for operators.
 
 ### Fixed
 
+- The production reference kept artifacts and uploads inside the API
+  container. It set `STORAGE_BACKEND=s3`, which nothing reads, and never set
+  `STORAGE_URL`, so storage fell back to a local directory that every
+  container recreate wiped. The compose file now requires `STORAGE_URL`
+  (`docker/.env.production.example` shows `s3://soit-artifacts`), and
+  production settings refuse to start without one. The lite profile already
+  sets it to its mounted volume.
 - A workflow running branches in parallel stops the other branches when one
   fails. With `on_error: fail_fast` the run was marked failed while its other
   nodes kept running, and with `on_error: compensate` cancelling a running

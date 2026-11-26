@@ -286,6 +286,7 @@ def test_production_runs_the_pgvector_backend():
         vector_backend="pgvector",
         secrets_backend="sealed",
         secret_key="k" * 40,
+        storage_url="file:///data/storage",
     )
     settings.validate_runtime_requirements()
 

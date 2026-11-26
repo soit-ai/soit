@@ -34,6 +34,7 @@ OPERATOR_SUPPLIED = {
     "SECRET_KEY": "p" * 48,
     "VAULT_URL": "https://vault.internal:8200",
     "VAULT_TOKEN": "hvs.operator-token",
+    "STORAGE_URL": "s3://soit-artifacts",
     "STORAGE_OPTIONS_JSON": '{"endpoint_url":"https://s3.internal"}',
     "MILVUS_HOST": "milvus.internal",
     "PLUGIN_SIGNATURE_PUBLIC_KEYS": '["dHJ1c3RlZC1rZXk="]',
@@ -89,6 +90,9 @@ def _settings_from(env: dict[str, str]) -> Settings:
         plugin_integrity_required=flag("PLUGIN_INTEGRITY_REQUIRED"),
         content_safety_enabled=flag("CONTENT_SAFETY_ENABLED"),
         content_safety_endpoint=env.get("CONTENT_SAFETY_ENDPOINT") or None,
+        # A KeyError here means the compose file stopped passing STORAGE_URL.
+        storage_url=env["STORAGE_URL"],
+        storage_options_json=env["STORAGE_OPTIONS_JSON"],
     )
 
 

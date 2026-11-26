@@ -34,6 +34,7 @@ them, which is intended: a silent fallback here is a production incident later.
 | `REDIS_URL`, `EVENT_BUS_REDIS_URL` | Cache and event bus |
 | `SECRET_KEY` | At least 32 characters, not a placeholder |
 | `VAULT_URL`, `VAULT_TOKEN` | A real Vault, not a dev-mode server |
+| `STORAGE_URL` | Object storage root for artifacts and uploads, such as `s3://bucket` |
 | `STORAGE_OPTIONS_JSON` | Object storage endpoint and credentials, not the dev defaults |
 | `MILVUS_HOST` | Vector store |
 | `PLUGIN_SIGNATURE_PUBLIC_KEYS` | Keys trusted to sign plugin packages |

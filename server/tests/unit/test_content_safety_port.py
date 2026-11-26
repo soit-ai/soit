@@ -191,6 +191,7 @@ def _production_settings(**overrides) -> Settings:
         "plugin_signature_required": True,
         "plugin_signature_public_keys": ["trusted-key"],
         "plugin_integrity_required": True,
+        "storage_url": "s3://soit-artifacts",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
