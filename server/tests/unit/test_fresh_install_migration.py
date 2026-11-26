@@ -84,6 +84,7 @@ WORKSPACE_UNPRICED_POLICY_PATH = VERSIONS_ROOT / "20261002110000_workspace_unpri
 KNOWLEDGE_DOCUMENT_RESTRICTIONS_PATH = VERSIONS_ROOT / "20261002120000_knowledge_document_restrictions.py"
 APPROVAL_ASSIGNMENT_PATH = VERSIONS_ROOT / "20261003100000_approval_assignment.py"
 APPROVAL_SELF_AND_REMINDERS_PATH = VERSIONS_ROOT / "20261003110000_approval_self_approval_and_reminders.py"
+RUNS_SCOPE_CREATED_INDEX_PATH = VERSIONS_ROOT / "20261126100000_runs_scope_created_index.py"
 SNAPSHOT_PATH = SERVER_ROOT / "alembic" / "schema" / "20260718140000.json"
 N1_SOURCE_COMMIT = "5cbdec2946d22c98dd364fc535007e55dcfe1580"
 
@@ -164,6 +165,7 @@ def test_fresh_install_has_one_root_revision() -> None:
         KNOWLEDGE_DOCUMENT_RESTRICTIONS_PATH.name,
         APPROVAL_ASSIGNMENT_PATH.name,
         APPROVAL_SELF_AND_REMINDERS_PATH.name,
+        RUNS_SCOPE_CREATED_INDEX_PATH.name,
     ]
 
     module = _load_baseline()

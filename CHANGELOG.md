@@ -39,6 +39,11 @@ record for operators.
 
 ### Changed
 
+- The runs list reads an index on workspace and creation time instead of
+  sorting every run in the workspace for each page. Migration
+  `20261126100000` adds `ix_runs_scope_created`; on PostgreSQL it is built
+  concurrently, so `runs` stays writable while it builds. The downgrade drops
+  it.
 - Model provider calls reuse pooled HTTP connections. The OpenAI, Anthropic
   and Gemini adapters share one client per event loop instead of opening one
   per call, so a call no longer pays a fresh TCP and TLS handshake, and the

@@ -28,6 +28,8 @@ class Run(SQLModel, table=True):
     __tablename__ = "runs"
     __table_args__ = (
         Index("ix_runs_scope_subject_started", "tenant_id", "workspace_id", "subject_kind", "subject_id", "started_at"),
+        # The runs list filters by scope and orders by creation time.
+        Index("ix_runs_scope_created", "tenant_id", "workspace_id", "created_at"),
         Index("ix_runs_scope_parent_created", "tenant_id", "workspace_id", "parent_run_id", "created_at"),
         Index("ix_runs_scope_source_created", "tenant_id", "workspace_id", "source_run_id", "created_at"),
         Index("ix_runs_scope_request_created", "tenant_id", "workspace_id", "request_id", "created_at"),
