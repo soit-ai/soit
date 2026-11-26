@@ -214,8 +214,7 @@ class KnowledgeRuntimeService:
         if run.mode == "knowledge_ingest":
             if not self.ingest_task_repo:
                 return False
-            tasks = await self.ingest_task_repo.list_by_knowledge(knowledge_id, limit=10000, offset=0)
-            return any(task.run_id == run.id for task in tasks if task.run_id)
+            return await self.ingest_task_repo.exists_for_run(knowledge_id, run.id)
 
         if run.mode in ("knowledge_index", "knowledge_index_delete"):
             index_id = self._extract_summary_field(run.input_summary, "index_id")
@@ -1398,15 +1397,15 @@ class KnowledgeRuntimeService:
 
         try:
             if self.vector_port:
-                chunks = await self.chunk_repo.list_by_knowledge(knowledge_id, limit=10000, offset=0)
-                vector_ids = [chunk.vector_ref or chunk.id for chunk in chunks if chunk.vector_ref or chunk.id]
-                if vector_ids:
-                    collection_name = index.collection_name or f"idx_{index.id}"
-                    await self.vector_port.delete(
-                        collection=collection_name,
-                        ids=vector_ids,
-                        run_id=run_id,
-                    )
+                collection_name = index.collection_name or f"idx_{index.id}"
+                async for batch in self.chunk_repo.iter_batches(knowledge_id=knowledge_id):
+                    vector_ids = [chunk.vector_ref or chunk.id for chunk in batch if chunk.vector_ref or chunk.id]
+                    if vector_ids:
+                        await self.vector_port.delete(
+                            collection=collection_name,
+                            ids=vector_ids,
+                            run_id=run_id,
+                        )
 
             index.is_primary = False
             index.status = "disabled"
@@ -1877,7 +1876,7 @@ class KnowledgeRuntimeService:
             await self.trace_writer.update_run_status(run_id, "running")
 
         try:
-            chunks = await self.chunk_repo.list_by_document(document_id, limit=10000, offset=0)
+            chunks = await self.chunk_repo.list_all(document_id=document_id)
             await self._cleanup_document_artifacts(knowledge, document, chunks, run_id=run_id)
 
             for chunk in chunks:
@@ -2619,17 +2618,8 @@ class KnowledgeRuntimeService:
             await self.trace_writer.update_run_status(run_id, "running")
 
         try:
-            documents = await self.document_repo.list_by_knowledge(
-                knowledge_id=knowledge_id,
-                is_latest_only=False,
-                limit=10000,
-                offset=0,
-            )
-            chunks = await self.chunk_repo.list_by_knowledge(
-                knowledge_id=knowledge_id,
-                limit=10000,
-                offset=0,
-            )
+            documents = await self.document_repo.list_all_by_knowledge(knowledge_id)
+            chunks = await self.chunk_repo.list_all(knowledge_id=knowledge_id)
             indexes = await self.index_repo.list_by_knowledge(knowledge_id, limit=1000, offset=0)
 
             if self.vector_port:

@@ -105,6 +105,13 @@ record for operators.
 
 ### Fixed
 
+- Knowledge bases with more than 10,000 chunks are indexed and deleted in
+  full. Building, rebuilding and deleting an index, and deleting a document
+  or a knowledge base, read only the first 10,000 chunks, so the rest were
+  never embedded and their vectors were left behind on delete. Chunks are now
+  read and embedded in batches of 500 until none are left, and an index's
+  chunk, vector and document counts are the totals of its indexed chunks
+  rather than the size of the last build.
 - The production reference's `outbox-dispatcher` service set
   `OUTBOX_DISPATCHER_ENABLED=true`, which asks for a dispatcher inside the
   API process and which production refuses, so the service exited at

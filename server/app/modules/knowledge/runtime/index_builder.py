@@ -4,6 +4,8 @@ Index builder service for vector database operations.
 """
 
 
+import logging
+
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.time import utc_now
@@ -11,8 +13,13 @@ from app.kernel.contracts.context import RequestContext
 from app.kernel.ports.storage.interface import StoragePort
 from app.kernel.ports.vector.interface import VectorPort
 from app.modules.knowledge.domain.models import KnowledgeChunk, KnowledgeIndex
-from app.modules.knowledge.infra.repository import ChunkRepository
+from app.modules.knowledge.infra.repository import (
+    CHUNK_SCAN_BATCH_SIZE,
+    ChunkRepository,
+)
 from app.modules.knowledge.runtime.embedding import EmbeddingService
+
+logger = logging.getLogger(__name__)
 
 
 class IndexBuilder:
@@ -82,145 +89,46 @@ class IndexBuilder:
     ) -> None:
         """Build or update index.
 
+        Chunks are embedded and written in bounded batches, so a knowledge
+        base of any size is indexed completely.
+
         Args:
             index: Index configuration.
-            chunks: Optional list of chunks to index (if None, index all pending chunks).
-            incremental: Whether this is an incremental update.
+            chunks: Optional list of chunks to index (if None, scan the knowledge base).
+            incremental: When scanning, index only pending chunks.
         """
         try:
-            # Update status
             index.status = "building"
             if run_id:
                 index.last_run_id = run_id
             index.updated_at = utc_now()
             await self.db.commit()
 
-            # Get chunks to index
-            if chunks is None:
-                if incremental:
-                    # Get only pending chunks
-                    chunks = await self.chunk_repo.list_by_knowledge(
-                        index.knowledge_id,
-                        index_status="pending",
-                        limit=10000,
-                    )
-                else:
-                    # Get all chunks
-                    chunks = await self.chunk_repo.list_by_knowledge(
-                        index.knowledge_id,
-                        limit=10000,
-                    )
+            if chunks is not None:
+                for start in range(0, len(chunks), CHUNK_SCAN_BATCH_SIZE):
+                    await self._index_batch(index, chunks[start:start + CHUNK_SCAN_BATCH_SIZE], run_id)
+            else:
+                async for batch in self.chunk_repo.iter_batches(
+                    knowledge_id=index.knowledge_id,
+                    index_status="pending" if incremental else None,
+                ):
+                    await self._index_batch(index, batch, run_id)
 
-            if not chunks:
-                # No chunks to index
-                index.status = "ready"
-                index.last_build_at = utc_now()
-                index.last_error_code = None
-                index.last_error_message = None
-                index.updated_at = utc_now()
-                await self.db.commit()
-                return
-
-            # Generate embeddings
-            texts = []
-            indexed_chunks = []
-            for chunk in chunks:
-                # Get chunk text (from artifact or preview)
-                if chunk.text_artifact_key and self.storage_port:
-                    # Load from object storage
-                    try:
-                        content = await self.storage_port.get(
-                            key=chunk.text_artifact_key,
-                            run_id=run_id,
-                        )
-                        text = content.decode("utf-8") if isinstance(content, bytes) else content
-                    except Exception as e:
-                        # Fallback to preview if storage load fails
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.warning(f"Failed to load chunk text from storage: {str(e)}")
-                        text = chunk.text_preview or ""
-                else:
-                    text = chunk.text_preview or ""
-
-                if text:
-                    texts.append(text)
-                    indexed_chunks.append(chunk)
-
-            if not texts:
-                index.status = "ready"
-                index.last_build_at = utc_now()
-                index.last_error_code = None
-                index.last_error_message = None
-                index.updated_at = utc_now()
-                await self.db.commit()
-                return
-
-            # Generate embeddings
-            embeddings = await self.embedding_service.embed_batch(
-                texts=texts,
-                model_ref=index.embedding_model_ref,
-                run_id=run_id,
-            )
-
-            if index.dimension == 0 and embeddings:
-                index.dimension = len(embeddings[0])
-
-            # Prepare vectors for insertion
-            vectors = []
-            for chunk, embedding in zip(indexed_chunks, embeddings, strict=False):
-                chunk_id = chunk.id
-                vectors.append({
-                    "id": chunk_id,
-                    "vector": embedding,
-                    "metadata": {
-                        "chunk_id": chunk_id,
-                        "knowledge_id": index.knowledge_id,
-                        "document_id": chunk.document_id,
-                        "text_preview": chunk.text_preview,
-                    },
-                })
-
-            # Insert vectors
-            index_ref = f"knowledge:{index.knowledge_id}:{index.id}"
-            collection_name = index.collection_name or f"idx_{index.id}"
-
-            # Extract IDs and vectors from vector data
-            vector_ids = [v["id"] for v in vectors]
-            vector_embeddings = [v["vector"] for v in vectors]
-            vector_metadata = [v.get("metadata", {}) for v in vectors]
-
-            await self.vector_port.insert(
-                collection=collection_name,
-                vectors=vector_embeddings,
-                ids=vector_ids,
-                metadata=vector_metadata,
-                index_ref=index_ref,
-                run_id=run_id,
-            )
-
-            # Update chunk vector_refs and status
-            for chunk, vector_data in zip(indexed_chunks, vectors, strict=False):
-                chunk.vector_ref = vector_data["id"]
-                chunk.index_status = "indexed"
-                chunk.indexed_at = utc_now()
-                chunk.embedding_model_ref = index.embedding_model_ref
-
-            # Update index statistics
-            index.vector_count = len(vectors)
-            index.chunk_count = len(indexed_chunks)
-            index.doc_count = len({chunk.document_id for chunk in indexed_chunks})
+            chunk_count, doc_count = await self.chunk_repo.indexed_stats(index.knowledge_id)
+            index.vector_count = chunk_count
+            index.chunk_count = chunk_count
+            index.doc_count = doc_count
             index.status = "ready"
             index.last_build_at = utc_now()
             index.last_error_code = None
             index.last_error_message = None
+            index.updated_at = utc_now()
             if not incremental:
                 index.build_version += 1
 
             await self.db.commit()
 
         except Exception as e:
-            # Update status to failed
             index.status = "failed"
             if run_id:
                 index.last_run_id = run_id
@@ -229,6 +137,72 @@ class IndexBuilder:
             index.updated_at = utc_now()
             await self.db.commit()
             raise
+
+    async def _index_batch(
+        self,
+        index: KnowledgeIndex,
+        chunks: list[KnowledgeChunk],
+        run_id: str | None,
+    ) -> None:
+        """Embed one batch of chunks, write the vectors and mark the chunks indexed."""
+        texts: list[str] = []
+        indexed_chunks: list[KnowledgeChunk] = []
+        for chunk in chunks:
+            if chunk.text_artifact_key and self.storage_port:
+                try:
+                    content = await self.storage_port.get(
+                        key=chunk.text_artifact_key,
+                        run_id=run_id,
+                    )
+                    text = content.decode("utf-8") if isinstance(content, bytes) else content
+                except Exception as e:
+                    # Fall back to the stored preview when object storage is unavailable.
+                    logger.warning("Failed to load chunk text from storage: %s", e)
+                    text = chunk.text_preview or ""
+            else:
+                text = chunk.text_preview or ""
+
+            if text:
+                texts.append(text)
+                indexed_chunks.append(chunk)
+
+        if not texts:
+            return
+
+        embeddings = await self.embedding_service.embed_batch(
+            texts=texts,
+            model_ref=index.embedding_model_ref,
+            run_id=run_id,
+        )
+
+        if index.dimension == 0 and embeddings:
+            index.dimension = len(embeddings[0])
+
+        await self.vector_port.insert(
+            collection=index.collection_name or f"idx_{index.id}",
+            vectors=list(embeddings),
+            ids=[chunk.id for chunk in indexed_chunks],
+            metadata=[
+                {
+                    "chunk_id": chunk.id,
+                    "knowledge_id": index.knowledge_id,
+                    "document_id": chunk.document_id,
+                    "text_preview": chunk.text_preview,
+                }
+                for chunk in indexed_chunks
+            ],
+            index_ref=f"knowledge:{index.knowledge_id}:{index.id}",
+            run_id=run_id,
+        )
+
+        indexed_at = utc_now()
+        for chunk in indexed_chunks:
+            chunk.vector_ref = chunk.id
+            chunk.index_status = "indexed"
+            chunk.indexed_at = indexed_at
+            chunk.embedding_model_ref = index.embedding_model_ref
+
+        await self.db.commit()
 
     async def rebuild_index(
         self,
@@ -240,26 +214,19 @@ class IndexBuilder:
         Args:
             index: Index configuration.
         """
-        # Delete existing vectors
-        chunks = await self.chunk_repo.list_by_knowledge(
-            index.knowledge_id,
-            limit=10000,
-        )
-        vector_ids = [chunk.vector_ref or chunk.id for chunk in chunks]
         collection_name = index.collection_name or f"idx_{index.id}"
-        if vector_ids:
-            await self.vector_port.delete(
-                collection=collection_name,
-                ids=vector_ids,
-                run_id=run_id,
-            )
+        async for batch in self.chunk_repo.iter_batches(knowledge_id=index.knowledge_id):
+            vector_ids = [chunk.vector_ref or chunk.id for chunk in batch]
+            if vector_ids:
+                await self.vector_port.delete(
+                    collection=collection_name,
+                    ids=vector_ids,
+                    run_id=run_id,
+                )
+            for chunk in batch:
+                chunk.index_status = "pending"
+                chunk.indexed_at = None
+                chunk.vector_ref = None
+            await self.db.commit()
 
-        for chunk in chunks:
-            chunk.index_status = "pending"
-            chunk.indexed_at = None
-            chunk.vector_ref = None
-
-        await self.db.commit()
-
-        await self.build_index(index, chunks=chunks, incremental=False, run_id=run_id)
-
+        await self.build_index(index, chunks=None, incremental=False, run_id=run_id)

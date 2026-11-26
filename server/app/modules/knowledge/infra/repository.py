@@ -3,6 +3,7 @@
 Knowledge repositories using scope-aware base.
 """
 
+from collections.abc import AsyncIterator
 from datetime import datetime
 
 from sqlalchemy import and_, func, select
@@ -23,6 +24,8 @@ from app.modules.knowledge.domain.visibility import (
     shared_knowledge_clause,
     visible_knowledge_clause,
 )
+
+CHUNK_SCAN_BATCH_SIZE = 500
 
 
 class KnowledgeRepository(AsyncRepository[Knowledge]):
@@ -262,6 +265,31 @@ class DocumentRepository(AsyncRepository[KnowledgeDocument]):
         results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
 
+    async def list_all_by_knowledge(self, knowledge_id: str) -> list[KnowledgeDocument]:
+        """Return every live document version of a knowledge base, read in id-ordered batches."""
+        documents: list[KnowledgeDocument] = []
+        after_id: str | None = None
+        while True:
+            conditions = [
+                KnowledgeDocument.tenant_id == self.ctx.tenant_id,
+                KnowledgeDocument.workspace_id == self.ctx.workspace_id,
+                KnowledgeDocument.knowledge_id == knowledge_id,
+                KnowledgeDocument.deleted_at.is_(None),
+            ]
+            if after_id is not None:
+                conditions.append(KnowledgeDocument.id > after_id)
+            query = (
+                select(KnowledgeDocument)
+                .where(and_(*conditions))
+                .order_by(KnowledgeDocument.id)
+                .limit(CHUNK_SCAN_BATCH_SIZE)
+            )
+            batch = self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
+            documents.extend(batch)
+            if len(batch) < CHUNK_SCAN_BATCH_SIZE:
+                return documents
+            after_id = batch[-1].id
+
     async def get_next_version(self, knowledge_id: str, doc_key: str) -> int:
         """Get next version number for document key.
 
@@ -375,6 +403,74 @@ class ChunkRepository(AsyncRepository[KnowledgeChunk]):
 
         results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
+
+    async def iter_batches(
+        self,
+        *,
+        knowledge_id: str | None = None,
+        document_id: str | None = None,
+        index_status: str | None = None,
+        batch_size: int | None = None,
+    ) -> AsyncIterator[list[KnowledgeChunk]]:
+        """Yield every matching chunk in id order, one bounded batch at a time.
+
+        Keyset paging on the primary key keeps the scan complete even when
+        the caller changes ``index_status`` or deletes rows between batches,
+        which offset paging would skip over.
+        """
+        if knowledge_id is None and document_id is None:
+            raise ValueError("iter_batches needs a knowledge_id or a document_id")
+        size = batch_size or CHUNK_SCAN_BATCH_SIZE
+        after_id: str | None = None
+        while True:
+            conditions = [
+                KnowledgeChunk.tenant_id == self.ctx.tenant_id,
+                KnowledgeChunk.workspace_id == self.ctx.workspace_id,
+            ]
+            if knowledge_id is not None:
+                conditions.append(KnowledgeChunk.knowledge_id == knowledge_id)
+            if document_id is not None:
+                conditions.append(KnowledgeChunk.document_id == document_id)
+            if index_status is not None:
+                conditions.append(KnowledgeChunk.index_status == index_status)
+            if after_id is not None:
+                conditions.append(KnowledgeChunk.id > after_id)
+            query = select(KnowledgeChunk).where(and_(*conditions)).order_by(KnowledgeChunk.id).limit(size)
+            batch = self._unwrap_all(list((await self.db.exec(query)).scalars().all()))
+            if not batch:
+                return
+            after_id = batch[-1].id
+            yield batch
+            if len(batch) < size:
+                return
+
+    async def list_all(
+        self,
+        *,
+        knowledge_id: str | None = None,
+        document_id: str | None = None,
+    ) -> list[KnowledgeChunk]:
+        """Return every chunk of a knowledge base or document, however many there are."""
+        chunks: list[KnowledgeChunk] = []
+        async for batch in self.iter_batches(knowledge_id=knowledge_id, document_id=document_id):
+            chunks.extend(batch)
+        return chunks
+
+    async def indexed_stats(self, knowledge_id: str) -> tuple[int, int]:
+        """Return (indexed chunk count, distinct documents with an indexed chunk)."""
+        query = select(
+            func.count(),
+            func.count(func.distinct(KnowledgeChunk.document_id)),
+        ).where(
+            and_(
+                KnowledgeChunk.tenant_id == self.ctx.tenant_id,
+                KnowledgeChunk.workspace_id == self.ctx.workspace_id,
+                KnowledgeChunk.knowledge_id == knowledge_id,
+                KnowledgeChunk.index_status == "indexed",
+            )
+        )
+        row = (await self.db.exec(query)).one()
+        return int(row[0] or 0), int(row[1] or 0)
 
     async def count_by_knowledge(self, knowledge_id: str) -> int:
         """Count chunks in knowledge.
@@ -560,6 +656,18 @@ class IngestTaskRepository(AsyncRepository[KnowledgeIngestTask]):
         query = query.order_by(KnowledgeIngestTask.created_at.desc()).offset(offset).limit(limit)
         results = list((await self.db.exec(query)).scalars().all())
         return self._unwrap_all(results)
+
+    async def exists_for_run(self, knowledge_id: str, run_id: str) -> bool:
+        """Return whether an ingest task of this knowledge base recorded the given run."""
+        query = select(KnowledgeIngestTask.id).where(
+            and_(
+                KnowledgeIngestTask.tenant_id == self.ctx.tenant_id,
+                KnowledgeIngestTask.workspace_id == self.ctx.workspace_id,
+                KnowledgeIngestTask.knowledge_id == knowledge_id,
+                KnowledgeIngestTask.run_id == run_id,
+            )
+        ).limit(1)
+        return (await self.db.exec(query)).first() is not None
 
     async def claim_next(
         self,
