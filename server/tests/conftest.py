@@ -39,6 +39,18 @@ def ctx() -> RequestContext:
 
 
 @pytest.fixture
+def multi_organization(monkeypatch):
+    """Let every sign-up found its own organization, as Enterprise and Cloud run.
+
+    Community runs one organization by default, where a second sign-up joins
+    the first; tests that model separate organizations ask for this.
+    """
+    from app.settings.settings import settings
+
+    monkeypatch.setattr(settings, "single_organization", False)
+
+
+@pytest.fixture
 def tenant1_ctx() -> RequestContext:
     return RequestContext(
         tenant_id="tenant_1",

@@ -106,10 +106,12 @@ async def register(
     tenant_name: str | None = None,
     service: IdentityService = Depends(get_identity_service),
 ) -> TokenResponse:
-    """Register a new user and create a tenant."""
+    """Register a new user and place them in an organization."""
     from app.settings.settings import settings
 
-    if not settings.allow_public_registration:
+    # An invitation is an administrator's explicit offer, so it admits even
+    # when anyone-may-sign-up is off.
+    if not settings.allow_public_registration and not user_data.invitation_token:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Public registration is disabled",
@@ -437,8 +439,14 @@ def _link_base(request: Request) -> str:
 async def get_mail_capability(
     service: IdentityService = Depends(get_identity_service),
 ) -> MailCapabilityResponse:
-    """Report whether this deployment can send mail."""
-    return MailCapabilityResponse(mail_enabled=service.mail_is_available())
+    """Report what sign-up and mail can do on this deployment."""
+    from app.settings.settings import settings
+
+    return MailCapabilityResponse(
+        mail_enabled=service.mail_is_available(),
+        public_registration=settings.allow_public_registration,
+        sign_up_founds_organization=await service.sign_up_founds_organization(),
+    )
 
 
 async def request_password_reset(
@@ -558,6 +566,8 @@ async def accept_invitation(
         return InvitationResponse.model_validate(
             await service.accept_invitation(payload.token, ctx.user_id)
         )
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except UnauthorizedError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
     except ForbiddenError as exc:

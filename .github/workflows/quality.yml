@@ -464,6 +464,9 @@ jobs:
       ENVIRONMENT: development
       SOIT_TESTING: "1"
       ALLOW_PUBLIC_REGISTRATION: "true"
+      # Every spec signs up into an organization of its own, so specs stay
+      # independent and each signs up as an owner.
+      SINGLE_ORGANIZATION: "false"
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/soit_fullstack
       EVENT_BUS_BACKEND: memory
       OUTBOX_DISPATCHER_ENABLED: "false"

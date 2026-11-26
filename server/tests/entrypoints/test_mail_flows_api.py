@@ -225,7 +225,7 @@ async def test_a_revoked_invitation_stops_working_immediately(auth_client, outbo
         json={"token": token},
         headers=_headers(invitee),
     )
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.asyncio
@@ -285,3 +285,56 @@ async def test_reset_mails_to_one_address_are_capped(auth_client, outbox, monkey
         assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     assert len([m for m in outbox.sent if "reset-password" in m.body]) == 2
+
+
+@pytest.mark.asyncio
+async def test_signing_up_with_an_invitation_lands_in_the_invited_workspace(
+    auth_client, outbox, monkeypatch
+):
+    """The invitation admits even with public sign-up off, and only its addressee."""
+    from app.settings.settings import settings
+
+    inviter = await _register(auth_client, "signup-inviter@example.com")
+    created = await auth_client.post(
+        f"/api/v1/workspaces/{inviter['workspace_id']}/invitations",
+        json={"email": "newcomer@example.com", "role": "Dev"},
+        headers=_headers(inviter),
+    )
+    assert created.status_code == status.HTTP_200_OK
+    token = _link(outbox, "invitation").split("token=")[1]
+    monkeypatch.setattr(settings, "allow_public_registration", False)
+
+    def _sign_up(email: str, invitation_token: str | None):
+        return auth_client.post(
+            "/api/v1/register",
+            json={
+                "email": email,
+                "password": PASSWORD,
+                "name": "Newcomer",
+                "invitation_token": invitation_token,
+            },
+        )
+
+    assert (await _sign_up("uninvited@example.com", None)).status_code == status.HTTP_403_FORBIDDEN
+    forwarded = await _sign_up("forwarded@example.com", token)
+    assert forwarded.status_code == status.HTTP_403_FORBIDDEN
+    # The refusal left no account behind for that address.
+    assert (await _sign_up("forwarded@example.com", None)).status_code == status.HTTP_403_FORBIDDEN
+    monkeypatch.setattr(settings, "allow_public_registration", True)
+    assert (await _sign_up("forwarded@example.com", None)).status_code == status.HTTP_200_OK
+    monkeypatch.setattr(settings, "allow_public_registration", False)
+
+    joined = await _sign_up("newcomer@example.com", token)
+    assert joined.status_code == status.HTTP_200_OK, joined.text
+    newcomer = joined.json()["data"]
+    assert newcomer["workspace_id"] == inviter["workspace_id"]
+
+    members = await auth_client.get(
+        f"/api/v1/workspaces/{inviter['workspace_id']}/members",
+        headers=_headers(inviter),
+    )
+    roles = {row["email"]: row["role"] for row in members.json()["data"]}
+    assert roles["newcomer@example.com"] == "Dev"
+    # The link is spent.
+    assert (await _sign_up("newcomer-2@example.com", token)).status_code == status.HTTP_400_BAD_REQUEST
+

@@ -20,6 +20,15 @@ Open:
 
 Sign in with `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` from `.env`.
 
+The deployment is one organization, and the bootstrap admin owns it. A
+teammate who signs up joins it as a member with a personal workspace; add
+them to a shared workspace from **Settings → Team** by their user id, or
+invite them by email, and an invitation link signs them up straight into
+that workspace. Anyone who can reach the sign-up page can join this way, so
+on a deployment others can reach set `ALLOW_PUBLIC_REGISTRATION=false`: an
+invitation still admits. `SINGLE_ORGANIZATION=false` makes every sign-up
+found an organization of its own instead.
+
 If a service does not come up, [troubleshooting.md](troubleshooting.md) maps
 the symptoms to their causes and says what each health check tests.
 

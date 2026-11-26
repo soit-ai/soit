@@ -83,7 +83,7 @@ async def _workspace(auth_client, session: dict, workspace_id: str):
 
 
 @pytest.mark.asyncio
-async def test_a_workspace_in_another_organization_is_reachable(auth_client):
+async def test_a_workspace_in_another_organization_is_reachable(auth_client, multi_organization):
     owner = await _register(auth_client, "owner@acme.example.com", tenant_name="Acme")
     pat = await _register(auth_client, "pat@elsewhere.example.com", tenant_name="Elsewhere")
     stranger = await _register(auth_client, "stranger@nowhere.example.com", tenant_name="Nowhere")
@@ -124,3 +124,57 @@ async def test_a_workspace_in_another_organization_is_reachable(auth_client):
 
     refused = await _workspace(auth_client, stranger, acme_workspace)
     assert refused.status_code == status.HTTP_403_FORBIDDEN
+
+
+async def _capabilities(auth_client) -> dict:
+    response = await auth_client.get("/api/v1/auth/capabilities")
+    assert response.status_code == status.HTTP_200_OK, response.text
+    return response.json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_one_organization_the_first_founds_and_the_rest_join(auth_client):
+    assert (await _capabilities(auth_client))["sign_up_founds_organization"] is True
+    founder = await _register(auth_client, "founder@example.com", tenant_name="Acme")
+    assert (await _capabilities(auth_client))["sign_up_founds_organization"] is False
+
+    # A later sign-up joins Acme whatever name it asks for, as a member with a
+    # workspace of its own, not a seat in the founder's.
+    joiner = await _register(auth_client, "joiner@example.com", tenant_name="Breakaway")
+    assert joiner["workspace_id"] != founder["workspace_id"]
+    founder_org = (await _workspace(auth_client, founder, founder["workspace_id"])).json()["data"]
+    joiner_ws = (await _workspace(auth_client, joiner, joiner["workspace_id"])).json()["data"]
+    assert joiner_ws["tenant_id"] == founder_org["tenant_id"]
+    assert joiner_ws["name"] == "joiner's workspace"
+    assert (await _workspace(auth_client, joiner, founder["workspace_id"])).status_code == (
+        status.HTTP_403_FORBIDDEN
+    )
+    listed = await auth_client.get(
+        "/api/v1/me/workspaces", headers=_auth(joiner["access_token"], joiner["workspace_id"])
+    )
+    assert [row["tenant_name"] for row in listed.json()["data"]] == ["Acme"]
+
+    # Being in one organization is what lets the founder add the joiner to a
+    # shared workspace by id, with no mail outlet needed.
+    joiner_id = (await _me(auth_client, joiner))["id"]
+    added = await auth_client.post(
+        f"/api/v1/workspaces/{founder['workspace_id']}/members",
+        json={"user_id": joiner_id, "role": "Viewer"},
+        headers=_auth(founder["access_token"], founder["workspace_id"]),
+    )
+    assert added.status_code == status.HTTP_200_OK, added.text
+    assert (await _workspace(auth_client, joiner, founder["workspace_id"])).status_code == (
+        status.HTTP_200_OK
+    )
+
+
+@pytest.mark.asyncio
+async def test_one_organization_refuses_another_tenant(auth_client):
+    founder = await _register(auth_client, "solo@example.com")
+    refused = await auth_client.post(
+        "/api/v1/tenants",
+        json={"name": "Second"},
+        headers=_auth(founder["access_token"], founder["workspace_id"]),
+    )
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+

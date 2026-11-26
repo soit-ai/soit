@@ -22,6 +22,8 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d postgres redis
 
 使用 `.env` 中的 `BOOTSTRAP_ADMIN_EMAIL` 和 `BOOTSTRAP_ADMIN_PASSWORD` 登录。
 
+整个部署是一个组织，由引导管理员拥有。同事自行注册后以成员身份加入该组织，并获得一个个人 workspace；可以在 **Settings → Team** 中按用户 ID 把他们加入共享 workspace，也可以通过邮件邀请，邀请链接会让对方注册后直接进入该 workspace。任何能访问注册页的人都能以这种方式加入，因此在他人可访问的部署上应设置 `ALLOW_PUBLIC_REGISTRATION=false`，此时邀请仍然有效。设置 `SINGLE_ORGANIZATION=false` 则每次注册都会创建一个独立的组织。
+
 ## 初始化 Demo 工作区
 
 数据库迁移完成后，写入确定性的 Phase 1 demo 数据：

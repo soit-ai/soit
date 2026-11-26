@@ -33,6 +33,7 @@ from app.kernel.identity.rbac import (
     WORKSPACE_ROLES,
 )
 from app.kernel.ports.mail.interface import MailMessage, MailPort
+from app.kernel.runtime.common.advisory_lock import acquire_xact_lock
 from app.kernel.runtime.db.models.audit import AuditEvent
 from app.modules.identity.application.passwords import (
     hash_password_async,
@@ -290,14 +291,21 @@ class IdentityService:
         user_data: UserCreate,
         tenant_name: str | None = None,
         *,
+        organization_role: str | None = None,
         user_agent: str | None = None,
         ip_address: str | None = None,
     ) -> tuple[User, Tenant, str, str, str]:
-        """Register a new user and create a tenant.
+        """Register a new user and place them in an organization (tenant).
 
-        Args:
-            user_data: User creation data.
-            tenant_name: Optional tenant name (creates tenant if provided).
+        - With ``user_data.invitation_token``: the account joins the inviting
+          organization as a member, and the invited workspace at the offered
+          role. The invitation must be addressed to the account's email.
+        - In a single-organization deployment (the Community default) whose
+          organization already exists: the account joins it at
+          ``organization_role``, Member unless a trusted caller such as the
+          admin bootstrap says otherwise. A member gets a personal workspace.
+        - Otherwise the account founds an organization, named ``tenant_name``,
+          and owns it.
 
         Returns:
             Tuple of (User, Tenant, access_token, workspace_id, refresh_token).
@@ -305,39 +313,55 @@ class IdentityService:
         Raises:
             ValidationError: If user already exists or validation fails.
         """
-        # Check if user already exists
+        from app.settings.settings import settings
+
+        if organization_role is not None and organization_role not in TENANT_ROLES:
+            raise ValidationError("Invalid tenant role")
         existing_user = await self.user_repo.get_by_email(user_data.email)
         if existing_user:
             raise ValidationError("User with this email already exists")
 
-        # Create user
+        # Everything that can refuse the registration is checked before the
+        # account exists, so a refusal leaves no account behind.
+        invitation: WorkspaceInvitation | None = None
+        if user_data.invitation_token:
+            invitation = await self._redeemable_invitation(user_data.invitation_token)
+            if invitation.email != user_data.email.strip().lower():
+                raise ForbiddenError("This invitation was sent to a different address")
+        organization: Tenant | None = None
+        if invitation is None and settings.single_organization:
+            organization = await self.tenant_repo.get_oldest()
+        if invitation is None and organization is None and tenant_name:
+            if await self.tenant_repo.get_by_name(tenant_name):
+                raise ValidationError("Tenant with this name already exists")
+
         password_hash = await hash_password_async(user_data.password)
-        user = User(
-            email=user_data.email,
-            password_hash=password_hash,
-            name=user_data.name,
+        user = await self.user_repo.create(
+            User(
+                email=user_data.email,
+                password_hash=password_hash,
+                name=user_data.name,
+            )
         )
-        user = await self.user_repo.create(user)
 
-        if not tenant_name:
-            tenant_name = f"{user.id}-tenant"
-        existing_tenant = await self.tenant_repo.get_by_name(tenant_name)
-        if existing_tenant:
-            raise ValidationError("Tenant with this name already exists")
-        tenant = Tenant(name=tenant_name)
-        tenant = await self.tenant_repo.create(tenant)
-
-        membership = TenantMembership(
-            tenant_id=tenant.id,
-            user_id=user.id,
-            role=TENANT_ROLE_OWNER,
-        )
-        await self.tenant_membership_repo.create(membership)
+        if invitation is not None and user_data.invitation_token:
+            await self.accept_invitation(user_data.invitation_token, user.id)
+            tenant = await self.tenant_repo.get_by_id(invitation.tenant_id)
+            if tenant is None:
+                raise NotFoundError("Tenant not found")
+            tenant_role = TENANT_ROLE_MEMBER
+        else:
+            tenant, tenant_role = await self._organization_for_new_account(
+                user,
+                tenant_name=tenant_name,
+                organization_role=organization_role,
+                single_organization=settings.single_organization,
+            )
 
         workspace_id, workspace_role = await self._ensure_workspace_membership(
             tenant_id=tenant.id,
             user_id=user.id,
-            tenant_role=TENANT_ROLE_OWNER,
+            tenant_role=tenant_role,
         )
 
         session, refresh_token = await self._issue_session(
@@ -351,12 +375,47 @@ class IdentityService:
             user_id=user.id,
             tenant_id=tenant.id,
             workspace_id=workspace_id,
-            tenant_role=TENANT_ROLE_OWNER,
+            tenant_role=tenant_role,
             workspace_role=workspace_role,
             session_id=session.id,
         )
 
         return user, tenant, access_token, workspace_id, refresh_token
+
+    async def _organization_for_new_account(
+        self,
+        user: User,
+        *,
+        tenant_name: str | None,
+        organization_role: str | None,
+        single_organization: bool,
+    ) -> tuple[Tenant, str]:
+        """Join the deployment's organization, or found one; return it and the role."""
+        if single_organization:
+            # Two first sign-ups at once must not found two organizations: the
+            # second waits here until the first has committed its tenant.
+            await acquire_xact_lock(self.db, "identity", "organization-bootstrap")
+            organization = await self.tenant_repo.get_oldest()
+            if organization is not None:
+                role = organization_role or TENANT_ROLE_MEMBER
+                await self.tenant_membership_repo.create(
+                    TenantMembership(tenant_id=organization.id, user_id=user.id, role=role)
+                )
+                return organization, role
+
+        name = tenant_name or await self._default_organization_name(user)
+        tenant = await self.tenant_repo.create(Tenant(name=name))
+        await self.tenant_membership_repo.create(
+            TenantMembership(tenant_id=tenant.id, user_id=user.id, role=TENANT_ROLE_OWNER)
+        )
+        return tenant, TENANT_ROLE_OWNER
+
+    async def _default_organization_name(self, user: User) -> str:
+        label = (user.name or "").strip() or (user.email or "").split("@")[0].strip()
+        name = f"{label[:100] or 'My'}'s organization"
+        if await self.tenant_repo.get_by_name(name) is not None:
+            name = f"{name} ({user.id[-6:]})"
+        return name
 
     async def authenticate_user(
         self,
@@ -770,6 +829,14 @@ class IdentityService:
         """Whether the instance can send its own mail at all."""
         return self.mail_port is not None
 
+    async def sign_up_founds_organization(self) -> bool:
+        """Whether a sign-up without an invitation would found an organization."""
+        from app.settings.settings import settings
+
+        if not settings.single_organization:
+            return True
+        return await self.tenant_repo.get_oldest() is None
+
     async def _send_mail(self, *, to: str, subject: str, body: str, kind: str) -> None:
         if self.mail_port is None:
             raise ValidationError("This deployment cannot send mail")
@@ -968,16 +1035,26 @@ class IdentityService:
         invitation.token_hash = f"revoked:{invitation.id}:{secrets.token_hex(8)}"
         return await self.invitation_repo.save(invitation)
 
-    async def accept_invitation(self, token: str, user_id: str) -> WorkspaceInvitation:
-        """Redeem an invitation for an existing account."""
+    async def _redeemable_invitation(self, token: str) -> WorkspaceInvitation:
+        """The pending, unexpired invitation a raw token stands for.
+
+        An unusable link is a bad request, not a failed authentication: the
+        caller's own session is fine, and answering 401 would tell the console
+        to sign them out.
+        """
         invitation = await self.invitation_repo.get_by_hash(self._hash_token(token))
         if invitation is None or invitation.status != "pending":
-            raise UnauthorizedError("That invitation is not valid")
+            raise ValidationError("That invitation is not valid")
         expires_at = invitation.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at <= utc_now():
-            raise UnauthorizedError("That invitation has expired")
+            raise ValidationError("That invitation has expired")
+        return invitation
+
+    async def accept_invitation(self, token: str, user_id: str) -> WorkspaceInvitation:
+        """Redeem an invitation for an existing account."""
+        invitation = await self._redeemable_invitation(token)
 
         user = await self.user_repo.get_by_id(user_id)
         if user is None or not user.is_active:
@@ -1369,6 +1446,12 @@ class IdentityService:
         Returns:
             Created Tenant instance.
         """
+        from app.settings.settings import settings
+
+        if settings.single_organization:
+            raise ForbiddenError(
+                "This deployment runs a single organization; set SINGLE_ORGANIZATION=false to host more"
+            )
         # Check if tenant name already exists
         existing = await self.tenant_repo.get_by_name(tenant_data.name)
         if existing:

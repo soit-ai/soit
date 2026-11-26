@@ -19,6 +19,11 @@ class UserCreate(BaseModel):
     email: EmailStr = Field(..., description="User email")
     password: str = Field(..., min_length=8, description="User password")
     name: str | None = Field(None, max_length=255, description="User display name")
+    invitation_token: str | None = Field(
+        None,
+        max_length=512,
+        description="An invitation to redeem: the account joins the inviting workspace.",
+    )
 
 
 class UserLogin(BaseModel):
@@ -271,6 +276,11 @@ class MailCapabilityResponse(BaseModel):
     """
 
     mail_enabled: bool
+    public_registration: bool = True
+    """Whether anyone may sign up; with it off, only an invitation admits."""
+    sign_up_founds_organization: bool = True
+    """Whether a sign-up without an invitation founds a new organization (and
+    so may name it), rather than joining the deployment's one."""
 
 
 class AccountDeletionRequestCreate(BaseModel):

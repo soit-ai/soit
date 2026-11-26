@@ -1,6 +1,7 @@
 """bootstrap_admin
 
-Create a default admin user, tenant, and workspace for local deployments.
+Create the admin user, and the organization (tenant) and workspace they own,
+for local deployments.
 
 Usage:
     python scripts/bootstrap_admin.py --email admin@example.com --password changeme123 --name Admin
@@ -13,6 +14,7 @@ import asyncio
 import sys
 
 from app.infra.db.session import get_async_session_local
+from app.kernel.identity.rbac import TENANT_ROLE_OWNER
 from app.modules.identity.application.schemas import UserCreate
 from app.settings.settings import settings
 from app.wiring.services import build_identity_service
@@ -50,9 +52,13 @@ async def main() -> int:
             print("User already exists. Skipping bootstrap.")
             return 0
 
+        # The admin owns the organization: they found it on a fresh
+        # deployment, and in a single-organization deployment that already
+        # has one they join it as an owner rather than a member.
         user, tenant, access_token, workspace_id, _refresh = await service.register_user(
             UserCreate(email=args.email, password=args.password, name=args.name),
             tenant_name=args.tenant_name,
+            organization_role=TENANT_ROLE_OWNER,
         )
 
         print("Bootstrap completed.")

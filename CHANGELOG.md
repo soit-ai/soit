@@ -39,6 +39,26 @@ record for operators.
 
 ### Changed
 
+- A Community deployment is one organization (`SINGLE_ORGANIZATION=true`,
+  the default). The first account founds it; every later sign-up joins it as
+  a member with a personal workspace of its own, where each used to found a
+  tenant of its own that nobody else could be added to without mail. Members
+  of one organization can be added to each other's workspaces by user id.
+  `POST /api/v1/tenants` is refused while the setting is on, and the
+  bootstrap admin joins an existing organization as an owner. Tenants that
+  earlier sign-ups founded stay as they are; new sign-ups join the oldest.
+  With public registration on, anyone who can reach the sign-up page becomes
+  a member and can read knowledge shared organization-wide, so set
+  `ALLOW_PUBLIC_REGISTRATION=false` on a deployment others can reach.
+  `SINGLE_ORGANIZATION=false` restores one organization per sign-up.
+- Signing up with an invitation (`invitation_token` in `POST /api/v1/register`)
+  joins the inviting organization as a member and the invited workspace at
+  the offered role, even with `ALLOW_PUBLIC_REGISTRATION=false`. The
+  invitation must be addressed to the new account's email.
+  `GET /api/v1/auth/capabilities` also reports `public_registration` and
+  `sign_up_founds_organization`. An invitation that is spent, revoked or
+  expired is refused with 400 rather than 401, which told the console that
+  the caller's own session had ended and signed them out.
 - Tenant roles are Owner, Admin and Member. Dev and Viewer were workspace
   roles that tenants borrowed; at the tenant level they granted nothing, and
   their only effect was to place a person in the tenant's first workspace at

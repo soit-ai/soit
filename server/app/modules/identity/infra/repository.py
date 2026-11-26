@@ -155,6 +155,12 @@ class TenantRepository:
         result = (await self.db.exec(query)).scalars().first()
         return _unwrap_result(result)
 
+    async def get_oldest(self) -> Tenant | None:
+        """The first tenant created: a single-organization deployment's one."""
+        query = select(Tenant).order_by(Tenant.created_at, Tenant.id).limit(1)
+        result = (await self.db.exec(query)).scalars().first()
+        return _unwrap_result(result)
+
     async def create(self, tenant: Tenant) -> Tenant:
         """Create a new tenant.
 

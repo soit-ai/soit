@@ -94,7 +94,7 @@ async def test_a_withdrawn_request_is_never_due(async_db):
 
 
 @pytest.mark.asyncio
-async def test_the_sweep_closes_only_what_is_due(async_db):
+async def test_the_sweep_closes_only_what_is_due(async_db, multi_organization):
     service = _service(async_db)
     soon, tenant_a, _a, ws_a, _ra = await _register(service, "due@example.com")
     later, tenant_b, _b, ws_b, _rb = await _register(service, "not-due@example.com")

@@ -571,7 +571,16 @@ class Settings(BaseSettings):
 
     allow_public_registration: bool = True
     """Allow unauthenticated POST /register self-signup. Enterprise deployments can set
-    this to false to require admin-provisioned users (also removes email enumeration)."""
+    this to false to require admin-provisioned users (also removes email enumeration).
+    A sign-up that redeems an invitation is admitted either way."""
+
+    single_organization: bool = True
+    """Run the deployment as one organization (tenant). The first account founds it;
+    every later sign-up joins it as a member with a personal workspace, and
+    POST /tenants is refused. With public registration on, anyone who can reach
+    the sign-up page becomes a member and can read what is shared organization-wide,
+    so an exposed deployment should set ALLOW_PUBLIC_REGISTRATION=false and invite.
+    Set false to host many organizations, as Enterprise and Cloud do."""
 
     # Plugins
     plugins_dir: str = "./var/plugins"
