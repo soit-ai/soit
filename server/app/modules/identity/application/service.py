@@ -1523,6 +1523,10 @@ class IdentityService:
         )
         return await membership_repo.create(membership)
 
+    async def get_users(self, user_ids: list[str]) -> dict[str, User]:
+        """Return the users with these IDs, keyed by ID; unknown IDs are absent."""
+        return await self.user_repo.get_by_ids(user_ids)
+
     async def get_user(self, user_id: str) -> User:
         """Get user by id."""
         user = await self.user_repo.get_by_id(user_id)

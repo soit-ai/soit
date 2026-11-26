@@ -826,9 +826,14 @@ async def list_workspace_members(
         member_ids = [membership.user_id for membership in memberships]
         last_active = await service.session_repo.last_seen_for_users(member_ids)
         with_mfa = await service.mfa_repo.active_user_ids(member_ids)
+        users = await service.get_users(member_ids)
         members = []
         for membership in memberships:
-            user = await service.get_user(membership.user_id)
+            user = users.get(membership.user_id)
+            if user is None:
+                # A membership that outlived its user is not a member to show,
+                # and must not turn the whole list into an error.
+                continue
             members.append(
                 WorkspaceMemberResponse(
                     user_id=membership.user_id,

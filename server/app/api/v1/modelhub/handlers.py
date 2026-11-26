@@ -106,10 +106,11 @@ class ModelHubHandlers:
         page_size: int = 200,
     ) -> PaginatedResponse[ProviderResponse]:
         providers = await self.service.list_providers(limit=page_size)
+        synced_at = await self.service.get_providers_last_synced_at([provider.id for provider in providers])
         items = []
         for provider in providers:
             provider_data = ProviderResponse.model_validate(provider).model_dump()
-            provider_data["last_synced_at"] = await self.service.get_provider_last_synced_at(provider.id)
+            provider_data["last_synced_at"] = synced_at.get(provider.id)
             items.append(ProviderResponse.model_validate(provider_data))
         return PaginatedResponse.create(
             items=items,

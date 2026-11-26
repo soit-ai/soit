@@ -107,10 +107,8 @@ class PluginHandlers:
             offset=offset,
         )
 
-        items: list[PluginResponse] = []
-        for plugin in plugins:
-            installation = await self.service.get_installation_for_plugin(plugin.id)
-            items.append(self._as_plugin_response(plugin, installation))
+        installations = await self.service.get_installations_for_plugins([plugin.id for plugin in plugins])
+        items = [self._as_plugin_response(plugin, installations.get(plugin.id)) for plugin in plugins]
 
         has_next = len(plugins) == limit
         next_offset = offset + len(plugins) if has_next else None

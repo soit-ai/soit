@@ -249,6 +249,10 @@ class PluginService:
         """Return installation info for a plugin in this workspace."""
         return await self.installation_repo.get_by_plugin(plugin_id)
 
+    async def get_installations_for_plugins(self, plugin_ids: list[str]) -> dict[str, PluginInstallation]:
+        """Return installation info for each plugin in this workspace, keyed by plugin ID."""
+        return await self.installation_repo.get_by_plugins(plugin_ids)
+
     async def list_installations_for_plugin(self, plugin_id: str) -> list[PluginInstallation]:
         return list(await self.installation_repo.list_by_plugin(plugin_id))
 

@@ -73,6 +73,14 @@ class UserRepository:
         """
         return await self.db.get(User, user_id)
 
+    async def get_by_ids(self, user_ids: list[str]) -> dict[str, User]:
+        """Return the users with these IDs in one query, keyed by ID."""
+        if not user_ids:
+            return {}
+        query = select(User).where(User.id.in_(sorted(set(user_ids))))
+        users = [_unwrap_result(row) for row in (await self.db.exec(query)).scalars().all()]
+        return {user.id: user for user in users}
+
     async def get_by_email(self, email: str) -> User | None:
         """Get user by email.
 

@@ -470,6 +470,11 @@ class ModelHubService:
         return await self.provider_repo.list(limit=limit)
 
     @workspace_guard("read")
+    async def get_providers_last_synced_at(self, provider_ids: list[str]) -> dict[str, Any]:
+        """Return the latest catalog sync timestamp of each provider, keyed by ID."""
+        return await self.provider_model_repo.latest_synced_at_by_providers(provider_ids)
+
+    @workspace_guard("read")
     async def get_provider_last_synced_at(self, provider_id: str):
         """Return the latest catalog sync timestamp for models under a provider."""
         return await self.provider_model_repo.latest_synced_at_by_provider(provider_id)

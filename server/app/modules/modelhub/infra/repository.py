@@ -6,6 +6,7 @@ ModelHub repositories.
 from __future__ import annotations
 
 import builtins
+from typing import Any
 
 from sqlalchemy import and_, desc, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -163,6 +164,23 @@ class ProviderModelRepository(AsyncRepository[ProviderModel]):
             )
         )
         return (await self.db.exec(query)).scalar_one()
+
+    async def latest_synced_at_by_providers(self, provider_ids: list[str]) -> dict[str, Any]:
+        """Return each provider's latest catalog sync time in one grouped query."""
+        if not provider_ids:
+            return {}
+        query = (
+            select(ProviderModel.provider_id, func.max(ProviderModel.last_synced_at))
+            .where(
+                and_(
+                    ProviderModel.tenant_id == self.ctx.tenant_id,
+                    ProviderModel.workspace_id == self.ctx.workspace_id,
+                    ProviderModel.provider_id.in_(sorted(set(provider_ids))),
+                )
+            )
+            .group_by(ProviderModel.provider_id)
+        )
+        return {str(row[0]): row[1] for row in (await self.db.exec(query)).all()}
 
     async def get_by_provider_and_model_id(self, provider_id: str, model_id: str) -> ProviderModel | None:
         query = select(ProviderModel).where(

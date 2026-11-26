@@ -139,6 +139,24 @@ class PluginInstallationRepository(AsyncRepository[PluginInstallation]):
         result = (await self.db.exec(query)).scalars().first()
         return self._unwrap_result(result)
 
+    async def get_by_plugins(self, plugin_ids: list[str]) -> dict[str, PluginInstallation]:
+        """Return this workspace's installation of each plugin in one query, keyed by plugin ID."""
+        if not plugin_ids:
+            return {}
+        query = select(PluginInstallation).where(
+            and_(
+                PluginInstallation.tenant_id == self.ctx.tenant_id,
+                PluginInstallation.workspace_id == self.ctx.workspace_id,
+                PluginInstallation.plugin_id.in_(sorted(set(plugin_ids))),
+            )
+        )
+        installations: dict[str, PluginInstallation] = {}
+        for row in (await self.db.exec(query)).scalars().all():
+            installation = self._unwrap_result(row)
+            # get_by_plugin returns the first match; keep the same one.
+            installations.setdefault(installation.plugin_id, installation)
+        return installations
+
     async def list_by_workspace(
         self,
         limit: int = 20,
