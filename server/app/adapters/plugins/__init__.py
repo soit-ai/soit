@@ -1,0 +1,1 @@
+"""app.adapters.plugins package."""

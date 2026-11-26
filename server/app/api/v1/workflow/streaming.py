@@ -3,27 +3,21 @@
 import asyncio
 import json
 import logging
-import uuid
 from collections.abc import AsyncGenerator
-from datetime import timedelta
-
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.kernel.commons.errors import KernelError, public_error_message
-from app.kernel.commons.time import utc_now
 from app.kernel.contracts.context import RequestContext
-from app.kernel.runtime.common import lease
 from app.kernel.runtime.runs.knowledge_redaction import (
     KnowledgeRedactor,
     redacted_step_rows,
 )
 from app.middleware.error_handler import ERROR_CODE_TO_STATUS
 from app.modules.workflow.application.service import WorkflowService
-from app.modules.workflow.domain.models import WorkflowRun
-from app.settings.settings import settings
 from app.wiring import get_container
-
-_detached_workflow_tasks: set[asyncio.Task] = set()
+from app.wiring.workflow_detached import (
+    claim_workflow_execution,
+    start_detached_workflow_execution,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,105 +46,6 @@ def stream_error_payload(
     )
     payload["error"] = public_error_message(error, default)
     return payload
-
-
-async def _claim_workflow_execution(
-    db,
-    ctx: RequestContext,
-    *,
-    run_id: str,
-    workflow_id: str,
-    inputs: dict,
-) -> str:
-    """Persist a leased WorkflowRun so the execution outlives this request."""
-    lease_seconds = lease.normalize_lease_seconds(
-        settings.workflow_execution_lease_seconds
-    )
-    claim = WorkflowRun(
-        tenant_id=ctx.tenant_id,
-        workspace_id=ctx.workspace_id,
-        run_id=run_id,
-        workflow_id=workflow_id,
-        status="running",
-        inputs_json=dict(inputs or {}),
-        request_context_json=ctx.to_json(),
-        lease_owner=f"workflow-api-{uuid.uuid4()}",
-        lease_expires_at=utc_now() + timedelta(seconds=lease_seconds),
-        attempt_count=1,
-    )
-    db.add(claim)
-    await db.commit()
-    return claim.id
-
-
-def _start_detached_execution(
-    *,
-    bind,
-    ctx: RequestContext,
-    plan,
-    claim_id: str,
-) -> asyncio.Task:
-    """Run the plan on an independent session, renewing the claim's lease.
-
-    The task is tracked at module level so it keeps running after the SSE
-    response is closed. Only process death ends it early, and then the lease
-    expiry makes the orphan visible.
-    """
-
-    def _session() -> AsyncSession:
-        return AsyncSession(bind=bind, expire_on_commit=False)
-
-    async def _execute() -> None:
-        from app.wiring.services import build_workflow_service
-
-        async def service_engine_execute(exec_db) -> None:
-            service = build_workflow_service(db=exec_db, ctx=ctx)
-            await service.engine.execute(plan)
-
-        claim = None
-        async with _session() as probe:
-            claim = await probe.get(WorkflowRun, claim_id)
-            worker_id = claim.lease_owner if claim else None
-            attempt = claim.attempt_count if claim else 0
-        stop = asyncio.Event()
-        lease_lost = asyncio.Event()
-        heartbeat = None
-        if worker_id:
-            heartbeat = asyncio.create_task(
-                lease.LeaseHeartbeat(
-                    _session,
-                    WorkflowRun,
-                    claim_id,
-                    worker_id=worker_id,
-                    attempt_count=attempt,
-                    lease_seconds=lease.normalize_lease_seconds(
-                        settings.workflow_execution_lease_seconds
-                    ),
-                    log_label="Workflow execution lease",
-                ).run(stop, lease_lost)
-            )
-        try:
-            async with _session() as exec_db:
-                try:
-                    await service_engine_execute(exec_db)
-                finally:
-                    # The engine leaves its final run transition uncommitted
-                    # (request sessions used to flush it during teardown).
-                    # Closing without committing would roll the terminal
-                    # status back and strand the run as "running".
-                    await exec_db.commit()
-        finally:
-            stop.set()
-            if heartbeat is not None:
-                await heartbeat
-            # The engine clears the lease on its terminal writes; a cancelled
-            # or interrupted attempt may leave the claim running, in which
-            # case the reaper resolves it once the lease lapses.
-
-    task = asyncio.create_task(_execute())
-    _detached_workflow_tasks.add(task)
-    task.add_done_callback(_detached_workflow_tasks.discard)
-    return task
 
 
 def _unwrap_model(row):
@@ -303,7 +198,7 @@ class SSEHandlers:
             # Claim the execution before it starts: the leased row with its
             # input snapshot is what makes the run recoverable evidence rather
             # than request-local state.
-            claim_id = await _claim_workflow_execution(
+            claim_id = await claim_workflow_execution(
                 db,
                 ctx,
                 run_id=run_id,
@@ -314,7 +209,7 @@ class SSEHandlers:
             # Execution is detached from this request: it runs on its own
             # database session and survives the SSE consumer disconnecting.
             # This stream only tails persisted events.
-            execution_task = _start_detached_execution(
+            execution_task = start_detached_workflow_execution(
                 bind=db.bind,
                 ctx=ctx,
                 plan=execution_plan,
