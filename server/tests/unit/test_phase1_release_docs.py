@@ -259,13 +259,12 @@ def test_phase1_migration_runbook_documents_fresh_install_and_n1_upgrade() -> No
 
     content = runbook.read_text(encoding="utf-8")
     required_terms = [
-        "SOIT 1.0 Migration Runbook",
+        "SOIT Migration Runbook",
         "Supported Paths",
         "Fresh Installation",
         "N-1 Upgrade",
         "20260718140000",
-        "20260723160000",
-        "20260803090000",
+        "docs/releases/",
         "uv run alembic heads",
         "uv run alembic upgrade head",
         "uv run alembic current",
@@ -274,6 +273,29 @@ def test_phase1_migration_runbook_documents_fresh_install_and_n1_upgrade() -> No
     for term in required_terms:
         assert term in content
     assert "single Alembic baseline" not in content
+
+
+def _latest_release_notes() -> Path:
+    def version(path: Path) -> tuple[int, ...]:
+        return tuple(int(part) for part in path.stem.lstrip("v").split("."))
+
+    return max((ROOT / "docs" / "releases").glob("v*.md"), key=version)
+
+
+def test_migration_runbook_states_the_latest_release_range() -> None:
+    """The runbook went stale at 1.0 for seven releases; tie it to the notes."""
+    notes = _latest_release_notes()
+    match = re.search(
+        r"supported N-1 upgrade range (?:is|stays) `(\d+)\.\.(\d+)`",
+        notes.read_text(encoding="utf-8"),
+    )
+    assert match, f"{notes.name} does not state its N-1 range"
+    source, head = match.groups()
+
+    for doc in ("release-migration.md", "quickstart.md", "quickstart.zh-CN.md"):
+        content = (ROOT / "docs" / doc).read_text(encoding="utf-8")
+        assert f"`{source}..{head}`" in content, f"{doc} does not state {notes.stem}'s range"
+        assert notes.stem in content, f"{doc} does not name {notes.stem}"
 
 
 def test_phase1_migration_evidence_template_is_machine_verifiable() -> None:

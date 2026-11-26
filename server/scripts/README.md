@@ -23,7 +23,7 @@ Available:
 - `verify_independent_release_acceptance.py`: require two or three non-author reviewers to sign clean-environment installation and empty-workspace journeys; use `--evidence-root` for final sign-off so environment, run, and signature references must exist.
 - `migrate.sh`: wait for the database, then apply database migrations (alembic upgrade head).
 - `wait_for_database.py`: block until the configured PostgreSQL accepts connections, for up to `DATABASE_WAIT_SECONDS` (default 60); called by `migrate.sh`.
-- `verify_release_migration_paths.py`: validate the SOIT 1.0 empty-database and development-database migration evidence JSON before signing the release gate.
+- `verify_release_migration_paths.py`: validate a release's fresh-install and N-1 upgrade migration evidence JSON before signing the release gate.
 - `verify_backup_manifest.py`: validate backup scope, recovery semantics, and optional local file checksums.
 - `verify_restore_drill.py`: validate an isolated restore drill, including RPO/RTO, component readbacks, smoke tests, and rollback.
 - `verify_release_artifacts.py`: bind a release tag and commit to source archives, image digests, SPDX SBOMs, provenance attestations, and checksums.

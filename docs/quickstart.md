@@ -143,7 +143,7 @@ The verifier requires the full Docker service set, per-service healthy status an
 
 ## Database Migration Paths
 
-SOIT 1.0 supports a fresh install through head `20260803090000` and an explicit N-1 upgrade from `20260718140000`. Other historical development snapshots are unsupported; see the [migration runbook](release-migration.md).
+Every release supports a fresh install and an in-place upgrade from the previous minor release; its notes under [`docs/releases/`](releases/) name the head and the supported range. For v1.8.0 the head is `20261003110000` and a database from v1.2.0 or later (`20260927160000..20261003110000`) upgrades in place. See the [migration runbook](release-migration.md).
 
 ## Model Provider Support
 

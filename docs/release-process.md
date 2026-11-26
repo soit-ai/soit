@@ -28,6 +28,9 @@ Before pushing a tag:
    acceptance evidence outside the public repository.
 4. Review release notes and known limitations. Do not label planned or locally
    simulated capabilities as available.
+   When the release changes the head or the N-1 range, update the current
+   range in `docs/release-migration.md` and both quickstarts; a unit test
+   compares them with the newest notes under `docs/releases/`.
 5. Create an annotated tag on the approved commit and push the tag only after
    release approval.
 

@@ -1,13 +1,25 @@
-# SOIT 1.0 Migration Runbook
+# SOIT Migration Runbook
 
 ## Supported Paths
 
-SOIT 1.0 supports exactly two PostgreSQL schema paths:
+Every release supports two PostgreSQL schema paths, and its notes under
+[`docs/releases/`](releases/) name the exact revisions:
 
-- **Fresh Installation**: an empty database upgrades from `base` through the explicit schema baseline `20260718140000` to head `20260803090000`.
-- **N-1 Upgrade**: a database at release-candidate revision `20260718140000` upgrades in place to `20260803090000`.
+- **Fresh Installation**: an empty database upgrades from `base` through the
+  explicit schema baseline `20260718140000` to the release's head.
+- **N-1 Upgrade**: a database inside the release's supported range upgrades
+  in place to its head.
 
-Databases older than `20260718140000`, unknown development snapshots, and skipped revisions are not supported. Back up the database and object storage before an N-1 upgrade. Do not delete `docker/data/` or another persistent data directory as a recovery shortcut.
+For v1.8.0 the head is `20261003110000` and the supported N-1 upgrade range is
+`20260927160000..20261003110000`, so a database written by v1.2.0 or any later
+release upgrades in place. A database from an older release steps through the
+intermediate releases in order, upgrading to each one's head before moving to
+the next, as [versioning](versioning.md) describes.
+
+Unknown development snapshots and skipped revisions are not supported. Back up
+the database and object storage before an upgrade
+([backup and restore runbook](operations/backup-restore.md)). Do not delete
+`docker/data/` or another persistent data directory as a recovery shortcut.
 
 ## Revision Contract
 
@@ -21,27 +33,13 @@ uv run alembic history --verbose
 
 Expected output:
 
-- `uv run alembic heads` reports `20260803090000 (head)`.
-- `20260718140000` is the only root revision and contains an explicit, reviewable schema snapshot.
-- The chain is linear, with each revision directly revising the one above it:
-
-| Revision | Change |
-|---|---|
-| `20260718140000` | Explicit fresh-install schema baseline (root). |
-| `20260723160000` | Migrates legacy secret references to workspace-scoped opaque Secret IDs. |
-| `20260726190000` | Merges historical usage/charge pairs into one usage row, converts orphan charge rows, and adds immutable pricing snapshots with honest legacy placeholders where the original pricing configuration cannot be reconstructed. |
-| `20260728120000` | Adds execution leases to knowledge ingest tasks and expires the lease on already-running rows so tasks stranded by a crashed worker are reclaimed. |
-| `20260728150000` | Adds dimension columns to `run_cost_entries` and merges latency rows so each metered invocation is one row. |
-| `20260728160000` | Narrows billing semantics to `billing_basis`/`billed_quantity` and adds an idempotency key. |
-| `20260728180000` | Drops `run_cost_entries.entry_type`, retiring the usage/charge split. |
-| `20260728200000` | Creates `credit_ledger_entries` for credit deduction derived from priced usage. |
-| `20260728220000` | Adds execution leases and input snapshots to workflow runs so interrupted runs are reclaimed and resumed. |
-| `20260728230000` | Adds scopes and expiry to API keys. |
-| `20260728240000` | Marks rehearsal runs so their cost and evidence stay separable. |
-| `20260731100000` | Gives regression cases a versioned dataset and reports a baseline. |
-| `20260803090000` | Records human verdicts on regression cases. |
-
-- `server/alembic/versions/` contains those thirteen revisions only.
+- `uv run alembic heads` reports exactly one revision, the head named in the
+  release notes. CI fails when the chain has more than one head.
+- `20260718140000` is the only root revision and contains an explicit,
+  reviewable schema snapshot.
+- The chain is linear, with each revision directly revising the one before it.
+  The release notes describe every migration a release adds, together with
+  its downgrade.
 
 ## Fresh Installation
 
@@ -55,10 +53,11 @@ uv run pytest tests/unit/test_fresh_install_migration.py -q
 
 Required results:
 
-- the upgrade runs all thirteen revisions and exits successfully;
-- `uv run alembic current` reports `20260803090000 (head)`;
+- the upgrade runs every revision and exits successfully;
+- `uv run alembic current` reports the head named in the release notes;
 - the explicit-baseline contract test passes;
-- the created table set matches current SQLModel metadata.
+- the created table set matches current SQLModel metadata
+  (`tests/postgres/test_migration_drift.py` checks this in CI).
 
 Bootstrap only the operator account required for the target environment:
 
@@ -66,11 +65,18 @@ Bootstrap only the operator account required for the target environment:
 uv run python scripts/bootstrap_admin.py
 ```
 
-The normal Community first-run workspace is intentionally usable without demo seed data. Demo scenario scripts are optional acceptance fixtures, not a runtime prerequisite.
+The normal Community first-run workspace is intentionally usable without demo
+seed data. Demo scenario scripts are optional acceptance fixtures, not a
+runtime prerequisite.
+
+The Docker Compose profiles run these steps for you: the `migrate` service
+upgrades the database before the API and the workers start, and `bootstrap`
+creates the operator account.
 
 ## N-1 Upgrade
 
-The supported N-1 source is revision `20260718140000`. First create recoverable backups and confirm the current revision:
+First create recoverable backups and confirm the current revision lies inside
+the release's supported range:
 
 ```bash
 uv run alembic current
@@ -86,31 +92,44 @@ uv run pytest tests/unit/test_n1_migration_fixture.py tests/unit/test_scoped_sec
 
 Required results:
 
-- the pre-upgrade revision is exactly `20260718140000`;
-- the upgrade exits successfully and current becomes `20260803090000`;
-- tenant, workspace, user, membership, Agent, Workflow, Knowledge, Run, outbox, and artifact sentinel data remain present;
+- the pre-upgrade revision lies inside the supported range;
+- the upgrade exits successfully and current becomes the release's head;
+- tenant, workspace, user, membership, Agent, Workflow, Knowledge, Run, outbox,
+  and artifact sentinel data remain present;
 - legacy `secret:*` references are converted to in-scope opaque Secret IDs;
-- unresolved, malformed, cross-tenant, or cross-workspace secret references fail the migration instead of being silently retained.
+- unresolved, malformed, cross-tenant, or cross-workspace secret references
+  fail the migration instead of being silently retained.
 
-Restart services only after the revision and preservation checks pass. Roll back by restoring the pre-upgrade database and object-storage backups; do not continue serving from a partially migrated database.
+Restart services only after the revision and preservation checks pass. Roll
+back by restoring the pre-upgrade database and object-storage backups; do not
+continue serving from a partially migrated database.
 
 ## Evidence Verification
 
-Copy `docs/deployment/release-migration-evidence.example.json` to a local evidence file, replace example output with real fresh-install and N-1 results, and validate it from `server/`:
+Copy `docs/deployment/release-migration-evidence.example.json` to a local
+evidence file, replace the example output with real fresh-install and N-1
+results for the release, and validate it from `server/`:
 
 ```bash
 uv run python scripts/verify_release_migration_paths.py ../docs/deployment/release-migration-evidence.json
 ```
 
-The verifier requires one Alembic head, the `base..20260803090000` fresh-install path, the `20260718140000..20260803090000` N-1 path, schema checks, preservation checks, smoke tests, and matching release-note ranges.
+The verifier requires one Alembic head, a fresh-install path that ends at that
+head, an N-1 path from the stated source revision to it, schema checks,
+preservation checks, smoke tests, and matching release-note ranges. The example
+file records the v1.0.0 paths and shows the expected shape.
 
-Local command output, operator notes, database dumps, and environment-specific evidence belong outside the open-source repository.
+Local command output, operator notes, database dumps, and environment-specific
+evidence belong outside the open-source repository.
 
 ## Failure Recovery
 
-- Fresh installation: discard only the newly provisioned failed database and retry after fixing the cause.
-- N-1 upgrade: keep services stopped and restore the captured database and object-storage backups as one consistent set.
-- Do not downgrade a production database in place unless the release notes explicitly authorize and test that path.
+- Fresh installation: discard only the newly provisioned failed database and
+  retry after fixing the cause.
+- N-1 upgrade: keep services stopped and restore the captured database and
+  object-storage backups as one consistent set.
+- Do not downgrade a production database in place unless the release notes
+  explicitly authorize and test that path.
 
 ## Exit Evidence
 
@@ -118,7 +137,8 @@ Before release, retain:
 
 - `uv run alembic heads` and `uv run alembic history --verbose` output;
 - fresh database upgrade, current-revision, and schema comparison output;
-- N-1 source revision, upgrade, current revision, and sentinel preservation output;
+- N-1 source revision, upgrade, current revision, and sentinel preservation
+  output;
 - scoped Secret ID migration checks;
 - smoke-test output;
 - verifier output containing `"passed": true`.

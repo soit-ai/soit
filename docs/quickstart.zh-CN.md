@@ -95,7 +95,7 @@ uv run python scripts/verify_quickstart_deployment.py ../docs/deployment/quickst
 
 ## 数据库迁移路径
 
-SOIT 1.0 支持空 PostgreSQL 数据库升级到 head `20260803090000`，以及从 `20260718140000` 原地升级的显式 N-1 路径。其他历史开发快照不在支持范围内；详见[数据库迁移手册](release-migration.md)。
+每个版本都支持全新安装，以及从上一个次版本原地升级；具体的 head 和支持范围写在 [`docs/releases/`](releases/) 的发布说明里。v1.8.0 的 head 是 `20261003110000`，v1.2.0 及之后版本的数据库（`20260927160000..20261003110000`）可以原地升级。详见[数据库迁移手册](release-migration.md)。
 
 ## 模型源支持
 
