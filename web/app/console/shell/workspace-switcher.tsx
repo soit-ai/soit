@@ -18,6 +18,9 @@ interface WorkspaceSwitcherProps {
 /**
  * Switch the workspace every request is scoped to.
  *
+ * The list spans every organization the person belongs to; the server acts in
+ * the organization of whichever workspace a request names.
+ *
  * The scope lives in one place — `workspace_id` in storage, sent as a header on
  * every call — so switching is: write the new id, throw away everything read
  * under the old one, and reload. Clearing the whole query cache rather than
@@ -39,6 +42,9 @@ export function WorkspaceSwitcher({ workspaceId, label, environment }: Workspace
     options: { enabled: open, retry: false, refetchOnWindowFocus: false },
   })
   const rows = workspaces.data || []
+  // Someone in more than one organization sees which each workspace is in;
+  // switching to one in another organization needs no new sign-in.
+  const spansOrganizations = new Set(rows.map((row) => row.tenant_id)).size > 1
 
   useEffect(() => {
     if (!open) return
@@ -101,7 +107,12 @@ export function WorkspaceSwitcher({ workspaceId, label, environment }: Workspace
                 className="ws-switch-item"
                 onClick={() => switchTo(row.id)}
               >
-                <span className="truncate">{row.name}</span>
+                <span className="truncate">
+                  {row.name}
+                  {spansOrganizations && row.tenant_name && (
+                    <span className="dimmer"> · {row.tenant_name}</span>
+                  )}
+                </span>
                 <span className="dimmer mono">{row.role}</span>
                 {row.id === workspaceId && <IconCheck size={12} />}
               </button>

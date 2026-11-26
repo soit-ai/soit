@@ -1,10 +1,16 @@
 import { useForm } from 'react-hook-form'
+import { useSearchParams } from 'react-router'
 
 import { Link } from '@/components/ui/link'
-import { useMutation } from '@/hooks/use-query'
+import { useMutation, useQuery } from '@/hooks/use-query'
 import { useNavigate } from '@/hooks/use-navigate'
 import { useTranslation } from '@/i18n'
-import { authRegister, type RegisterRequest, type TokenResponse } from '@/services/auth-service'
+import {
+  authRegister,
+  getAuthCapabilities,
+  type RegisterRequest,
+  type TokenResponse,
+} from '@/services/auth-service'
 import { getCurrentUser } from '@/services/identity-service'
 import { useUserStore } from '@/stores/user'
 import { storeAuthTokens } from '@/utils/auth-session'
@@ -14,11 +20,32 @@ import { AuthError, AuthSubmit, FieldError, lockoutMinutes } from './auth-contro
 
 type RegisterFormValues = RegisterRequest & { confirmPassword: string }
 
-/** Sign-up (v13 prototype: signup.html). */
+/**
+ * Sign-up (v13 prototype: signup.html).
+ *
+ * What a sign-up does depends on the deployment, so the form asks before it
+ * says. An invitation link (`?invitation=`) joins the inviting workspace; a
+ * single-organization deployment that already has its organization admits a
+ * new account as a member with a workspace of its own, so there is no
+ * organization to name; and with public registration off, only an invitation
+ * gets in. Until the answer arrives the form assumes the founding case, which
+ * is what an unreachable capabilities endpoint has always meant.
+ */
 export const RegisterForm = () => {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const invitationToken = searchParams.get('invitation') || ''
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
+  const capabilities = useQuery({
+    queryKey: ['auth', 'capabilities'],
+    queryFn: () => getAuthCapabilities({ suppressErrorToast: true }),
+    options: { retry: false, refetchOnWindowFocus: false },
+  })
+  const foundsOrganization =
+    !invitationToken && capabilities.data?.sign_up_founds_organization !== false
+  const closed = !invitationToken && capabilities.data?.public_registration === false
+  const mode = invitationToken ? 'invite' : foundsOrganization ? 'found' : 'join'
   const {
     register,
     handleSubmit,
@@ -51,24 +78,53 @@ export const RegisterForm = () => {
       email: data.email,
       password: data.password,
       name: data.name,
-      tenant_name: data.tenant_name,
+      tenant_name: foundsOrganization ? data.tenant_name : undefined,
+      invitation_token: invitationToken || undefined,
     })
+
+  if (closed) {
+    return (
+      <div className="auth-card">
+        <span className="auth-eyebrow warn">
+          <i aria-hidden />
+          {t('auth.register.closedEyebrow')}
+        </span>
+        <h1>{t('auth.register.closedTitle')}</h1>
+        <p className="auth-lede">{t('auth.register.closedLede')}</p>
+        <Link to="/sign-in" className="btn primary auth-submit">
+          {t('auth.common.signIn')}
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <form className="auth-card" onSubmit={handleSubmit(onSubmit)} noValidate>
       <span className="auth-eyebrow">
         <i aria-hidden />
-        {t('auth.register.eyebrow')}
+        {mode === 'invite'
+          ? t('auth.register.inviteEyebrow')
+          : mode === 'join'
+            ? t('auth.register.joinEyebrow')
+            : t('auth.register.eyebrow')}
       </span>
 
       <h1>{t('auth.register.title')}</h1>
-      <p className="auth-lede">{t('auth.register.lede')}</p>
+      <p className="auth-lede">
+        {mode === 'invite'
+          ? t('auth.register.inviteLede')
+          : mode === 'join'
+            ? t('auth.register.joinLede')
+            : t('auth.register.lede')}
+      </p>
 
       {registerMutation.isError && (
         <AuthError>
           {lockoutMinutes(registerMutation.error) != null
             ? t('auth.common.tooManyAttempts', { minutes: lockoutMinutes(registerMutation.error) })
-            : t('auth.register.failed')}
+            : mode === 'invite'
+              ? t('auth.register.inviteFailed')
+              : t('auth.register.failed')}
         </AuthError>
       )}
 
@@ -106,20 +162,22 @@ export const RegisterForm = () => {
         <FieldError message={errors.name?.message} />
       </div>
 
-      <div className="auth-field">
-        <div className="auth-field-head">
-          <label htmlFor="tenant-name">{t('auth.register.organisation')}</label>
-          <span className="auth-opt">{t('auth.register.optional')}</span>
+      {foundsOrganization && (
+        <div className="auth-field">
+          <div className="auth-field-head">
+            <label htmlFor="tenant-name">{t('auth.register.organisation')}</label>
+            <span className="auth-opt">{t('auth.register.optional')}</span>
+          </div>
+          <input
+            id="tenant-name"
+            type="text"
+            className="input"
+            placeholder={t('auth.register.organisationPlaceholder')}
+            {...register('tenant_name')}
+          />
+          <span className="auth-hint">{t('auth.register.organisationHint')}</span>
         </div>
-        <input
-          id="tenant-name"
-          type="text"
-          className="input"
-          placeholder={t('auth.register.organisationPlaceholder')}
-          {...register('tenant_name')}
-        />
-        <span className="auth-hint">{t('auth.register.organisationHint')}</span>
-      </div>
+      )}
 
       <div className="auth-field">
         <label htmlFor="password">{t('auth.common.password')}</label>

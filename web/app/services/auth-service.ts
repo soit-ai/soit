@@ -30,6 +30,13 @@ export function isMfaChallenge(result: LoginResult): result is MfaChallenge {
 export interface AuthCapabilities {
   /** Whether this deployment can send its own mail. */
   mail_enabled: boolean
+  /** Whether anyone may sign up; with it off, only an invitation admits. */
+  public_registration?: boolean
+  /**
+   * Whether a sign-up without an invitation founds a new organization. False
+   * once a single-organization deployment has one: a sign-up then joins it.
+   */
+  sign_up_founds_organization?: boolean
 }
 
 /**
@@ -88,6 +95,8 @@ export interface RegisterRequest {
   password: string
   name: string
   tenant_name?: string
+  /** The token from an invitation link: the account joins that workspace. */
+  invitation_token?: string
 }
 
 // The auth forms render the failure inline, next to the fields it concerns.

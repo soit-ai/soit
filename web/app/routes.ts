@@ -15,6 +15,8 @@ export default [
   route('/sign-up', './auth/sign-up.tsx'),
   route('/forgot-password', './auth/forgot-password.tsx'),
   route('/reset-password', './auth/reset-password.tsx'),
+  // The link an invitation mail carries; it works signed in or out.
+  route('/accept-invitation', './auth/accept-invitation.tsx'),
 
   layout('./console/shell/console-layout.tsx', [
     index('./console/routes/overview.tsx'),

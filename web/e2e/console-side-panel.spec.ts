@@ -496,6 +496,41 @@ test('the head switches workspace and drops everything read under the old one', 
   expect(scopes.every((scope) => scope === 'workspace-2')).toBe(true)
 })
 
+test('a person in two organizations sees which each workspace is in', async ({ page }) => {
+  await json(page, '**/api/v1/me/workspaces', [
+    {
+      id: 'workspace-1',
+      name: 'acme-robotics',
+      role: 'Owner',
+      tenant_id: 'tenant-1',
+      tenant_name: 'Acme',
+      created_at: NOW,
+    },
+    {
+      id: 'workspace-9',
+      name: 'shared-lab',
+      role: 'Dev',
+      tenant_id: 'tenant-2',
+      tenant_name: 'Partner Co',
+      created_at: NOW,
+    },
+  ])
+
+  await page.goto('/build/agents', { waitUntil: 'domcontentloaded' })
+  await page.locator('.ws-switch-trigger').click()
+
+  const menu = page.locator('.ws-switch-menu')
+  await expect(menu.getByRole('option', { name: /shared-lab · Partner Co/ })).toBeVisible()
+  await expect(menu.getByRole('option', { name: /acme-robotics · Acme/ })).toBeVisible()
+
+  // Another organization's workspace is switched to like any other: the
+  // server acts in whichever organization the named workspace belongs to.
+  await menu.getByRole('option', { name: /shared-lab/ }).click()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('workspace_id'))).toBe(
+    'workspace-9',
+  )
+})
+
 test('switching to the workspace already open changes nothing', async ({ page }) => {
   await json(page, '**/api/v1/me/workspaces', [
     { id: 'workspace-1', name: 'acme-robotics', role: 'Owner', created_at: NOW },

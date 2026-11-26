@@ -129,6 +129,146 @@ test('a reset page with no mail outlet says so instead of collecting an address'
   await expect(page.getByLabel('Email')).toHaveCount(0)
 })
 
+const capabilities = (page: import('@playwright/test').Page, data: Record<string, unknown>) =>
+  page.route('**/api/v1/auth/capabilities', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, code: 'OK', message: 'OK', data }),
+    }),
+  )
+
+test('sign-up names an organization only when it founds one', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear())
+  await capabilities(page, {
+    mail_enabled: false,
+    public_registration: true,
+    sign_up_founds_organization: true,
+  })
+  await page.goto('/sign-up', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByLabel('Organisation')).toBeVisible()
+
+  // Once a single-organization deployment has its organization, a sign-up
+  // joins it, so there is nothing to name.
+  await page.unroute('**/api/v1/auth/capabilities')
+  await capabilities(page, {
+    mail_enabled: false,
+    public_registration: true,
+    sign_up_founds_organization: false,
+  })
+  await page.goto('/sign-up', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('Join your team')).toBeVisible()
+  await expect(page.getByLabel('Organisation')).toHaveCount(0)
+})
+
+test('sign-up with public registration off asks for an invitation', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear())
+  await capabilities(page, {
+    mail_enabled: true,
+    public_registration: false,
+    sign_up_founds_organization: false,
+  })
+
+  await page.goto('/sign-up', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByRole('heading', { name: 'Sign-up needs an invitation' })).toBeVisible()
+  await expect(page.getByLabel('Email')).toHaveCount(0)
+})
+
+test('signing up from an invitation link redeems it', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear())
+  await capabilities(page, {
+    mail_enabled: true,
+    public_registration: false,
+    sign_up_founds_organization: false,
+  })
+  let body: Record<string, unknown> | null = null
+  await page.route('**/api/v1/register**', async (route) => {
+    body = route.request().postDataJSON()
+    await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({
+      success: false, code: 'VALIDATION_ERROR', message: 'That invitation has expired',
+    }) })
+  })
+
+  await page.goto('/sign-up?invitation=tok-123', { waitUntil: 'domcontentloaded' })
+  // An invitation admits even with public registration off.
+  await expect(page.getByText('Invitation', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Organisation')).toHaveCount(0)
+  await page.getByLabel('Email').fill('newcomer@example.com')
+  await page.getByLabel('Your name').fill('Newcomer')
+  await page.getByLabel('Password', { exact: true }).fill('password123')
+  await page.getByLabel('Confirm Password').fill('password123')
+  await page.getByRole('button', { name: 'Create workspace' }).click()
+
+  await expect(page.getByText('Use the address the invitation was sent to')).toBeVisible()
+  expect(body).toMatchObject({ email: 'newcomer@example.com', invitation_token: 'tok-123' })
+  // A refused invitation is not a lost session: the page stays put.
+  await expect(page).toHaveURL(/\/sign-up\?invitation=tok-123$/)
+})
+
+test('an invitation link offers a signed-out visitor both ways in', async ({ page }) => {
+  await page.addInitScript(() => localStorage.clear())
+
+  await page.goto('/accept-invitation?token=tok-123', { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByRole('heading', { name: 'Join a workspace' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in to accept' })).toHaveAttribute(
+    'href',
+    '/sign-in?redirect=%2Faccept-invitation%3Ftoken%3Dtok-123',
+  )
+  await expect(page.getByRole('link', { name: 'Create one' })).toHaveAttribute(
+    'href',
+    '/sign-up?invitation=tok-123',
+  )
+})
+
+test('accepting an invitation switches to the invited workspace', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('token')) localStorage.setItem('token', 'e2e-token')
+    if (!localStorage.getItem('workspace_id')) localStorage.setItem('workspace_id', 'workspace-1')
+  })
+  await mockShellApi(page)
+  let accepted: Record<string, unknown> | null = null
+  await page.route('**/api/v1/invitations/accept', async (route) => {
+    accepted = route.request().postDataJSON()
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      success: true, code: 'OK', message: 'OK', data: {
+        id: 'inv-1', workspace_id: 'workspace-9', email: 'user@example.com', role: 'Dev',
+        status: 'accepted', expires_at: '2026-12-01T00:00:00Z', created_at: '2026-11-26T00:00:00Z',
+      },
+    }) })
+  })
+
+  await page.goto('/accept-invitation?token=tok-123', { waitUntil: 'domcontentloaded' })
+  // Opening the link changes nothing by itself; accepting takes a click.
+  expect(accepted).toBeNull()
+  await page.getByRole('button', { name: 'Accept invitation' }).click()
+
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('workspace_id'))).toBe(
+    'workspace-9',
+  )
+  expect(accepted).toEqual({ token: 'tok-123' })
+})
+
+test('an invitation for another address says so and keeps the session', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('token')) localStorage.setItem('token', 'e2e-token')
+  })
+  await mockShellApi(page)
+  await page.route('**/api/v1/invitations/accept', (route) =>
+    route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({
+      success: false, code: 'FORBIDDEN', message: 'This invitation was sent to a different address',
+    }) }),
+  )
+
+  await page.goto('/accept-invitation?token=tok-123', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: 'Accept invitation' }).click()
+
+  await expect(page.getByText('sent to a different address')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sign in as someone else' })).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('token'))).toBe('e2e-token')
+})
+
 test('protected routes redirect unauthenticated users with a local return target', async ({ page }) => {
   await page.addInitScript(() => localStorage.clear())
   await page.goto('/build/knowledge?view=library', { waitUntil: 'domcontentloaded' })

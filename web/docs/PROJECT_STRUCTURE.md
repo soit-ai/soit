@@ -73,7 +73,7 @@ app/
 | `/govern/*` | `console/routes/govern/` |
 | `/settings/:section?` | `console/routes/settings.tsx` |
 | `/feedback`, `/notifications` | `system/` |
-| `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password` | `auth/` |
+| `/sign-in`, `/sign-up`, `/forgot-password`, `/reset-password`, `/accept-invitation` | `auth/` |
 
 Earlier top-level URLs such as `/agents`, `/workflow/:id` and `/tasks` redirect
 to their console pages through `console/routes/redirects/`. See

@@ -14,6 +14,15 @@ record for operators.
 
 ### Added
 
+- The console opens the link an invitation mail carries
+  (`/accept-invitation`), which used to land on a missing page. Signed in, it
+  accepts on a click and switches to the invited workspace, which may be in
+  another organization; signed out, it offers sign-in, which comes back to
+  it, or sign-up, which carries the invitation so the new account opens in
+  that workspace. Sign-up names an organization only when it founds one, and
+  says so when the deployment admits new accounts by invitation only. The
+  workspace switcher shows each workspace's organization when they span more
+  than one.
 - The lite profile runs in production. `ENVIRONMENT=production` now accepts
   pgvector (`VECTOR_BACKEND=pgvector`) and secrets sealed in PostgreSQL
   (`SECRETS_BACKEND=sealed`, which needs no Vault), and tracing, a model

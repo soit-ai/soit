@@ -204,12 +204,16 @@ export interface MyWorkspace {
   description?: string | null
   /** The caller's role in that workspace. */
   role: string
+  /** The organization the workspace belongs to. */
+  tenant_id?: string
+  tenant_name?: string
   created_at: string
 }
 
 /**
- * The workspaces the caller belongs to. Distinct from listing every workspace
- * in the tenant, which is an administrative question needing admin rights.
+ * The workspaces the caller belongs to, in every organization, the current
+ * one first. Distinct from listing every workspace in the tenant, which is an
+ * administrative question needing admin rights.
  */
 export const listMyWorkspaces = (
   config?: RequestConfigWithToast,
