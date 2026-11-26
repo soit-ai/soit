@@ -39,7 +39,8 @@ app/
 │   │   ├── redirects/        # Old URLs forwarded to their console pages
 │   │   ├── overview.tsx      # Workspace overview (index route)
 │   │   ├── chat.tsx          # Threaded chat
-│   │   └── settings.tsx      # Settings sections
+│   │   ├── settings.tsx      # Settings shell; picks the section's pane
+│   │   └── settings/         # One pane per settings section
 │   ├── components/           # Console building blocks (tables, tiles, modals, pagers)
 │   ├── adapters/             # Hooks and helpers between services and pages
 │   └── styles/               # Console stylesheet
