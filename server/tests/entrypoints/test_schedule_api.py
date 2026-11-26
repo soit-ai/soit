@@ -128,7 +128,11 @@ async def test_previewing_something_unparseable_says_so(async_client):
 
 @pytest.mark.asyncio
 async def test_running_a_schedule_now_queues_work_without_moving_the_schedule(async_client):
-    created = await _create(async_client, name="on-demand", cron="0 2 * * *")
+    agent = await async_client.post("/api/v1/agents", json={"name": "on-demand-agent"}, headers=_headers())
+    assert agent.status_code == status.HTTP_201_CREATED, agent.text
+    created = await _create(
+        async_client, name="on-demand", cron="0 2 * * *", target_id=agent.json()["data"]["id"]
+    )
 
     response = await async_client.post(f"/api/v1/schedules/{created['id']}/run", headers=_headers())
 

@@ -107,6 +107,28 @@ async def _start_workflow(db: AsyncSession, schedule: Schedule) -> str:
     return str(result.get("run_id") or "")
 
 
+async def _missing_target(db: AsyncSession, schedule: Schedule) -> str | None:
+    """Name the schedule's target when it no longer exists in the workspace.
+
+    Only a deleted (or never existing) target pauses a schedule; one that
+    exists but cannot run right now, such as a workflow with no published
+    version, is retried at the next occurrence.
+    """
+    from app.modules.agent.domain.models import Agent
+    from app.modules.workflow.domain.models import Workflow
+
+    model = Workflow if schedule.target_kind == "workflow" else Agent
+    row = await db.get(model, schedule.target_id)
+    if (
+        row is not None
+        and row.tenant_id == schedule.tenant_id
+        and row.workspace_id == schedule.workspace_id
+        and row.deleted_at is None
+    ):
+        return None
+    return f"{schedule.target_kind} {schedule.target_id}"
+
+
 def _advance(schedule: Schedule, fired_at: datetime) -> datetime | None:
     """Work out the firing after this one.
 
@@ -194,21 +216,31 @@ class ScheduleWorker:
         owns_session = db is None
         moment = now or utc_now()
         try:
-            try:
-                if schedule.target_kind == "workflow":
-                    run_id = await _start_workflow(session, schedule)
-                else:
-                    run_id = await _enqueue_agent_interaction(session, schedule)
-                schedule.last_status = "started"
-                schedule.last_run_id = run_id or None
-                schedule.last_error = None
-            except Exception as exc:
-                # A target that has been deleted, or a workflow that will not
-                # compile, must not stop the schedule from being tried again at
-                # its next occurrence -- and must be visible on the row.
-                logger.exception("Schedule %s failed to fire", schedule.id)
+            missing = await _missing_target(session, schedule)
+            if missing is not None:
+                # Firing again cannot succeed, so stop instead of failing at
+                # every occurrence; resuming the schedule tries once more.
+                logger.warning("Schedule %s paused: its target %s was deleted", schedule.id, missing)
+                schedule.enabled = False
+                schedule.next_fire_at = None
                 schedule.last_status = "failed"
-                schedule.last_error = f"{type(exc).__name__}: {exc}"[:512]
+                schedule.last_error = f"Paused: the {missing} it runs was deleted"[:512]
+            else:
+                try:
+                    if schedule.target_kind == "workflow":
+                        run_id = await _start_workflow(session, schedule)
+                    else:
+                        run_id = await _enqueue_agent_interaction(session, schedule)
+                    schedule.last_status = "started"
+                    schedule.last_run_id = run_id or None
+                    schedule.last_error = None
+                except Exception as exc:
+                    # A workflow that will not compile or has no published
+                    # version must not stop the schedule from being tried again
+                    # at its next occurrence -- and must be visible on the row.
+                    logger.exception("Schedule %s failed to fire", schedule.id)
+                    schedule.last_status = "failed"
+                    schedule.last_error = f"{type(exc).__name__}: {exc}"[:512]
 
             schedule.last_fired_at = moment
             if advance:

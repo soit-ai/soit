@@ -30,7 +30,26 @@ def _factory(async_db):
     return lambda: AsyncSession(bind=engine, expire_on_commit=False)
 
 
-async def _due_schedule(async_db, ctx, **overrides) -> Schedule:
+async def _seed_target(async_db, ctx, kind: str, target_id: str, **fields) -> None:
+    """The agent or workflow a schedule runs, so firing finds it."""
+    from app.modules.agent.domain.models import Agent
+    from app.modules.workflow.domain.models import Workflow
+
+    model = Workflow if kind == "workflow" else Agent
+    if await async_db.get(model, target_id) is None:
+        async_db.add(
+            model(
+                id=target_id,
+                tenant_id=ctx.tenant_id,
+                workspace_id=ctx.workspace_id,
+                name=target_id,
+                **fields,
+            )
+        )
+        await async_db.commit()
+
+
+async def _due_schedule(async_db, ctx, *, seed_target: bool = True, **overrides) -> Schedule:
     fields = {
         "tenant_id": ctx.tenant_id,
         "workspace_id": ctx.workspace_id,
@@ -44,6 +63,8 @@ async def _due_schedule(async_db, ctx, **overrides) -> Schedule:
         "next_fire_at": utc_now() - timedelta(minutes=1),
     }
     fields.update(overrides)
+    if seed_target:
+        await _seed_target(async_db, ctx, fields["target_kind"], fields["target_id"])
     schedule = Schedule(**fields)
     async_db.add(schedule)
     await async_db.commit()
@@ -147,8 +168,8 @@ async def test_catch_up_walks_the_missed_occurrences_one_at_a_time(async_db, ctx
 
 @pytest.mark.asyncio
 async def test_a_target_that_cannot_run_is_recorded_and_retried_next_time(async_db, ctx):
-    """A deleted workflow must not wedge the schedule."""
-    schedule = await _due_schedule(async_db, ctx, target_kind="workflow", target_id="wf_missing")
+    """A workflow with no published version must not wedge the schedule."""
+    schedule = await _due_schedule(async_db, ctx, target_kind="workflow", target_id="wf_unpublished")
     worker = ScheduleWorker(_factory(async_db))
 
     await worker.fire_once()
@@ -159,6 +180,39 @@ async def test_a_target_that_cannot_run_is_recorded_and_retried_next_time(async_
     # Still scheduled: one bad firing is not a reason to stop trying.
     assert schedule.enabled is True
     assert schedule.next_fire_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["agent", "workflow"])
+async def test_a_deleted_target_pauses_the_schedule(async_db, ctx, kind):
+    """Firing again cannot succeed, so the schedule stops instead of failing
+    at every occurrence until somebody notices."""
+    from app.kernel.commons.time import utc_now as now
+
+    target_id = f"{kind}_gone"
+    await _seed_target(async_db, ctx, kind, target_id, deleted_at=now(), status="archived")
+    schedule = await _due_schedule(async_db, ctx, target_kind=kind, target_id=target_id)
+    worker = ScheduleWorker(_factory(async_db))
+
+    await worker.fire_once()
+    await async_db.refresh(schedule)
+
+    assert schedule.enabled is False
+    assert schedule.next_fire_at is None
+    assert schedule.last_status == "failed"
+    assert "was deleted" in (schedule.last_error or "")
+    assert await _interactions(async_db) == []
+
+
+@pytest.mark.asyncio
+async def test_a_target_that_never_existed_pauses_the_schedule(async_db, ctx):
+    schedule = await _due_schedule(async_db, ctx, seed_target=False, target_id="agt_never")
+
+    await ScheduleWorker(_factory(async_db)).fire_once()
+    await async_db.refresh(schedule)
+
+    assert schedule.enabled is False
+    assert await _interactions(async_db) == []
 
 
 @pytest.mark.asyncio

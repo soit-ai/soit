@@ -105,6 +105,10 @@ record for operators.
 
 ### Fixed
 
+- A schedule whose agent or workflow was deleted pauses itself at its next
+  occurrence, with `last_error` naming the deleted target, instead of failing
+  at every occurrence indefinitely. A target that still exists but cannot run,
+  such as a workflow with no published version, is still retried.
 - The production reference kept artifacts and uploads inside the API
   container. It set `STORAGE_BACKEND=s3`, which nothing reads, and never set
   `STORAGE_URL`, so storage fell back to a local directory that every
