@@ -50,6 +50,7 @@ class FailingGrantProvider:
 class FakeRedis:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
+        self.generations: dict[str, str] = {}
 
     async def get(self, key: str) -> str | None:
         return self.values.get(key)
@@ -64,6 +65,22 @@ class FakeRedis:
 
     async def delete(self, key: str) -> None:
         self.values.pop(key, None)
+
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return [self.generations.get(key) for key in keys]
+
+    async def incr(self, key: str) -> int:
+        value = int(self.generations.get(key) or 0) + 1
+        self.generations[key] = str(value)
+        return value
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        return key in self.generations
+
+
+class BrokenWritesRedis(FakeRedis):
+    async def incr(self, key: str) -> int:
+        raise ConnectionError("redis write refused")
 
 
 @pytest.mark.asyncio
@@ -274,6 +291,34 @@ async def test_permission_cache_invalidation_is_scoped_and_uses_injected_redis()
         )
         is True
     )
+
+
+@pytest.mark.asyncio
+async def test_workspace_wide_invalidation_retires_every_user_decision():
+    redis = FakeRedis()
+    cache = PermissionCache(redis_client=redis)
+    alice = RequestContext(tenant_id="t", workspace_id="w", user_id="alice", workspace_role="Viewer")
+    bob = RequestContext(tenant_id="t", workspace_id="w", user_id="bob", workspace_role="Viewer")
+    await cache.set_cached_permission(alice, "agent", "a-1", "read", False)
+    await cache.set_cached_permission(bob, "agent", "a-1", "read", False)
+
+    await cache.invalidate_permission(ctx=alice)
+
+    assert await cache.get_cached_permission(alice, "agent", "a-1", "read") is None
+    assert await cache.get_cached_permission(bob, "agent", "a-1", "read") is None
+
+
+@pytest.mark.asyncio
+async def test_failed_invalidation_is_logged_not_swallowed(caplog):
+    redis = BrokenWritesRedis()
+    cache = PermissionCache(redis_client=redis)
+    ctx = RequestContext(tenant_id="t", workspace_id="w", user_id="u", workspace_role="Viewer")
+
+    with caplog.at_level("ERROR", logger="app.kernel.identity.permissions"):
+        await cache.invalidate_permission(ctx=ctx, user_id="u", resource_type="agent", resource_id="a-1")
+
+    assert "Permission cache invalidation failed" in caplog.text
+    assert "agent/a-1" in caplog.text
 
 
 @pytest.mark.asyncio

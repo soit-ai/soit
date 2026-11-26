@@ -3,6 +3,7 @@
 Resource-level permission checks and caching.
 """
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Protocol
@@ -12,6 +13,8 @@ import redis.asyncio as redis_async
 from app.kernel.commons.errors import ForbiddenError
 from app.kernel.contracts.context import RequestContext
 from app.settings.settings import settings
+
+logger = logging.getLogger(__name__)
 
 # Resource types
 RESOURCE_AGENT = "agent"
@@ -31,7 +34,11 @@ ACTION_CREATE = "create"
 ACTION_UPDATE = "update"
 ACTION_RUN = "run"
 ACTION_EXECUTE_ALIAS = "execute"
-PERMISSION_CACHE_VERSION = "v4"
+PERMISSION_CACHE_VERSION = "v5"
+# A generation key outlives every cached decision by a wide margin, so a
+# generation that expires and restarts at zero can never revive an entry.
+PERMISSION_GENERATION_TTL_SECONDS = 86_400
+PERMISSION_INVALIDATION_ATTEMPTS = 3
 
 
 VISIBILITY_PRIVATE = "private"
@@ -163,6 +170,15 @@ class PermissionCache:
         except Exception:
             return None
 
+    def _generation_keys(self, ctx: RequestContext, user_id: str | None) -> list[str]:
+        workspace_key = f"perm-gen:{PERMISSION_CACHE_VERSION}:{ctx.tenant_id}:{ctx.workspace_id}"
+        return [workspace_key, f"{workspace_key}:{user_id or ''}"]
+
+    async def _generation(self, redis: redis_async.Redis, ctx: RequestContext) -> str:
+        """Return the workspace and user generations a decision is cached under."""
+        workspace_gen, user_gen = await redis.mget(self._generation_keys(ctx, ctx.user_id))
+        return f"{workspace_gen or 0}.{user_gen or 0}"
+
     async def get_cached_permission(
         self,
         ctx: RequestContext,
@@ -173,12 +189,6 @@ class PermissionCache:
     ) -> bool | None:
         """Get cached permission check result.
 
-        Args:
-            ctx: Request context.
-            resource_type: Resource type.
-            resource_id: Resource ID.
-            action: Action.
-
         Returns:
             True if allowed, False if denied, None if not cached.
         """
@@ -186,14 +196,18 @@ class PermissionCache:
         if not redis:
             return None
 
-        cache_key = self._cache_key(ctx, resource_type, resource_id, action, visibility)
         try:
-            cached = await redis.get(cache_key)
-            if cached is not None:
-                return cached == "1"
-        except Exception:
-            pass
-        return None
+            generation = await self._generation(redis, ctx)
+            cached = await redis.get(
+                self._cache_key(ctx, resource_type, resource_id, action, visibility, generation)
+            )
+        except Exception as exc:
+            # A cache miss only costs a fresh check.
+            logger.debug("Permission cache read failed: %s", exc)
+            return None
+        if cached is None:
+            return None
+        return cached == "1"
 
     async def set_cached_permission(
         self,
@@ -204,28 +218,20 @@ class PermissionCache:
         allowed: bool,
         visibility: "ResourceVisibility | None" = None,
     ) -> None:
-        """Cache permission check result.
-
-        Args:
-            ctx: Request context.
-            resource_type: Resource type.
-            resource_id: Resource ID.
-            action: Action.
-            allowed: Whether action is allowed.
-        """
+        """Cache permission check result under the current generations."""
         redis = await self._get_redis()
         if not redis:
             return
 
-        cache_key = self._cache_key(ctx, resource_type, resource_id, action, visibility)
         try:
+            generation = await self._generation(redis, ctx)
             await redis.setex(
-                cache_key,
+                self._cache_key(ctx, resource_type, resource_id, action, visibility, generation),
                 self._cache_ttl,
                 "1" if allowed else "0",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Permission cache write failed: %s", exc)
 
     def _cache_key(
         self,
@@ -234,6 +240,7 @@ class PermissionCache:
         resource_id: str,
         action: str,
         visibility: "ResourceVisibility | None" = None,
+        generation: str = "0.0",
     ) -> str:
         # The credential scope must be part of the identity: without it a
         # decision computed for an unrestricted session would be replayed
@@ -249,7 +256,8 @@ class PermissionCache:
             f"{resource_type}:{resource_id}:{action}:"
             # A decision depends on the visibility it was computed under, so
             # making a resource private never replays an earlier allow.
-            f"{visibility.cache_marker() if visibility is not None else '-'}"
+            f"{visibility.cache_marker() if visibility is not None else '-'}:"
+            f"g{generation}"
         )
 
     async def invalidate_permission(
@@ -261,6 +269,12 @@ class PermissionCache:
     ) -> None:
         """Invalidate cached permissions.
 
+        Bumping a generation retires every decision cached under the old one
+        in a single atomic write, instead of scanning the keyspace for keys
+        to delete. The resource arguments are accepted for callers that name
+        what changed; invalidation covers all of the user's decisions in the
+        workspace, or every user's when no user is given.
+
         Args:
             ctx: Tenant and workspace scope to invalidate.
             user_id: Optional user ID (if None, invalidate all users).
@@ -271,38 +285,27 @@ class PermissionCache:
         if not redis:
             return
 
-        try:
-            patterns: list[str] = []
-            aliases = _resource_type_aliases(resource_type) if resource_type else ()
-            if user_id and resource_type and resource_id:
-                patterns = [
-                    f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
-                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:*:{alias}:{resource_id}:*"
-                    for alias in aliases
-                ]
-            elif user_id and resource_type:
-                patterns = [
-                    f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
-                    f"{ctx.tenant_id}:{ctx.workspace_id}:*:*:*:{alias}:*"
-                    for alias in aliases
-                ]
-            elif user_id:
-                patterns = [
-                    f"perm:{PERMISSION_CACHE_VERSION}:{user_id}:"
-                    f"{ctx.tenant_id}:{ctx.workspace_id}:*"
-                ]
-            else:
-                patterns = [
-                    f"perm:{PERMISSION_CACHE_VERSION}:*:"
-                    f"{ctx.tenant_id}:{ctx.workspace_id}:*"
-                ]
-
-            # Redis SCAN and delete
-            for pattern in patterns:
-                async for key in redis.scan_iter(match=pattern):
-                    await redis.delete(key)
-        except Exception:
-            pass
+        workspace_key, user_key = self._generation_keys(ctx, user_id)
+        key = user_key if user_id else workspace_key
+        last_error: Exception | None = None
+        for _ in range(PERMISSION_INVALIDATION_ATTEMPTS):
+            try:
+                await redis.incr(key)
+                await redis.expire(key, PERMISSION_GENERATION_TTL_SECONDS)
+                return
+            except Exception as exc:
+                last_error = exc
+        logger.error(
+            "Permission cache invalidation failed; cached decisions for tenant=%s "
+            "workspace=%s user=%s %s/%s stay in effect for up to %s seconds: %s",
+            ctx.tenant_id,
+            ctx.workspace_id,
+            user_id or "*",
+            resource_type or "*",
+            resource_id or "*",
+            self._cache_ttl,
+            last_error,
+        )
 
 
 # Global permission cache instance

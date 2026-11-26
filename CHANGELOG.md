@@ -105,6 +105,12 @@ record for operators.
 
 ### Fixed
 
+- Granting access to a resource takes effect at once even when the
+  permission cache cannot be cleared. Invalidation used to scan Redis for
+  matching keys and silently ignore any error, so a denial cached just before
+  the grant could stand for up to five minutes. Cached decisions now carry a
+  per-workspace and per-user generation, invalidation bumps it in one write
+  with retries, and a failure is logged as an error.
 - Knowledge bases with more than 10,000 chunks are indexed and deleted in
   full. Building, rebuilding and deleting an index, and deleting a document
   or a knowledge base, read only the first 10,000 chunks, so the rest were
