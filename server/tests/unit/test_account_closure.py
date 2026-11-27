@@ -93,8 +93,9 @@ async def test_a_withdrawn_request_is_never_due(async_db):
     assert (await service.user_repo.get_by_id(user.id)).is_active is True
 
 
+@pytest.mark.usefixtures("multi_organization")
 @pytest.mark.asyncio
-async def test_the_sweep_closes_only_what_is_due(async_db, multi_organization):
+async def test_the_sweep_closes_only_what_is_due(async_db):
     service = _service(async_db)
     soon, tenant_a, _a, ws_a, _ra = await _register(service, "due@example.com")
     later, tenant_b, _b, ws_b, _rb = await _register(service, "not-due@example.com")

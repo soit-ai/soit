@@ -207,8 +207,9 @@ async def test_identity_api_key_lifecycle(async_db):
     assert revoked.revoked_at is not None
 
 
+@pytest.mark.usefixtures("multi_organization")
 @pytest.mark.asyncio
-async def test_identity_rejects_legacy_roles(async_db, multi_organization):
+async def test_identity_rejects_legacy_roles(async_db):
     """Legacy roles are rejected by membership APIs."""
     service = build_identity_service(db=async_db)
     owner_data = UserCreate(
@@ -287,8 +288,9 @@ async def _owner_and_outsider(service, suffix: str):
     return tenant, owner_workspace_id, outsider, ctx
 
 
+@pytest.mark.usefixtures("multi_organization")
 @pytest.mark.asyncio
-async def test_a_member_without_a_workspace_gets_a_personal_one(async_db, multi_organization):
+async def test_a_member_without_a_workspace_gets_a_personal_one(async_db):
     """The organization role never seeds a role in a shared workspace."""
     service = build_identity_service(db=async_db)
     tenant, shared_workspace_id, pat, ctx = await _owner_and_outsider(service, "personal")
@@ -312,8 +314,9 @@ async def test_a_member_without_a_workspace_gets_a_personal_one(async_db, multi_
     assert again == workspace_id
 
 
+@pytest.mark.usefixtures("multi_organization")
 @pytest.mark.asyncio
-async def test_an_organization_admin_without_a_workspace_joins_the_first(async_db, multi_organization):
+async def test_an_organization_admin_without_a_workspace_joins_the_first(async_db):
     service = build_identity_service(db=async_db)
     tenant, shared_workspace_id, pat, ctx = await _owner_and_outsider(service, "admin")
     await service.add_tenant_member(
@@ -327,8 +330,9 @@ async def test_an_organization_admin_without_a_workspace_joins_the_first(async_d
     assert (workspace_id, role) == (shared_workspace_id, WORKSPACE_ROLE_ADMIN)
 
 
+@pytest.mark.usefixtures("multi_organization")
 @pytest.mark.asyncio
-async def test_only_an_owner_adds_an_owner(async_db, multi_organization):
+async def test_only_an_owner_adds_an_owner(async_db):
     service = build_identity_service(db=async_db)
     tenant, _workspace_id, pat, ctx = await _owner_and_outsider(service, "grant")
     admin_ctx = replace(ctx, tenant_role=TENANT_ROLE_ADMIN)

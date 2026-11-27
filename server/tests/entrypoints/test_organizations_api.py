@@ -82,8 +82,9 @@ async def _workspace(auth_client, session: dict, workspace_id: str):
     )
 
 
+@pytest.mark.usefixtures("multi_organization")
 @pytest.mark.asyncio
-async def test_a_workspace_in_another_organization_is_reachable(auth_client, multi_organization):
+async def test_a_workspace_in_another_organization_is_reachable(auth_client):
     owner = await _register(auth_client, "owner@acme.example.com", tenant_name="Acme")
     pat = await _register(auth_client, "pat@elsewhere.example.com", tenant_name="Elsewhere")
     stranger = await _register(auth_client, "stranger@nowhere.example.com", tenant_name="Nowhere")
